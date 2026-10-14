@@ -80,3 +80,41 @@ jobs:
             || { echo "Keine Einrichtungsseite"; docker logs probe; exit 1; }
           curl -s -o /dev/null -w "stil.css: %{http_code}\n" http://127.0.0.1:8112/stil.css
           docker rm -f probe
+
+      # Der Fall aus dem echten Leben: ./daten liegt auf der Platte und gehoert
+      # einem Benutzer, nicht root. Passen die Rechte nicht, kommt die Seite
+      # trotzdem hoch - nur gespeichert wird stumm nichts. Genau das ist beim
+      # ersten Probelauf passiert, deshalb steht es hier.
+      - name: Probe mit gemountetem Ordner
+        run: |
+          mkdir -p /tmp/daten
+          docker run -d --name probe2 -p 8112:8000 -v /tmp/daten:/daten \
+            ghcr.io/lucywolf/notizmappe-server:${{ steps.f.outputs.desktop }}
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8112/anmelden || true)
+            [ "$code" = "200" ] && break
+            sleep 2
+          done
+          [ "$code" = "200" ] || { docker logs probe2; exit 1; }
+          docker logs probe2 2>&1 | grep '\[start\]'
+
+          curl -s -c /tmp/keks -o /dev/null -X POST \
+            -d "name=probe&passwort=probepasswort&passwort2=probepasswort" \
+            http://127.0.0.1:8112/einrichten
+          [ -f /tmp/daten/benutzer.json ] \
+            || { echo "Die Benutzerdatei wurde nicht angelegt - Rechte am Datenordner"; docker logs probe2; exit 1; }
+          echo "Benutzerdatei: angelegt, gehoert $(stat -c '%u:%g' /tmp/daten/benutzer.json)"
+
+          angemeldet=$(curl -s -b /tmp/keks -o /dev/null -w '%{http_code}' http://127.0.0.1:8112/)
+          [ "$angemeldet" = "200" ] || { echo "Anmeldung haelt nicht ($angemeldet)"; exit 1; }
+          baum=$(curl -s -b /tmp/keks -X POST -H 'X-Notizmappe: 1' \
+                   -H 'Content-Type: application/json' -d '{"args":[]}' \
+                   http://127.0.0.1:8112/bruecke/baum)
+          echo "Baum: $baum"
+          case "$baum" in *notizbuecher*) ;; *) echo "Kein Baum"; exit 1;; esac
+
+          # Und der Serverprozess darf nicht als root laufen.
+          uid=$(docker exec probe2 awk '/^Uid:/{print $2}' /proc/1/status)
+          echo "Serverprozess laeuft als Uid $uid"
+          [ "$uid" != "0" ] || { echo "Laeuft als root - start.py hat die Rechte nicht abgelegt"; exit 1; }
+          docker rm -f probe2

@@ -27,13 +27,15 @@ ENV NOTIZMAPPE_DESKTOP=/desktop \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
-# Nicht als root. Die Notizen liegen in einem Volume, das dem Benutzer gehoert.
+# Der eingebaute Benutzer fuer den Fall, dass der Datenordner ein frisches
+# Docker-Volume ist. Gehoert er dagegen einem Benutzer auf der Platte (Bind-
+# Mount), uebernimmt web/start.py dessen Nummer - sonst kann der Server nicht
+# schreiben. Der Start laeuft als root, legt die Rechte ab und uebergibt dann
+# an uvicorn; ab da laeuft nichts mehr mit Rechten, die es nicht braucht.
 RUN useradd -u 10001 -m -s /usr/sbin/nologin notiz && mkdir -p /daten && chown notiz /daten
-USER notiz
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/anmelden', timeout=4).status == 200 else 1)"
 
-CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000", \
-     "--app-dir", "/srv/web", "--proxy-headers", "--forwarded-allow-ips", "*"]
+CMD ["python", "/srv/web/start.py"]

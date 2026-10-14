@@ -92,6 +92,27 @@ location / {
 }
 ```
 
+## Rechte am Ordner `daten`
+
+Darum muss sich normalerweise niemand kümmern: der Server richtet sich beim
+Start nach dem **Eigentümer** von `/daten`. Gehört `./daten` dir (ein
+Bind-Mount), läuft er unter deiner Nummer; ist es ein frisches Docker-Volume,
+übernimmt der eingebaute Benutzer. Passt es trotzdem nicht, helfen `PUID` und
+`PGID` in der `docker-compose.yml`.
+
+Der Start läuft als root, legt die Rechte ab und übergibt dann an uvicorn — der
+Serverprozess selbst läuft nie als root. Im Protokoll steht, was er gewählt hat:
+
+```
+[start] läuft als 1000:1000, Daten in /daten
+```
+
+Warum das überhaupt eine eigene Zeile wert ist: ohne Schreibrecht kommt die
+Seite ganz normal hoch, die Anmeldung sieht richtig aus — und gespeichert wird
+**stumm nichts**. Genau so ist es beim ersten Probelauf passiert. Deshalb macht
+der Start jetzt eine Schreibprobe und bricht mit einer klaren Zeile ab, statt
+scheinbar zu laufen.
+
 ## Was der Server nicht kann (und warum)
 
 * **Die Sperre aus dem Desktop** (Passwort + Verschlüsselung der Dateien). Der

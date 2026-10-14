@@ -22,3 +22,7 @@ services:
       # Im eigenen Netz ohne Zertifikat muss das 0 bleiben, sonst wirft der
       # Browser den Keks weg und niemand kann sich anmelden.
       NOTIZMAPPE_HTTPS: "0"
+      # Nur noetig, wenn die Rechte am Ordner ./daten nicht passen. Ohne Angabe
+      # richtet sich der Server nach dem Eigentuemer des Ordners.
+      # PUID: "1000"
+      # PGID: "1000"
