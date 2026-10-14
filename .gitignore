@@ -1,8 +1,0 @@
-.venv/
-__pycache__/
-*.pyc
-dist/
-.update-stand.json
-.update.log
-output/
-.optionen.json
