@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Notizmappe - Benutzer</title>
+<link rel="icon" href="icon.png">
+<link rel="stylesheet" href="stil.css">
+</head>
+<body>
+<div id="einstellungen">
+  <div class="tafel" role="dialog" aria-label="Benutzer">
+    <header>
+      <strong>Benutzer</strong>
+      <a href="/" id="zu" title="Zurück zu den Notizen">✕</a>
+    </header>
+
+    <section>
+      <h3>Zugänge</h3>
+      {{liste}}
+    </section>
+
+    <section>
+      <h3>Neuen Benutzer anlegen</h3>
+      <form method="post" action="/benutzer/anlegen">
+        <p class="ordnerzeile">
+          <input type="text" name="name" placeholder="Benutzername" autocapitalize="none" spellcheck="false">
+          <input type="password" name="passwort" placeholder="Passwort (mind. 8 Zeichen)" autocomplete="new-password">
+        </p>
+        <label class="haken"><input type="checkbox" name="verwalter" value="1"> darf Benutzer verwalten</label>
+        <p class="knoepfe"><button type="submit">Anlegen</button></p>
+      </form>
+      <p class="hinweis">{{meldung}}</p>
+    </section>
+
+    <section>
+      <h3>Passwort setzen</h3>
+      <form method="post" action="/benutzer/passwort">
+        <p class="ordnerzeile">
+          <input type="text" name="name" placeholder="Benutzername" autocapitalize="none" spellcheck="false">
+          <input type="password" name="passwort" placeholder="neues Passwort" autocomplete="new-password">
+          <button type="submit">Setzen</button>
+        </p>
+      </form>
+      <p class="hinweis">Für den Fall, dass jemand sein Passwort vergessen hat.
+        Die Notizen bleiben dabei unangetastet.</p>
+    </section>
+  </div>
+</div>
+</body>
+</html>

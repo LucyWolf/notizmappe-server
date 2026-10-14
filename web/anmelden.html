@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Notizmappe - anmelden</title>
+<link rel="icon" href="icon.png">
+<link rel="stylesheet" href="stil.css">
+</head>
+<body>
+<!-- Dieselbe stil.css und derselbe Aufbau wie der Sperrschirm im Fenster:
+     so sieht die Anmeldung aus wie das Programm und nicht wie ein Formular. -->
+<div id="sperrschirm">
+  <div class="tafel" role="dialog" aria-label="Anmelden">
+    <h2>Notizmappe</h2>
+    <p>Bitte anmelden.</p>
+    <form method="post" action="/anmelden" autocomplete="on">
+      <p class="ordnerzeile">
+        <input type="text" name="name" placeholder="Benutzername" autocomplete="username"
+               autocapitalize="none" spellcheck="false" autofocus>
+      </p>
+      <p class="ordnerzeile">
+        <input type="password" name="passwort" placeholder="Passwort" autocomplete="current-password">
+        <button type="submit" id="s-auf">Anmelden</button>
+      </p>
+    </form>
+    <p class="fehlerzeile">{{fehler}}</p>
+    <p class="hinweis">Notizmappe {{fassung}} · Serverfassung</p>
+  </div>
+</div>
+</body>
+</html>

@@ -1,0 +1,24 @@
+# Starten:  docker compose up -d
+# Danach:   http://<rechner>:8112  -> beim ersten Mal die Einrichtungsseite
+#
+# Alles, was bleiben muss, liegt in ./daten:
+#   daten/benutzer.json        Zugaenge (Passwoerter als scrypt-Hash)
+#   daten/notizen/<benutzer>/  die Notizen, als Dateien wie am Desktop
+#   daten/konfig/<benutzer>/   Schriftfavoriten usw. je Benutzer
+services:
+  notizmappe:
+    image: ghcr.io/lucywolf/notizmappe-server:latest
+    # Selbst bauen statt ziehen:
+    # build: .
+    container_name: notizmappe
+    restart: unless-stopped
+    ports:
+      - "8112:8000"
+    volumes:
+      - ./daten:/daten
+    environment:
+      # Auf 1, wenn ein Proxy mit Zertifikat davorsteht (nginx, Caddy). Dann
+      # bekommt der Sitzungs-Keks "Secure" und geht nur noch ueber HTTPS.
+      # Im eigenen Netz ohne Zertifikat muss das 0 bleiben, sonst wirft der
+      # Browser den Keks weg und niemand kann sich anmelden.
+      NOTIZMAPPE_HTTPS: "0"

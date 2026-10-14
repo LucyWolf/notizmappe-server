@@ -1,0 +1,44 @@
+name: Desktop-Fassung nachziehen
+
+# Die Serverfassung soll immer dieselbe Oberflaeche haben wie der Desktop.
+# Deshalb sieht das hier taeglich nach, ob es dort ein neueres Release gibt,
+# zieht DESKTOP_VERSION nach und schiebt es - das baut dann das Image neu.
+# So muss niemand daran denken.
+
+on:
+  schedule:
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  nachziehen:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Neueste Desktop-Fassung holen
+        id: f
+        run: |
+          NEU=$(curl -fsSL https://api.github.com/repos/LucyWolf/notizmappe/releases/latest \
+                 | python3 -c "import json,sys; print(json.load(sys.stdin)['tag_name'].lstrip('v'))")
+          ALT=$(tr -d ' \n' < DESKTOP_VERSION)
+          echo "alt=$ALT" >> "$GITHUB_OUTPUT"
+          echo "neu=$NEU" >> "$GITHUB_OUTPUT"
+          echo "$ALT -> $NEU"
+
+      - name: Nachziehen
+        if: steps.f.outputs.neu != steps.f.outputs.alt && steps.f.outputs.neu != ''
+        run: |
+          printf '%s\n' "${{ steps.f.outputs.neu }}" > DESKTOP_VERSION
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add DESKTOP_VERSION
+          git commit -m "Desktop-Fassung ${{ steps.f.outputs.neu }} nachgezogen
+
+          Die Serverfassung benutzt die Oberflaeche des Desktop-Programms
+          unveraendert. Zieht der Desktop weiter, muss der Server mitgehen -
+          sonst sehen die beiden Fassungen unterschiedlich aus."
+          git push

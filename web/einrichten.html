@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Notizmappe - einrichten</title>
+<link rel="icon" href="icon.png">
+<link rel="stylesheet" href="stil.css">
+</head>
+<body>
+<div id="sperrschirm">
+  <div class="tafel" role="dialog" aria-label="Einrichten">
+    <h2>Notizmappe einrichten</h2>
+    <p>Hier gibt es noch keinen Zugang. Der erste wird gleich der Verwalter -
+      er kann später weitere Benutzer anlegen.</p>
+    <form method="post" action="/einrichten" autocomplete="off">
+      <p class="ordnerzeile">
+        <input type="text" name="name" placeholder="Benutzername (klein, ohne Leerzeichen)"
+               autocapitalize="none" spellcheck="false" autofocus>
+      </p>
+      <p class="ordnerzeile">
+        <input type="password" name="passwort" placeholder="Passwort (mind. 8 Zeichen)"
+               autocomplete="new-password">
+      </p>
+      <p class="ordnerzeile">
+        <input type="password" name="passwort2" placeholder="noch einmal" autocomplete="new-password">
+        <button type="submit" id="s-auf">Anlegen</button>
+      </p>
+    </form>
+    <p class="fehlerzeile">{{fehler}}</p>
+    <p class="hinweis">Notizmappe {{fassung}} · Serverfassung. Jeder Benutzer hat
+      seinen eigenen Notizordner und sieht nur die eigenen Seiten.</p>
+  </div>
+</div>
+</body>
+</html>
