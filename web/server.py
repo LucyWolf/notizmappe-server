@@ -55,6 +55,17 @@ SITZUNG_TAGE = 14
 app = FastAPI(title="Notizmappe", docs_url=None, redoc_url=None, openapi_url=None)
 
 
+@app.on_event("startup")
+def _beim_start() -> None:
+    fehlen = _fehlende_methoden()
+    if fehlen:
+        print(f"[server] Achtung: Notizmappe {DESKTOP_FASSUNG} kennt diese Methoden "
+              f"nicht: {', '.join(fehlen)}. DESKTOP_VERSION nachziehen.", flush=True)
+    else:
+        print(f"[server] Notizmappe {DESKTOP_FASSUNG}, alle freigegebenen Methoden da.",
+              flush=True)
+
+
 # --- Was die Oberflaeche aufrufen darf ---------------------------------------
 #
 # Positivliste, keine Verbotsliste: kommt im Desktop eine Methode dazu, ist sie
@@ -119,6 +130,17 @@ def _args_pruefen(roh) -> list:
         return wert
 
     return [tief(w) for w in roh]
+
+
+def _fehlende_methoden() -> list[str]:
+    """Was in der Positivliste steht, aber im eingefrorenen Desktop fehlt.
+
+    Die Oberflaeche kommt aus derselben Fassung, kennt die Methode also auch
+    nicht - aufrufen wird sie dort niemand. Haengt das Image aber hinterher,
+    waehrend jemand mit einem neueren Browser-Zwischenspeicher kommt, gab es
+    vorher einen Absturz mit HTTP 500. Beim Start steht es jetzt im Protokoll.
+    """
+    return sorted(m for m in ERLAUBT if not hasattr(BRUECKE, m))
 
 
 def _passt(methode: str, args: list) -> str | None:
@@ -474,6 +496,11 @@ async def bruecke(methode: str, bitte: Request):
     # das die Absicherung dagegen, dass eine andere Seite hier etwas aufruft.
     if bitte.headers.get("x-notizmappe") != "1":
         return JSONResponse({"fehler": "Falscher Aufruf"}, status_code=400)
+    if methode in ERLAUBT and not hasattr(BRUECKE, methode):
+        return JSONResponse(
+            {"fehler": "Diese Fassung des Programms kennt das noch nicht - "
+                       f"im Image steckt Notizmappe {DESKTOP_FASSUNG}."},
+            status_code=501)
     if methode not in ERLAUBT:
         if methode == "version":
             return JSONResponse({"installiert": DESKTOP_FASSUNG, "verfuegbar": DESKTOP_FASSUNG,

@@ -230,6 +230,9 @@ pruefe("Downloads springen nicht auf die Fehlerseite",
 
 # --- Verlauf und Papierkorb am Server ----------------------------------------
 print("\nVerlauf und Papierkorb")
+fehlen = server._fehlende_methoden()
+pruefe("Die eingefrorene Fassung kennt alle freigegebenen Methoden", not fehlen,
+       f"fehlt in Notizmappe {server.DESKTOP_FASSUNG}: {', '.join(fehlen)}")
 lage, v = ruf(k, "versionen", buch, absch, seite)
 pruefe("Versionen lassen sich abfragen", lage == 200 and "versionen" in v, v)
 lage, korb = ruf(k, "papierkorb")
