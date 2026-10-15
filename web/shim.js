@@ -283,21 +283,39 @@
       + 'in einem Notizordner eine verschlüsselte Mappe, sagt der Server das, '
       + 'statt leere Seiten zu zeigen.');
 
-    // Version: die Zeilen bleiben, die Knöpfe nicht.
+    // Version: die eigenen Knöpfe weg, dafür eine echte Auskunft. Dass es
+    // etwas zu holen gibt, soll man sehen, ohne es zu wissen - auch wenn man
+    // dann selbst "docker compose pull" tippen muss.
     const version = abschnittSuchen('Version');
     if (version) {
       for (const id of ['e-pruefen', 'e-einspielen', 'e-start-pruefen', 'e-auto']) {
         const k = document.getElementById(id);
         if (k) (k.closest('label') || k).remove();
       }
-      const hinweis = document.getElementById('e-updatehinweis');
-      if (hinweis) {
-        hinweis.textContent = 'Aktualisiert wird hier mit "docker compose pull" und '
-          + '"docker compose up -d" - nicht aus dem Programm heraus.';
-      }
       for (const p of version.querySelectorAll('p.hinweis')) {
         if (p.textContent.indexOf('Läuft nur auf dem Rechner') === 0) p.remove();
       }
+      const knopf = el('button', { type: 'button', textContent: 'Nach Updates sehen' });
+      const befehl = el('pre', { id: 'serverbefehl', hidden: true, textContent:
+        'docker compose pull\ndocker compose up -d' });
+      knopf.addEventListener('click', async () => {
+        const hinweis = document.getElementById('e-updatehinweis');
+        hinweis.textContent = 'wird nachgesehen …';
+        try {
+          const f = await hol('/fassung');
+          document.getElementById('e-verfuegbar').textContent = f.neueste || '—';
+          befehl.hidden = !f.neuer;
+          hinweis.textContent = f.fehler ? f.fehler
+            : (f.neuer ? `Es gibt ${f.neueste} - hier läuft ${f.laeuft}. Auf dem Rechner, `
+                       + 'auf dem der Container läuft:'
+                       : `Hier läuft ${f.laeuft}, das ist die neueste.`);
+        } catch (e2) { hinweis.textContent = e2.message; }
+      });
+      version.append(el('p', { className: 'knoepfe' }, [knopf]), befehl);
+      const stil = document.createElement('style');
+      stil.textContent = '#serverbefehl { background: var(--flaeche); border: 1px solid var(--linie);'
+        + ' border-radius: 6px; padding: 8px 10px; font-size: 12px; margin: 8px 0 0; }';
+      document.head.append(stil);
     }
 
     const schriften = abschnittSuchen('Schriften');

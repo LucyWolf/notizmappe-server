@@ -19,6 +19,7 @@ import hashlib
 import hmac
 import inspect
 import urllib.parse
+import urllib.request
 import json
 import os
 import sys
@@ -440,6 +441,38 @@ def _nur_verwalter(bitte: Request) -> str:
     if not wer:
         raise HTTPException(status_code=403, detail="Das darf nur, wer Benutzer verwalten kann.")
     return wer
+
+
+_fassung_geholt = [0.0, {}]
+
+
+@app.get("/fassung")
+def fassung(bitte: Request):
+    """Welche Fassung laeuft, und gibt es eine neuere?
+
+    Aktualisiert wird hier mit docker pull - aber *dass* es etwas zu holen
+    gibt, soll man sehen, ohne es zu wissen. Die Antwort wird eine Stunde lang
+    wiederverwendet, damit nicht jeder Seitenaufruf bei GitHub anklopft.
+    """
+    if not angemeldet(bitte):
+        return JSONResponse({"fehler": "Nicht angemeldet"}, status_code=401)
+    jetzt = time.time()
+    if jetzt - _fassung_geholt[0] < 3600 and _fassung_geholt[1]:
+        return _fassung_geholt[1]
+
+    stand = {"laeuft": DESKTOP_FASSUNG, "neueste": "", "neuer": False, "fehler": ""}
+    try:
+        with urllib.request.urlopen(
+                "https://api.github.com/repos/LucyWolf/notizmappe/releases/latest",
+                timeout=8) as antwort:
+            tag = json.loads(antwort.read(1 << 20)).get("tag_name") or ""
+        stand["neueste"] = tag.lstrip("v")
+        teile = lambda v: [int(t) for t in v.split(".") if t.isdigit()]       # noqa: E731
+        stand["neuer"] = teile(stand["neueste"]) > teile(DESKTOP_FASSUNG)
+    except Exception as f:                                  # noqa: BLE001
+        stand["fehler"] = f"GitHub nicht erreichbar: {f}"
+    _fassung_geholt[0], _fassung_geholt[1] = jetzt, stand
+    return stand
 
 
 @app.get("/verwaltung")

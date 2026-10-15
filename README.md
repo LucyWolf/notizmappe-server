@@ -154,7 +154,10 @@ scheinbar zu laufen.
   verschlüsselte Mappe, sagt der Server das — er zeigt keine leeren Seiten.
 * **Anhänge „mit Programm öffnen"**. Das würde auf dem Server passieren und
   nicht bei dir. Der Stellvertreter macht daraus einen Download.
-* **Updates per Knopf.** `docker pull && docker compose up -d`.
+* **Updates per Knopf.** Unter *Datei → Informationen* steht aber, welche
+  Fassung hier läuft und ob es eine neuere gibt — samt der beiden Befehle:
+  `docker compose pull` und `docker compose up -d`. Dass es etwas zu holen
+  gibt, soll man sehen, ohne es zu wissen.
 * Die **Schriftliste** ist die des Containers, nicht die deines Rechners — der
   Server kann nicht wissen, was bei dir installiert ist. Im Image sind DejaVu
   und Liberation dabei.

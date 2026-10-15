@@ -335,6 +335,18 @@ pruefe("Und nicht entfernen",
        verwalte(k, "/verwaltung/benutzer", {"was": "entfernen", "name": "lucy"}).status_code == 400)
 pruefe("lucy ist noch Verwalter", "benutzer" in server.nutzer.rechte_von("lucy"))
 
+# --- Fassung: was läuft, und gibt es Neueres ---------------------------------
+print("\nFassung")
+pruefe("Ohne Anmeldung keine Auskunft", anonym.get("/fassung").status_code == 401)
+f = k.get("/fassung").json()
+pruefe("Sagt, was läuft", f.get("laeuft") == server.DESKTOP_FASSUNG, f)
+pruefe("Und kommt ohne GitHub nicht ins Stolpern",
+       "neuer" in f and isinstance(f["neuer"], bool), f)
+pruefe("Die Antwort wird wiederverwendet (kein Anklopfen je Aufruf)",
+       k.get("/fassung").json() == f)
+pruefe("Der Stellvertreter zeigt die Befehle zum Aktualisieren",
+       "docker compose pull" in (WURZEL / "web/shim.js").read_text(encoding="utf-8"))
+
 # --- Keine alte Oberfläche aus dem Zwischenspeicher --------------------------
 print("\nZwischenspeicher")
 a = k.get("/mappe.js")
