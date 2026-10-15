@@ -177,6 +177,32 @@ pruefe("Der Gast bekommt den Anhang nicht", a.status_code == 404)
 anonym = TestClient(server.app, follow_redirects=False)
 pruefe("Ohne Anmeldung gar nichts", anonym.get("/anhang").status_code == 303)
 
+# --- Unlesbare Benutzerdatei -------------------------------------------------
+#
+# Der Unterschied zwischen "noch kein Zugang" und "ich komme an die Datei nicht
+# heran" entscheidet, ob hier die Ersteinrichtung steht. Steht sie falsch da,
+# legt sich der Nächste einen Verwalter an und hat alles. Genau das ist
+# passiert, als ein Befehl im Container als root lief.
+print("\nUnlesbare Benutzerdatei")
+import os as _os                                                    # noqa: E402
+
+datei = server.nutzer.datei()
+sicherung = datei.read_bytes()
+datei.write_bytes(b"{kaputt")
+anonym2 = TestClient(server.app, follow_redirects=False)
+a = anonym2.get("/anmelden")
+pruefe("Keine Ersteinrichtung bei beschädigter Datei",
+       a.status_code == 503 and "einrichten" not in a.text.lower(), a.status_code)
+a = anonym2.post("/einrichten", data={"name": "eindringling", "passwort": "uebernahme12",
+                                      "passwort2": "uebernahme12"})
+pruefe("Und einrichten geht auch nicht", a.headers.get("location") == "/anmelden", a.headers)
+pruefe("Es entsteht kein neuer Zugang", b"eindringling" not in datei.read_bytes())
+a = anonym2.post("/anmelden", data={"name": "lucy", "passwort": "geheim1234"})
+pruefe("Anmelden sagt, was los ist", "fehler=" in a.headers.get("location", ""), a.headers)
+datei.write_bytes(sicherung)
+pruefe("Nach der Reparatur geht wieder alles",
+       anonym2.get("/anmelden").status_code == 200)
+
 # --- Unsinn an der Brücke ----------------------------------------------------
 print("\nUnsinn über das Netz")
 lage, a = ruf(k, "versionen", 1, 2, 3, 4, 5, 6, 7, 8)

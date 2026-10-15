@@ -18,6 +18,7 @@ import base64
 import hashlib
 import hmac
 import inspect
+import urllib.parse
 import json
 import os
 import sys
@@ -298,7 +299,17 @@ def _text(roh: str) -> str:
 
 @app.get("/anmelden", response_class=HTMLResponse)
 def anmeldeseite(bitte: Request, fehler: str = ""):
-    if nutzer.leer():
+    try:
+        keiner_da = nutzer.leer()
+    except nutzer.BenutzerFehler as f:
+        # Lieber gar nichts anbieten als die Einrichtung: wer die hier bekommt,
+        # legt sich einen Verwalter an und hat alles.
+        return HTMLResponse(
+            "<h2>Die Notizmappe kann ihre Zugänge nicht lesen</h2>"
+            f"<p>{_text(str(f))}</p>"
+            "<p>Bis das behoben ist, wird hier nichts angeboten.</p>",
+            status_code=503)
+    if keiner_da:
         return HTMLResponse(_vorlage("einrichten.html", fehler=_text(fehler),
                                      fassung=DESKTOP_FASSUNG))
     return HTMLResponse(_vorlage("anmelden.html", fehler=_text(fehler),
@@ -312,7 +323,11 @@ def anmelden(bitte: Request, name: str = Form(""), passwort: str = Form("")):
     if warte:
         return RedirectResponse(f"/anmelden?fehler=Zu+viele+Versuche.+Bitte+{warte}+Sekunden+warten.",
                                 status_code=303)
-    b = nutzer.pruefen(name, passwort)
+    try:
+        b = nutzer.pruefen(name, passwort)
+    except nutzer.BenutzerFehler as f:
+        return RedirectResponse(f"/anmelden?fehler={urllib.parse.quote_plus(str(f))}",
+                                status_code=303)
     if not b:
         fehlversuch(wer)
         # Nicht sagen, ob der Name oder das Passwort falsch war: sonst ist die
@@ -328,7 +343,11 @@ def anmelden(bitte: Request, name: str = Form(""), passwort: str = Form("")):
 @app.post("/einrichten")
 def einrichten(name: str = Form(""), passwort: str = Form(""), passwort2: str = Form("")):
     """Nur solange es keinen einzigen Benutzer gibt."""
-    if not nutzer.leer():
+    try:
+        if not nutzer.leer():
+            return RedirectResponse("/anmelden", status_code=303)
+    except nutzer.BenutzerFehler:
+        # Unlesbare Datei ist nicht dasselbe wie "noch niemand da".
         return RedirectResponse("/anmelden", status_code=303)
     if passwort != passwort2:
         return RedirectResponse("/anmelden?fehler=Die+Passw%C3%B6rter+sind+nicht+gleich.", status_code=303)

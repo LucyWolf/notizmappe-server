@@ -80,9 +80,31 @@ def konfigordner(name: str) -> Path:
 
 
 def _lesen() -> dict:
-    try:
-        roh = json.loads(datei().read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    """Die Zugaenge von der Platte.
+
+    Der Unterschied zwischen "es gibt noch keine Datei" und "die Datei ist da,
+    aber ich komme nicht heran" ist hier lebenswichtig: im ersten Fall gehoert
+    die Ersteinrichtung hin, im zweiten waere sie eine offene Tuer. Wer dann
+    vorbeikommt, legt sich einen Verwalter an und hat alles.
+
+    Genau das ist passiert, als ein Befehl im Container als root lief und die
+    Datei danach root gehoerte - der Server lief als 1000, konnte sie nicht mehr
+    lesen und bot freundlich die Einrichtung an.
+    """
+    p = datei()
+    if p.exists():
+        try:
+            roh = json.loads(p.read_text(encoding="utf-8"))
+        except OSError as f:
+            raise BenutzerFehler(
+                f"Die Benutzerdatei {p} ist da, lässt sich aber nicht lesen ({f.strerror}). "
+                "Wem gehört sie? Der Server läuft als "
+                f"{os.getuid()}:{os.getgid()}.")
+        except ValueError:
+            raise BenutzerFehler(
+                f"Die Benutzerdatei {p} ist beschädigt. Aus Sicherheitsgründen wird "
+                "hier nichts angeboten - die Datei prüfen oder aus einer Sicherung holen.")
+    else:
         roh = {}
     if not isinstance(roh, dict) or not isinstance(roh.get("benutzer"), dict):
         roh = {"benutzer": {}}
