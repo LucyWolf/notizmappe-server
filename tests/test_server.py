@@ -17,6 +17,7 @@ import os
 import shutil
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 WURZEL = Path(__file__).resolve().parent.parent
@@ -382,6 +383,69 @@ abmelder.post("/anmelden", data={"name": "lucy", "passwort": "geheim1234"})
 pruefe("Vorher drin", abmelder.get("/").status_code == 200)
 pruefe("Abmelden funktioniert", abmelder.get("/abmelden").status_code == 303)
 pruefe("Und danach draußen", abmelder.get("/").status_code == 303)
+
+# --- Einladungen -------------------------------------------------------------
+#
+# Der Link ist das Geheimnis. Also: jedes Mal ein anderer, nur kurz gueltig,
+# genau einmal einloesbar - und was danach noch damit versucht wird, darf
+# nichts bewirken.
+print("\nEinladungen")
+a = verwalte(k, "/verwaltung/einladung", {"rolle": "Benutzer", "minuten": 5})
+pruefe("Verwalter bekommt einen Link", a.status_code == 200 and "/einladung/" in a.json().get("link", ""),
+       a.text[:120])
+erste = a.json()
+zweite = verwalte(k, "/verwaltung/einladung", {"rolle": "Benutzer"}).json()
+pruefe("Jeder Link ist ein anderer", erste["marke"] != zweite["marke"])
+pruefe("Und lang genug, um nicht geraten zu werden", len(erste["marke"]) >= 30, len(erste["marke"]))
+pruefe("Wer nichts verwalten darf, bekommt keinen",
+       verwalte(gast2, "/verwaltung/einladung", {"rolle": "Verwalter"}).status_code == 403)
+
+anonym3 = TestClient(server.app, follow_redirects=False)
+seite = anonym3.get(f"/einladung/{erste['marke']}")
+pruefe("Die Seite kommt ohne Anmeldung", seite.status_code == 200 and "Zugang anlegen" in seite.text)
+pruefe("Ein erfundener Link bringt nichts",
+       anonym3.get("/einladung/ausgedacht").status_code == 410)
+
+a = anonym3.post(f"/einladung/{erste['marke']}",
+                 data={"name": "neuling", "passwort": "kurz", "passwort2": "kurz"})
+pruefe("Zu kurzes Passwort wird abgelehnt",
+       "fehler=" in a.headers.get("location", "")
+       and all(b["name"] != "neuling" for b in server.nutzer.liste()))
+pruefe("Und die Einladung ist dabei NICHT verbraucht",
+       server.nutzer.einladung_lesen(erste["marke"]) is not None)
+
+a = anonym3.post(f"/einladung/{erste['marke']}",
+                 data={"name": "neuling", "passwort": "neulingpw1", "passwort2": "neulingpw1"})
+pruefe("Mit richtigen Angaben entsteht der Zugang",
+       a.headers.get("location") == "/" and any(b["name"] == "neuling" for b in server.nutzer.liste()))
+pruefe("Mit der vorgesehenen Rolle",
+       [b["rolle"] for b in server.nutzer.liste() if b["name"] == "neuling"] == ["Benutzer"])
+pruefe("Und man ist gleich angemeldet", anonym3.get("/").status_code == 200)
+pruefe("Derselbe Link geht kein zweites Mal",
+       anonym3.get(f"/einladung/{erste['marke']}").status_code == 410)
+
+# Ablauf: die Zeit vorstellen statt zu warten
+server.nutzer.einladung_anlegen("lucy", "Benutzer", minuten=5)
+alle = server.nutzer.einladungen()
+abgelaufen = alle[-1]["marke"]
+daten = server.nutzer._lesen()
+daten["einladungen"][abgelaufen]["bis"] = time.time() - 1
+server.nutzer._schreiben(daten)
+pruefe("Nach Ablauf gilt der Link nicht mehr",
+       anonym3.get(f"/einladung/{abgelaufen}").status_code == 410)
+pruefe("Und er verschwindet aus der Liste",
+       all(e["marke"] != abgelaufen for e in server.nutzer.einladungen()))
+
+# Einladung in ein Projekt
+verwalte(k, "/verwaltung/projekt", {"was": "anlegen", "name": "Einladungsprojekt"})
+ein = verwalte(k, "/verwaltung/einladung",
+               {"rolle": "Benutzer", "projekt": "Einladungsprojekt", "recht": "lesen"}).json()
+anonym4 = TestClient(server.app, follow_redirects=False)
+anonym4.post(f"/einladung/{ein['marke']}",
+             data={"name": "gastimprojekt", "passwort": "projektpw12", "passwort2": "projektpw12"})
+pruefe("Eingeladene landen gleich im Projekt",
+       server.nutzer.projekt_recht("gastimprojekt", "Einladungsprojekt") == "lesen",
+       server.nutzer.projekte_von("gastimprojekt"))
 
 # --- Projekte: geteilte Bereiche ---------------------------------------------
 #

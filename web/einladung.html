@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Notizmappe - Einladung</title>
+<link rel="icon" href="icon.png">
+<link rel="stylesheet" href="stil.css">
+</head>
+<body>
+<div id="sperrschirm">
+  <div class="tafel" role="dialog" aria-label="Einladung">
+    <h2>Willkommen</h2>
+    <p>{{wer}} hat dich zur Notizmappe eingeladen. Leg dir hier deinen Zugang an —
+      Name und Passwort bestimmst du selbst.</p>
+    <p class="hinweis">Rolle: <strong>{{rolle}}</strong>{{projekt}} ·
+      Die Einladung gilt noch <strong id="rest">{{rest}}</strong>.</p>
+    <form method="post" action="/einladung/{{marke}}" autocomplete="off">
+      <p class="ordnerzeile">
+        <input type="text" name="name" placeholder="Benutzername (klein, ohne Leerzeichen)"
+               autocapitalize="none" spellcheck="false" autofocus>
+      </p>
+      <p class="ordnerzeile">
+        <input type="password" name="passwort" placeholder="Passwort (mind. 8 Zeichen)"
+               autocomplete="new-password">
+      </p>
+      <p class="ordnerzeile">
+        <input type="password" name="passwort2" placeholder="noch einmal" autocomplete="new-password">
+        <button type="submit" id="s-auf">Zugang anlegen</button>
+      </p>
+    </form>
+    <p class="fehlerzeile">{{fehler}}</p>
+  </div>
+</div>
+<script>
+  // Mitzählen, damit niemand vor einem Formular sitzt, das längst nicht mehr gilt.
+  var bis = {{bis}} * 1000;
+  setInterval(function () {
+    var weg = Math.max(0, Math.round((bis - Date.now()) / 1000));
+    var r = document.getElementById('rest');
+    if (!r) return;
+    r.textContent = weg > 0 ? (Math.floor(weg / 60) + ':' + String(weg % 60).padStart(2, '0'))
+                            : 'abgelaufen';
+    if (weg <= 0) document.querySelectorAll('input,button').forEach(function (k) { k.disabled = true; });
+  }, 1000);
+</script>
+</body>
+</html>

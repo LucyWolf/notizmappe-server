@@ -545,6 +545,62 @@ async def bereich_wechseln(bitte: Request):
     return {"jetzt": jetzt}
 
 
+@app.post("/verwaltung/einladung")
+async def verwaltung_einladung(bitte: Request):
+    """Einen Einladungslink erzeugen oder zuruecknehmen."""
+    _nur_verwalter(bitte)
+    if bitte.headers.get("x-notizmappe") != "1":
+        return JSONResponse({"fehler": "Falscher Aufruf"}, status_code=400)
+    d = _rumpf(await bitte.json() if await bitte.body() else {})
+    try:
+        if d.get("was") == "zuruecknehmen":
+            nutzer.einladung_zuruecknehmen(str(d.get("marke") or ""))
+            return {"ok": True}
+        e = nutzer.einladung_anlegen(
+            angemeldet(bitte), str(d.get("rolle") or "Benutzer"),
+            str(d.get("projekt") or ""), str(d.get("recht") or "schreiben"),
+            int(d.get("minuten") or nutzer.EINLADUNG_MINUTEN))
+    except (nutzer.BenutzerFehler, ValueError, TypeError) as f:
+        return JSONResponse({"fehler": str(f)}, status_code=400)
+    # Die Adresse so bauen, wie der Browser sie gerade benutzt - hinter einem
+    # Proxy ist das nicht dieselbe, die der Server von sich kennt.
+    grund = str(bitte.base_url).rstrip("/")
+    return {**e, "link": f"{grund}/einladung/{e['marke']}"}
+
+
+@app.get("/einladung/{marke}", response_class=HTMLResponse)
+def einladungsseite(marke: str, fehler: str = ""):
+    e = nutzer.einladung_lesen(marke)
+    if not e:
+        # Nicht verraten, ob es die Marke mal gab - es gibt nichts zu holen.
+        return HTMLResponse(
+            "<h2>Diese Einladung gilt nicht mehr</h2>"
+            "<p>Einladungen laufen nach wenigen Minuten ab und gelten einmal. "
+            "Bitte um eine neue.</p>", status_code=410)
+    projekt = f" · Projekt {_text(e['projekt'])} ({_text(e['recht'])})" if e.get("projekt") else ""
+    rest = max(0, int(e["bis"] - time.time()))
+    return HTMLResponse(_vorlage(
+        "einladung.html", wer=_text(e.get("von") or "Jemand"), rolle=_text(e["rolle"]),
+        projekt=projekt, marke=_text(marke), bis=int(e["bis"]),
+        rest=f"{rest // 60}:{rest % 60:02d}", fehler=_text(fehler)))
+
+
+@app.post("/einladung/{marke}")
+def einladung_einloesen(marke: str, bitte: Request, name: str = Form(""),
+                        passwort: str = Form(""), passwort2: str = Form("")):
+    if passwort != passwort2:
+        return RedirectResponse(f"/einladung/{marke}?fehler=Die+Passw%C3%B6rter+sind+nicht+gleich.",
+                                status_code=303)
+    try:
+        wer = nutzer.einladung_einloesen(marke, name, passwort)
+    except nutzer.BenutzerFehler as f:
+        return RedirectResponse(
+            f"/einladung/{marke}?fehler={urllib.parse.quote_plus(str(f))}", status_code=303)
+    antwort = RedirectResponse("/", status_code=303)
+    keks_setzen(antwort, wer)
+    return antwort
+
+
 @app.post("/verwaltung/projekt")
 async def verwaltung_projekt(bitte: Request):
     """Projekte anlegen, Mitglieder setzen, entfernen."""
@@ -606,6 +662,8 @@ def verwaltung(bitte: Request):
                      for n, pr in sorted(nutzer.projekte().items())],
         "projektrechte": list(nutzer.PROJEKTRECHTE),
         "darf_projekte": "projekte" in nutzer.rechte_von(wer),
+        "einladungen": nutzer.einladungen() if "benutzer" in meine else [],
+        "einladung_minuten": nutzer.EINLADUNG_MINUTEN,
     }
 
 

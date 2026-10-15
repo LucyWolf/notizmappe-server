@@ -62,6 +62,23 @@ Mitgeliefert und nicht änderbar: **Verwalter** (alles), **Moderator** (alles
 außer Benutzerverwaltung, dafür mit Projekten), **Benutzer** (eigene Notizen,
 schreiben, löschen, Verlauf), **Gast** (nur lesen). Eigene Rollen kommen dazu.
 
+### Einladen statt Passwörter verschicken
+
+Unter **Datei → Konto → Einladen** erzeugt ein Verwalter einen Link. Wer ihn
+öffnet, legt sich **Name und Passwort selbst** an und ist danach gleich
+angemeldet — es muss also nie ein Passwort durch Chat oder Mail gehen.
+
+* Jeder Link ist ein **anderer** (24 zufällige Bytes) und steht nirgends sonst.
+* Er gilt **5 Minuten** (wahlweise 15 oder 60) und **genau einmal**.
+* Rolle und optional ein Projekt samt Recht hängen am Link — der Eingeladene
+  landet also direkt dort, wo er hingehört.
+* Abgelaufene verschwinden von allein; zurücknehmen kann man sie jederzeit.
+* Ein Fehlversuch (zu kurzes Passwort, Name vergeben) verbraucht die Einladung
+  **nicht** — sonst wäre sie nach einem Tippfehler weg.
+
+Die Seite zeigt mit, wie lange der Link noch gilt, und sperrt sich selbst, wenn
+die Zeit um ist.
+
 ## Projekte: zusammen an etwas arbeiten
 
 Jeder Zugang hat seine **eigenen Notizen**, die niemand sonst sieht — auch kein

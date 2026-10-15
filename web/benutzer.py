@@ -196,6 +196,91 @@ def rolle_entfernen(name: str) -> None:
         _schreiben(daten)
 
 
+# --- Einladungen -------------------------------------------------------------
+#
+# Ein Link, der nur kurz gilt und genau einmal: damit jemand sich seinen Zugang
+# selbst anlegen kann, ohne dass ein Passwort durch die Gegend geschickt wird.
+# Der Link ist das Geheimnis - deshalb ist er lang, zufaellig und jedes Mal ein
+# anderer, und er verschwindet, sobald er benutzt wurde oder die Zeit um ist.
+EINLADUNG_MINUTEN = 5
+
+
+def _einladungen(daten: dict) -> dict:
+    if not isinstance(daten.get("einladungen"), dict):
+        daten["einladungen"] = {}
+    jetzt = time.time()
+    for schluessel, e in list(daten["einladungen"].items()):
+        if not isinstance(e, dict) or e.get("bis", 0) < jetzt:
+            daten["einladungen"].pop(schluessel, None)
+    return daten["einladungen"]
+
+
+def einladung_anlegen(von: str, rolle: str = "Benutzer", projekt: str = "",
+                      recht: str = "schreiben", minuten: int = EINLADUNG_MINUTEN) -> dict:
+    minuten = max(1, min(int(minuten or EINLADUNG_MINUTEN), 60))
+    with _sperre:
+        daten = _lesen()
+        if rolle not in daten["rollen"]:
+            raise BenutzerFehler(f"Die Rolle „{rolle}“ gibt es nicht")
+        if projekt and projekt not in daten["projekte"]:
+            raise BenutzerFehler(f"Das Projekt „{projekt}“ gibt es nicht")
+        if projekt and recht not in PROJEKTRECHTE:
+            raise BenutzerFehler("Unbekanntes Projektrecht")
+        marke = secrets.token_urlsafe(24)
+        bis = time.time() + minuten * 60
+        _einladungen(daten)[marke] = {
+            "rolle": rolle, "projekt": projekt, "recht": recht,
+            "von": (von or "").strip().lower(), "bis": bis,
+            "angelegt": time.strftime("%Y-%m-%d %H:%M:%S"),
+        }
+        _schreiben(daten)
+    return {"marke": marke, "bis": bis, "minuten": minuten,
+            "rolle": rolle, "projekt": projekt}
+
+
+def einladung_lesen(marke: str) -> dict | None:
+    """Gilt diese Einladung noch?"""
+    with _sperre:
+        daten = _lesen()
+        e = _einladungen(daten).get(str(marke or ""))
+        return dict(e) if e else None
+
+
+def einladungen() -> list[dict]:
+    with _sperre:
+        daten = _lesen()
+        aus = [{"marke": m, **e} for m, e in _einladungen(daten).items()]
+        _schreiben(daten)                       # abgelaufene gleich wegraeumen
+    return sorted(aus, key=lambda e: e["bis"])
+
+
+def einladung_zuruecknehmen(marke: str) -> None:
+    with _sperre:
+        daten = _lesen()
+        if _einladungen(daten).pop(str(marke or ""), None) is None:
+            raise BenutzerFehler("Diese Einladung gibt es nicht mehr")
+        _schreiben(daten)
+
+
+def einladung_einloesen(marke: str, name: str, passwort: str) -> str:
+    """Zugang anlegen und die Einladung verbrauchen - beides oder keines."""
+    with _sperre:
+        daten = _lesen()
+        e = _einladungen(daten).get(str(marke or ""))
+        if not e:
+            raise BenutzerFehler("Diese Einladung gilt nicht mehr")
+    # anlegen() nimmt die Sperre selbst; erst danach die Einladung streichen,
+    # sonst waere sie bei einem zu kurzen Passwort schon verbraucht.
+    anlegen(name, passwort, rolle=e["rolle"])
+    with _sperre:
+        daten = _lesen()
+        _einladungen(daten).pop(str(marke), None)
+        if e.get("projekt") and e["projekt"] in daten["projekte"]:
+            daten["projekte"][e["projekt"]]["mitglieder"][name.strip().lower()] = e["recht"]
+        _schreiben(daten)
+    return name.strip().lower()
+
+
 # --- Projekte: geteilte Bereiche ---------------------------------------------
 #
 # Ein Projekt ist ein eigener Notizordner, an dem mehrere arbeiten. Die privaten

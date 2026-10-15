@@ -148,6 +148,7 @@
     zeichneProjekte(d);
     if (!d.darf) return;            // Projekte darf man auch ohne Benutzerverwaltung sehen
     zeichneBenutzer(d);
+    zeichneEinladungen(d);
     zeichneRollen(d);
   }
 
@@ -188,6 +189,27 @@
         el('span', { textContent: b.name + (b.name === d.ich ? ' (du)' : '')
           + (b.zuletzt ? ' · zuletzt ' + b.zuletzt : ' · noch nie angemeldet') }),
         el('span', {}, [auswahl, neuespw, ...(b.name === d.ich ? [] : [raus])]),
+      ]));
+    }
+  }
+
+  function zeichneEinladungen(d) {
+    const wo = document.getElementById('v-einladungen');
+    if (!wo) return;
+    wo.textContent = '';
+    for (const e of d.einladungen || []) {
+      const rest = Math.max(0, Math.round(e.bis - Date.now() / 1000));
+      const weg = el('button', { type: 'button', textContent: 'zurücknehmen' });
+      weg.addEventListener('click', async () => {
+        try {
+          await hol('/verwaltung/einladung', { was: 'zuruecknehmen', marke: e.marke });
+          verwaltungLaden();
+        } catch (f) { sagen(f.message); }
+      });
+      wo.append(el('p', { className: 'zeile2' }, [
+        el('span', { textContent: `${e.rolle}${e.projekt ? ' · ' + e.projekt : ''} — `
+          + `noch ${Math.floor(rest / 60)}:${String(rest % 60).padStart(2, '0')}` }),
+        el('span', {}, [weg]),
       ]));
     }
   }
@@ -473,6 +495,39 @@
       } catch (f) { sagen(f.message); }
     });
 
+    // Einladung: ein Link, der kurz gilt und genau einmal. So muss kein
+    // Passwort durch die Gegend geschickt werden - und wenn der Link doch
+    // irgendwo liegen bleibt, ist er laengst wertlos.
+    const einRolle = el('select', {});
+    const einProjekt = el('select', {});
+    const einMinuten = el('select', {});
+    for (const m of [5, 15, 60]) {
+      einMinuten.append(el('option', { value: String(m), textContent: m + ' Minuten' }));
+    }
+    const einKnopf = el('button', { type: 'button', textContent: 'Einladungslink erzeugen' });
+    const einFeld = el('input', { type: 'text', id: 'v-einladungslink', readOnly: true, hidden: true });
+    const einKopieren = el('button', { type: 'button', textContent: 'Kopieren', hidden: true });
+    einKopieren.addEventListener('click', async () => {
+      einFeld.select();
+      try {
+        await navigator.clipboard.writeText(einFeld.value);
+        sagen('Link kopiert - er gilt nur kurz, also gleich weitergeben.');
+      } catch (f) { sagen('Markiert - mit Strg+C kopieren.'); }
+    });
+    einKnopf.addEventListener('click', async () => {
+      try {
+        const r = await hol('/verwaltung/einladung', {
+          rolle: einRolle.value, projekt: einProjekt.value,
+          recht: 'schreiben', minuten: Number(einMinuten.value),
+        });
+        einFeld.value = r.link;
+        einFeld.hidden = false;
+        einKopieren.hidden = false;
+        sagen(`Gilt ${r.minuten} Minuten und genau einmal.`);
+        verwaltungLaden();
+      } catch (f) { sagen(f.message); }
+    });
+
     const projektName = el('input', { type: 'text', placeholder: 'Name des neuen Projekts' });
     const projektAnlegen = el('button', { type: 'button', textContent: 'Projekt anlegen' });
     projektAnlegen.addEventListener('click', async () => {
@@ -503,6 +558,13 @@
       el('div', { id: 'v-benutzer' }),
       el('p', { className: 'ordnerzeile' }, [neuerName, neuesPw, neueRolle]),
       el('p', { className: 'knoepfe' }, [anlegen]),
+      el('h3', { textContent: 'Einladen', style: 'margin-top:14px' }),
+      el('p', { className: 'hinweis', textContent:
+        'Ein Link, der kurz gilt und genau einmal. Wer ihn öffnet, legt sich Name und '
+        + 'Passwort selbst an - so muss kein Passwort durch die Gegend geschickt werden.' }),
+      el('p', { className: 'ordnerzeile' }, [einRolle, einProjekt, einMinuten, einKnopf]),
+      el('p', { className: 'ordnerzeile' }, [einFeld, einKopieren]),
+      el('div', { id: 'v-einladungen' }),
       el('h3', { textContent: 'Projekte', style: 'margin-top:14px' }),
       el('p', { className: 'hinweis', textContent:
         'Ein Projekt ist ein geteilter Bereich mit eigenen Notizbüchern. Umgeschaltet '
@@ -526,8 +588,16 @@
     const fuellen = () => {
       if (!verwaltungStand || !verwaltungStand.darf) return;
       neueRolle.textContent = '';
+      einRolle.textContent = '';
       for (const r of verwaltungStand.rollen) {
         neueRolle.append(el('option', { value: r.name, textContent: r.name }));
+        einRolle.append(el('option', { value: r.name, textContent: r.name,
+                                       selected: r.name === 'Benutzer' }));
+      }
+      einProjekt.textContent = '';
+      einProjekt.append(el('option', { value: '', textContent: 'ohne Projekt' }));
+      for (const pr of verwaltungStand.projekte || []) {
+        einProjekt.append(el('option', { value: pr.name, textContent: 'Projekt: ' + pr.name }));
       }
       if (!rollenRechte.children.length) {
         for (const [schluessel, text] of Object.entries(verwaltungStand.rechte)) {
