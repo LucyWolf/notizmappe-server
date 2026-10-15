@@ -366,6 +366,12 @@ d = gast2.get("/verwaltung").json()
 pruefe("Auch wer nichts verwalten darf, erfährt wer er ist",
        d.get("ich") == "nurlesen" and isinstance(d.get("meine_rechte"), list), d)
 shimtext = (WURZEL / "web/shim.js").read_text(encoding="utf-8")
+pruefe("Benutzer und Rollen stehen unter Konto, nicht in den Optionen",
+       "kontoseite()" in shimtext and "konto.append(abschnitt)" in shimtext)
+pruefe("Die Desktop-Sachen auf der Kontoseite verschwinden dort",
+       "kind.hidden = true" in shimtext)
+pruefe("Aber sie bleiben im Gerüst stehen",
+       "kind.remove()" not in shimtext.split("function einstellungenAnpassen")[1].split("function abschnittBauen")[0])
 for was in ("Aus OneNote übernehmen", "Sperre", "Version", "Schriften"):
     pruefe("Behandelt: " + was, ("'" + was + "'") in shimtext, was)
 pruefe("Es gibt einen Abmeldeknopf", "Abmelden" in shimtext and "/abmelden" in shimtext)

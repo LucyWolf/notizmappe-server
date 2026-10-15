@@ -250,16 +250,26 @@
     abschnitt.append(el('p', { className: 'hinweis', textContent: text }));
   }
 
+  function kontoseite() {
+    return document.querySelector('.dateiseite[data-punkt="konto"]');
+  }
+
   function einstellungenAnpassen() {
     if (document.getElementById('serverkopf')) return;
 
-    // Oben: wer bin ich, und wie komme ich wieder raus.
-    const tafel = document.querySelector('#einstellungen .tafel');
-    if (!tafel) return;
+    // "Konto" ist am Server die Benutzerseite. Was dort für den eigenen
+    // Rechner steht - "Verbindung einrichten", "hier gibt es kein Konto" -
+    // ist hier sinnlos; es verschwindet, bleibt aber im Gerüst stehen, damit
+    // die gemeinsame Oberfläche weiter darauf zeigen darf.
+    const konto = kontoseite();
+    if (!konto) return;
+    for (const kind of Array.from(konto.children)) {
+      if (kind.tagName !== 'H2') kind.hidden = true;
+    }
     const abmelden = el('button', { type: 'button', textContent: 'Abmelden' });
     abmelden.addEventListener('click', function () { location.href = '/abmelden'; });
     const kopf = el('section', { id: 'serverkopf' }, [
-      el('h3', { textContent: 'Zugang' }),
+      el('h3', { textContent: 'Angemeldet' }),
       el('p', { className: 'zeile2' }, [
         el('span', { id: 'serverwer', textContent: 'angemeldet' }),
         el('span', {}, [abmelden]),
@@ -268,7 +278,7 @@
         'Diese Notizmappe läuft auf einem Server. Jeder Zugang hat seinen eigenen '
         + 'Notizordner und sieht nur die eigenen Seiten.' }),
     ]);
-    tafel.insertBefore(kopf, tafel.firstChild);
+    konto.append(kopf);
 
     stattdessen(abschnittSuchen('Aus OneNote übernehmen'),
       'Geht nur am eigenen Rechner: zum Einlesen muss die Datei über einen '
@@ -327,8 +337,8 @@
   }
 
   function abschnittBauen() {
-    const tafel = document.querySelector('#einstellungen .tafel');
-    if (!tafel || document.getElementById('serververwaltung')) return;
+    const konto = kontoseite();
+    if (!konto || document.getElementById('serververwaltung')) return;
 
     const neuerName = el('input', { type: 'text', placeholder: 'Benutzername', autocapitalize: 'none' });
     const neuesPw = el('input', { type: 'password', placeholder: 'Passwort (mind. 8 Zeichen)' });
@@ -372,7 +382,7 @@
         'Die Rechte werden am Server durchgesetzt, nicht nur in der Oberfläche. '
         + 'Ein Zugang zu entfernen löscht keine Notizen - die liegen weiter im Datenordner.' }),
     ]);
-    tafel.append(abschnitt);
+    konto.append(abschnitt);
 
     // Die Auswahlfelder füllen sich aus dem Stand
     const fuellen = () => {

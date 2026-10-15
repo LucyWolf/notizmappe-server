@@ -38,9 +38,14 @@ Einrichtungsseite: der erste Zugang wird gleich der **Verwalter**.
 
 ## Benutzer und Rollen
 
-In den **Einstellungen** (Zahnrad) gibt es für Verwalter einen Abschnitt
-„Benutzer und Rollen": Benutzer anlegen, Rolle zuweisen, Passwort setzen,
-Zugang entfernen — und eigene Rollen anlegen.
+Unter **Datei → Konto**: wer angemeldet ist, was diese Rolle darf, Abmelden —
+und für Verwalter darunter „Benutzer und Rollen": Benutzer anlegen, Rolle
+zuweisen, Passwort setzen, Zugang entfernen, eigene Rollen anlegen.
+
+Am Desktop steht dort etwas anderes (die Verbindung zu einem Server), und das
+bleibt auch so: dort gibt es keine Benutzer. Die gemeinsame Oberfläche wird
+dafür nicht angefasst — `shim.js` blendet am Server aus, was dort sinnlos ist,
+und hängt die Verwaltung an.
 
 Eine Rolle ist eine Auswahl aus diesen Rechten:
 
