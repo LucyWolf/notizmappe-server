@@ -309,6 +309,23 @@ pruefe("Und nicht entfernen",
        verwalte(k, "/verwaltung/benutzer", {"was": "entfernen", "name": "lucy"}).status_code == 400)
 pruefe("lucy ist noch Verwalter", "benutzer" in server.nutzer.rechte_von("lucy"))
 
+# --- Die Einstellungen passen zum Server -------------------------------------
+print("\nEinstellungen")
+d = gast2.get("/verwaltung").json()
+pruefe("Auch wer nichts verwalten darf, erfährt wer er ist",
+       d.get("ich") == "nurlesen" and isinstance(d.get("meine_rechte"), list), d)
+shimtext = (WURZEL / "web/shim.js").read_text(encoding="utf-8")
+for was in ("Aus OneNote übernehmen", "Sperre", "Version", "Schriften"):
+    pruefe("Behandelt: " + was, ("'" + was + "'") in shimtext, was)
+pruefe("Es gibt einen Abmeldeknopf", "Abmelden" in shimtext and "/abmelden" in shimtext)
+# Eigener Klient: ein Abmelden hier würde sonst alle folgenden Prüfungen
+# mitreißen - genau das ist beim ersten Versuch passiert.
+abmelder = TestClient(server.app, follow_redirects=False)
+abmelder.post("/anmelden", data={"name": "lucy", "passwort": "geheim1234"})
+pruefe("Vorher drin", abmelder.get("/").status_code == 200)
+pruefe("Abmelden funktioniert", abmelder.get("/abmelden").status_code == 303)
+pruefe("Und danach draußen", abmelder.get("/").status_code == 303)
+
 # --- Eine verschluesselte Mappe ---------------------------------------------
 print("\nVerschlüsselte Mappe (Sperre vom Desktop)")
 sys.path.insert(0, str(DESKTOP / "app"))

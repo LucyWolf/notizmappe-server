@@ -134,6 +134,11 @@
     let d;
     try { d = await hol('/verwaltung'); } catch (f) { sagen(f.message); return; }
     verwaltungStand = d;
+    const wer = document.getElementById('serverwer');
+    if (wer && d.ich) {
+      wer.textContent = 'Angemeldet als ' + d.ich
+        + (d.meine_rechte ? ' · darf: ' + d.meine_rechte.join(', ') : '');
+    }
     abschnitt.hidden = !d.darf;
     if (!d.darf) return;
     zeichneBenutzer(d);
@@ -221,6 +226,85 @@
     }
   }
 
+  /* Die Einstellungen stammen aus der gemeinsamen Oberfläche und bieten
+   * deshalb Dinge an, die nur am eigenen Rechner etwas tun. Hier werden sie
+   * nicht einfach ausgeblendet, sondern durch einen Satz ersetzt, der sagt
+   * warum - ein Knopf, der nichts tut, ist schlimmer als keiner, aber ein
+   * Abschnitt, der kommentarlos fehlt, lässt einen suchen. */
+  function abschnittSuchen(ueberschrift) {
+    for (const s of document.querySelectorAll('#einstellungen .tafel section')) {
+      const h = s.querySelector('h3');
+      if (h && h.textContent.trim() === ueberschrift) return s;
+    }
+    return null;
+  }
+
+  function stattdessen(abschnitt, text) {
+    if (!abschnitt) return;
+    for (const kind of Array.from(abschnitt.children)) {
+      if (kind.tagName !== 'H3') kind.remove();
+    }
+    abschnitt.append(el('p', { className: 'hinweis', textContent: text }));
+  }
+
+  function einstellungenAnpassen() {
+    if (document.getElementById('serverkopf')) return;
+
+    // Oben: wer bin ich, und wie komme ich wieder raus.
+    const tafel = document.querySelector('#einstellungen .tafel');
+    if (!tafel) return;
+    const abmelden = el('button', { type: 'button', textContent: 'Abmelden' });
+    abmelden.addEventListener('click', function () { location.href = '/abmelden'; });
+    const kopf = el('section', { id: 'serverkopf' }, [
+      el('h3', { textContent: 'Zugang' }),
+      el('p', { className: 'zeile2' }, [
+        el('span', { id: 'serverwer', textContent: 'angemeldet' }),
+        el('span', {}, [abmelden]),
+      ]),
+      el('p', { className: 'hinweis', textContent:
+        'Diese Notizmappe läuft auf einem Server. Jeder Zugang hat seinen eigenen '
+        + 'Notizordner und sieht nur die eigenen Seiten.' }),
+    ]);
+    tafel.insertBefore(kopf, tafel.querySelector('section'));
+
+    stattdessen(abschnittSuchen('Aus OneNote übernehmen'),
+      'Geht nur am eigenen Rechner: zum Einlesen muss die Datei über einen '
+      + 'Dateidialog gewählt werden, den es im Browser nicht gibt. Auf dem Rechner '
+      + 'einlesen und den Notizordner hierher übernehmen - oder warten, bis es '
+      + 'hier einen Upload gibt.');
+
+    stattdessen(abschnittSuchen('Sperre'),
+      'Am Server ist die Anmeldung die Sperre. Die Verschlüsselung des '
+      + 'Desktop-Programms lässt sich hier nicht einschalten: ihr Schlüssel liegt '
+      + 'im laufenden Programm, und das bedient mehrere Leute gleichzeitig. Liegt '
+      + 'in einem Notizordner eine verschlüsselte Mappe, sagt der Server das, '
+      + 'statt leere Seiten zu zeigen.');
+
+    // Version: die Zeilen bleiben, die Knöpfe nicht.
+    const version = abschnittSuchen('Version');
+    if (version) {
+      for (const id of ['e-pruefen', 'e-einspielen', 'e-start-pruefen', 'e-auto']) {
+        const k = document.getElementById(id);
+        if (k) (k.closest('label') || k).remove();
+      }
+      const hinweis = document.getElementById('e-updatehinweis');
+      if (hinweis) {
+        hinweis.textContent = 'Aktualisiert wird hier mit "docker compose pull" und '
+          + '"docker compose up -d" - nicht aus dem Programm heraus.';
+      }
+      for (const p of version.querySelectorAll('p.hinweis')) {
+        if (p.textContent.indexOf('Läuft nur auf dem Rechner') === 0) p.remove();
+      }
+    }
+
+    const schriften = abschnittSuchen('Schriften');
+    if (schriften) {
+      schriften.append(el('p', { className: 'hinweis', textContent:
+        'Aufgeführt sind die Schriften des Servers, nicht die deines Rechners - '
+        + 'er kann nicht wissen, was bei dir installiert ist.' }));
+    }
+  }
+
   function abschnittBauen() {
     const tafel = document.querySelector('#einstellungen .tafel');
     if (!tafel || document.getElementById('serververwaltung')) return;
@@ -301,6 +385,7 @@
 
   // Beim Öffnen der Einstellungen neu laden - Rollen können sich geändert haben.
   window.addEventListener('DOMContentLoaded', function () {
+    einstellungenAnpassen();
     abschnittBauen();
     verwaltungLaden();
     const zahnrad = document.getElementById('zahnrad');
