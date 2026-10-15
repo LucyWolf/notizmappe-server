@@ -383,6 +383,78 @@ pruefe("Vorher drin", abmelder.get("/").status_code == 200)
 pruefe("Abmelden funktioniert", abmelder.get("/abmelden").status_code == 303)
 pruefe("Und danach draußen", abmelder.get("/").status_code == 303)
 
+# --- Projekte: geteilte Bereiche ---------------------------------------------
+#
+# Rollen sagen, *was* jemand darf - Projekte, *wo*. Beides muss zusammen
+# greifen, und zwar immer das Schwaechere von beidem.
+print("\nProjekte")
+server.nutzer.anlegen("mod", "modpasswort1", rolle="Moderator")
+server.nutzer.anlegen("anna", "annapasswort1", rolle="Benutzer")
+server.nutzer.anlegen("zuschauer", "zuschauerpw1", rolle="Gast")
+M = TestClient(server.app, follow_redirects=False)
+M.post("/anmelden", data={"name": "mod", "passwort": "modpasswort1"})
+A = TestClient(server.app, follow_redirects=False)
+A.post("/anmelden", data={"name": "anna", "passwort": "annapasswort1"})
+Z = TestClient(server.app, follow_redirects=False)
+Z.post("/anmelden", data={"name": "zuschauer", "passwort": "zuschauerpw1"})
+
+
+def verw(klient, weg, rumpf):
+    return klient.post(weg, json=rumpf, headers={"X-Notizmappe": "1"})
+
+
+pruefe("Moderator darf Projekte anlegen",
+       verw(M, "/verwaltung/projekt", {"was": "anlegen", "name": "Hausbau"}).status_code == 200)
+pruefe("Ein Benutzer darf das nicht",
+       verw(A, "/verwaltung/projekt", {"was": "anlegen", "name": "Heimlich"}).status_code == 403)
+verw(M, "/verwaltung/projekt", {"was": "mitglied", "projekt": "Hausbau",
+                                "benutzer": "anna", "recht": "schreiben"})
+verw(M, "/verwaltung/projekt", {"was": "mitglied", "projekt": "Hausbau",
+                                "benutzer": "zuschauer", "recht": "verwalten"})
+pruefe("Anna sieht ihr Projekt",
+       A.get("/bereiche").json()["projekte"] == [{"name": "Hausbau", "recht": "schreiben"}],
+       A.get("/bereiche").json())
+
+ruf(A, "notizbuch_anlegen", "Ganz privat")
+A.post("/bereich", json={"bereich": "Hausbau"}, headers={"X-Notizmappe": "1"})
+lage, _ = ruf(A, "notizbuch_anlegen", "Grundriss")
+pruefe("Im Projekt darf sie schreiben", lage == 200 and "fehler" not in _, _)
+pruefe("Aber nicht loeschen - ihr Projektrecht ist nur schreiben",
+       ruf(A, "loeschen", "notizbuch", ["Grundriss"])[0] == 403)
+pruefe("Der Serverpfad steht nicht in der Antwort",
+       "/daten" not in str(ruf(A, "baum")[1]) and "tmp" not in str(ruf(A, "baum")[1].get("ordner", "")),
+       ruf(A, "baum")[1])
+
+Z.post("/bereich", json={"bereich": "Hausbau"}, headers={"X-Notizmappe": "1"})
+pruefe("Der Gast sieht das Projekt",
+       any(b["name"] == "Grundriss" for b in ruf(Z, "baum")[1].get("notizbuecher", [])))
+pruefe("Darf dort nichts schreiben, obwohl er im Projekt verwalten hat - "
+       "seine Rolle ist schwächer", ruf(Z, "notizbuch_anlegen", "Vom Gast")[0] == 403)
+
+pruefe("In ein fremdes Projekt kommt auch der Verwalter nicht",
+       k.post("/bereich", json={"bereich": "Hausbau"},
+              headers={"X-Notizmappe": "1"}).status_code == 400)
+pruefe("Und Annas private Notizen sieht er auch nicht",
+       all(b["name"] != "Ganz privat" for b in ruf(k, "baum")[1].get("notizbuecher", [])))
+
+A.post("/bereich", json={"bereich": ""}, headers={"X-Notizmappe": "1"})
+pruefe("Anna kommt zu ihren eigenen Notizen zurück",
+       any(b["name"] == "Ganz privat" for b in ruf(A, "baum")[1].get("notizbuecher", [])))
+pruefe("Ein erfundenes Projekt lässt sich nicht wählen",
+       A.post("/bereich", json={"bereich": "Gibtsnicht"},
+              headers={"X-Notizmappe": "1"}).status_code == 400)
+# Der Zuschauer hat im Projekt auch "verwalten" - also erst herunterstufen,
+# sonst ist "mod" gar nicht der letzte.
+pruefe("Solange es zwei Projektverwalter gibt, darf einer gehen",
+       verw(M, "/verwaltung/projekt", {"was": "mitglied-raus", "projekt": "Hausbau",
+                                       "benutzer": "mod"}).status_code == 200)
+pruefe("Den letzten aber nicht",
+       verw(Z, "/verwaltung/projekt", {"was": "mitglied-raus", "projekt": "Hausbau",
+                                       "benutzer": "zuschauer"}).status_code == 400)
+pruefe("Ein Projektverwalter darf Mitglieder setzen, auch ohne das Recht „Projekte\"",
+       verw(Z, "/verwaltung/projekt", {"was": "mitglied", "projekt": "Hausbau",
+                                       "benutzer": "anna", "recht": "verwalten"}).status_code == 200)
+
 # --- Eine verschluesselte Mappe ---------------------------------------------
 print("\nVerschlüsselte Mappe (Sperre vom Desktop)")
 sys.path.insert(0, str(DESKTOP / "app"))

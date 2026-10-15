@@ -58,8 +58,37 @@ Eine Rolle ist eine Auswahl aus diesen Rechten:
 | `verlauf` | Frühere Fassungen und Papierkorb |
 | `benutzer` | Benutzer und Rollen verwalten |
 
-Mitgeliefert und nicht änderbar: **Verwalter** (alles), **Benutzer** (alles
-außer Verwaltung), **Gast** (nur lesen). Eigene Rollen kommen dazu.
+Mitgeliefert und nicht änderbar: **Verwalter** (alles), **Moderator** (alles
+außer Benutzerverwaltung, dafür mit Projekten), **Benutzer** (eigene Notizen,
+schreiben, löschen, Verlauf), **Gast** (nur lesen). Eigene Rollen kommen dazu.
+
+## Projekte: zusammen an etwas arbeiten
+
+Jeder Zugang hat seine **eigenen Notizen**, die niemand sonst sieht — auch kein
+Verwalter. Ein **Projekt** ist daneben ein geteilter Bereich mit eigenen
+Notizbüchern, an dem mehrere arbeiten.
+
+Oben im Band steht, wo man gerade ist, und daneben die Auswahl zum Umschalten:
+*Meine Notizen* oder eines der Projekte. Angelegt und besetzt werden sie unter
+**Datei → Konto**.
+
+Jedes Mitglied hat im Projekt ein eigenes Recht:
+
+| | |
+|---|---|
+| `lesen` | mitlesen, nichts ändern |
+| `schreiben` | schreiben, anlegen, anhängen |
+| `verwalten` | dazu löschen, Verlauf — und Mitglieder setzen |
+
+**Es gilt immer das Schwächere von beidem.** Wer als *Gast* angemeldet ist,
+darf auch in einem Projekt nichts schreiben, in dem er „verwalten" hat; und eine
+mächtige Rolle nützt nichts, wenn man im Projekt nur lesen darf. Das wird am
+Server durchgesetzt und im Test an genau diesem Fall geprüft.
+
+Projekte anlegen darf, wer das Recht `projekte` hat. Wer in einem Projekt
+`verwalten` ist, darf dort Mitglieder setzen, ohne Verwalter zu sein — sonst
+müsste für jede Kleinigkeit jemand von oben kommen. Den letzten Verwalter eines
+Projekts kann niemand hinauswerfen.
 
 Die Rechte werden **am Server durchgesetzt**, nicht in der Oberfläche: jede
 Brückenmethode hat ein Recht, das sie braucht. Ein Recht, das man mit einem

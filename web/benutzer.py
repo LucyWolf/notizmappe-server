@@ -36,15 +36,27 @@ RECHTE = {
     "anhaenge":  "Bilder und Dateien anhängen",
     "loeschen":  "Löschen und Papierkorb leeren",
     "verlauf":   "Frühere Fassungen und Papierkorb",
+    "projekte":  "Projekte anlegen und verwalten",
     "benutzer":  "Benutzer und Rollen verwalten",
 }
 
 # Mitgeliefert und nicht loeschbar - sonst koennte man sich selbst aussperren.
 FESTE_ROLLEN = {
     "Verwalter": list(RECHTE),
+    "Moderator": ["lesen", "schreiben", "anhaenge", "loeschen", "verlauf", "projekte"],
     "Benutzer":  ["lesen", "schreiben", "anhaenge", "loeschen", "verlauf"],
     "Gast":      ["lesen"],
 }
+
+# Was ein Mitglied in einem Projekt darf. Gilt zusaetzlich zur Rolle - und zwar
+# das Schwaechere von beidem: wer als Gast angemeldet ist, darf auch in einem
+# Projekt nichts schreiben, in dem er "verwalten" hat.
+PROJEKTRECHTE = {
+    "lesen":     ["lesen"],
+    "schreiben": ["lesen", "schreiben", "anhaenge"],
+    "verwalten": ["lesen", "schreiben", "anhaenge", "loeschen", "verlauf"],
+}
+PROJEKT_MUSTER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._-]{1,40}$")
 
 _sperre = threading.RLock()
 
@@ -119,6 +131,11 @@ def _lesen() -> dict:
         if not isinstance(r, dict) or not isinstance(r.get("rechte"), list):
             rollen.pop(name, None)
     roh["rollen"] = rollen
+    if not isinstance(roh.get("projekte"), dict):
+        roh["projekte"] = {}
+    for name, pr in list(roh["projekte"].items()):
+        if not isinstance(pr, dict) or not isinstance(pr.get("mitglieder"), dict):
+            roh["projekte"].pop(name, None)
     # Aeltere Dateien kennen nur "verwalter": ja/nein.
     for name, b in roh["benutzer"].items():
         if not b.get("rolle"):
@@ -176,6 +193,104 @@ def rolle_entfernen(name: str) -> None:
             raise BenutzerFehler(
                 f"Die Rolle haben noch: {', '.join(benutzt)}. Erst umstellen, dann löschen.")
         daten["rollen"].pop(name, None)
+        _schreiben(daten)
+
+
+# --- Projekte: geteilte Bereiche ---------------------------------------------
+#
+# Ein Projekt ist ein eigener Notizordner, an dem mehrere arbeiten. Die privaten
+# Notizen bleiben davon unberuehrt - niemand sieht sie, auch kein Verwalter.
+
+def projektordner(name: str) -> Path:
+    p = datenordner() / "projekte" / _dateiname(name)
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def _dateiname(name: str) -> str:
+    """Aus einem Projektnamen einen Ordnernamen machen - ohne Ueberraschungen."""
+    sauber = re.sub(r"[^A-Za-z0-9 ._-]", "-", (name or "").strip())
+    sauber = sauber.strip(" .") or "Projekt"
+    return sauber[:60]
+
+
+def projekte() -> dict:
+    return _lesen()["projekte"]
+
+
+def projekte_von(benutzer: str) -> list[dict]:
+    """Die Projekte, in denen jemand Mitglied ist - mit seinem Recht darin."""
+    benutzer = (benutzer or "").strip().lower()
+    aus = []
+    for name, pr in sorted(_lesen()["projekte"].items()):
+        recht = pr["mitglieder"].get(benutzer)
+        if recht in PROJEKTRECHTE:
+            aus.append({"name": name, "recht": recht})
+    return aus
+
+
+def projekt_recht(benutzer: str, projekt: str) -> str:
+    for p in projekte_von(benutzer):
+        if p["name"] == projekt:
+            return p["recht"]
+    return ""
+
+
+def projekt_anlegen(name: str, von: str, recht: str = "verwalten") -> str:
+    name = (name or "").strip()
+    if not PROJEKT_MUSTER.match(name):
+        raise BenutzerFehler("Der Projektname darf 2 bis 41 Zeichen haben, "
+                             "Buchstaben, Zahlen, Leerzeichen, Punkt, Minus, Unterstrich")
+    with _sperre:
+        daten = _lesen()
+        if name in daten["projekte"]:
+            raise BenutzerFehler("Ein Projekt mit dem Namen gibt es schon")
+        daten["projekte"][name] = {
+            "angelegt": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "ordner": _dateiname(name),
+            "mitglieder": {(von or "").strip().lower(): recht},
+        }
+        _schreiben(daten)
+    projektordner(name)
+    return name
+
+
+def projekt_entfernen(name: str) -> None:
+    """Nimmt das Projekt aus der Liste. Die Notizen bleiben liegen - Loeschen
+    von Inhalten gehoert nicht in einen Knopf, der "Projekt entfernen" heisst."""
+    with _sperre:
+        daten = _lesen()
+        if name not in daten["projekte"]:
+            raise BenutzerFehler("Das Projekt gibt es nicht")
+        daten["projekte"].pop(name)
+        _schreiben(daten)
+
+
+def mitglied_setzen(projekt: str, benutzer: str, recht: str) -> None:
+    benutzer = (benutzer or "").strip().lower()
+    with _sperre:
+        daten = _lesen()
+        if projekt not in daten["projekte"]:
+            raise BenutzerFehler("Das Projekt gibt es nicht")
+        if benutzer not in daten["benutzer"]:
+            raise BenutzerFehler("Den Benutzer gibt es nicht")
+        if recht not in PROJEKTRECHTE:
+            raise BenutzerFehler("Unbekanntes Recht")
+        daten["projekte"][projekt]["mitglieder"][benutzer] = recht
+        _schreiben(daten)
+
+
+def mitglied_entfernen(projekt: str, benutzer: str) -> None:
+    benutzer = (benutzer or "").strip().lower()
+    with _sperre:
+        daten = _lesen()
+        pr = daten["projekte"].get(projekt)
+        if not pr:
+            raise BenutzerFehler("Das Projekt gibt es nicht")
+        uebrig = [b for b, r in pr["mitglieder"].items() if r == "verwalten" and b != benutzer]
+        if pr["mitglieder"].get(benutzer) == "verwalten" and not uebrig:
+            raise BenutzerFehler("Das ist der letzte, der dieses Projekt verwalten darf")
+        pr["mitglieder"].pop(benutzer, None)
         _schreiben(daten)
 
 
@@ -305,6 +420,10 @@ def entfernen(name: str) -> None:
         if _verwalter_uebrig(daten, ausser=name) == 0:
             raise BenutzerFehler("Das ist der letzte Zugang, der Benutzer verwalten darf")
         del daten["benutzer"][name]
+        # Auch aus den Projekten nehmen - sonst steht dort ein Mitglied, das es
+        # nicht mehr gibt, und niemand weiss, wer das war.
+        for pr in daten["projekte"].values():
+            pr["mitglieder"].pop(name, None)
         _schreiben(daten)
 
 

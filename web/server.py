@@ -176,6 +176,51 @@ def _passt(methode: str, args: list) -> str | None:
     return None
 
 
+def bereich_lesen(name: str) -> str:
+    """In welchem Bereich arbeitet dieser Benutzer gerade?
+
+    "" heisst: in den eigenen Notizen. Sonst der Name eines Projekts. Die Wahl
+    liegt in seinem Konfigordner und ueberlebt damit einen Neustart - sonst
+    staende man nach jedem Update wieder woanders, ohne es zu merken.
+    """
+    try:
+        roh = json.loads((nutzer.konfigordner(name) / "bereich.json").read_text(encoding="utf-8"))
+        gewaehlt = str(roh.get("bereich") or "")
+    except (OSError, ValueError, AttributeError):
+        return ""
+    return gewaehlt if nutzer.projekt_recht(name, gewaehlt) else ""
+
+
+def bereich_setzen(name: str, bereich: str) -> str:
+    bereich = (bereich or "").strip()
+    if bereich and not nutzer.projekt_recht(name, bereich):
+        raise nutzer.BenutzerFehler("In diesem Projekt bist du nicht")
+    (nutzer.konfigordner(name) / "bereich.json").write_text(
+        json.dumps({"bereich": bereich}), encoding="utf-8")
+    return bereich
+
+
+def arbeitsordner(name: str) -> Path:
+    bereich = bereich_lesen(name)
+    return nutzer.projektordner(bereich) if bereich else nutzer.notizordner(name)
+
+
+def rechte_hier(name: str) -> set:
+    """Was jemand im gerade gewaehlten Bereich darf.
+
+    In einem Projekt gilt das Schwaechere von Rolle und Mitgliedsrecht: wer als
+    Gast angemeldet ist, darf auch in einem Projekt nichts schreiben, in dem er
+    "verwalten" hat - und umgekehrt bringt eine maechtige Rolle nichts, wenn man
+    im Projekt nur lesen darf.
+    """
+    rolle = nutzer.rechte_von(name)
+    bereich = bereich_lesen(name)
+    if not bereich:
+        return rolle
+    recht = nutzer.projekt_recht(name, bereich)
+    return rolle & set(nutzer.PROJEKTRECHTE.get(recht, []))
+
+
 def _ausfuehren(name: str, methode: str, args: list):
     """Eine Bruecken-Methode fuer einen Benutzer laufen lassen.
 
@@ -186,7 +231,7 @@ def _ausfuehren(name: str, methode: str, args: list):
     Desktop-Programm auskommt.
     """
     with _arbeit:
-        os.environ["NOTIZEN_ORDNER"] = str(nutzer.notizordner(name))
+        os.environ["NOTIZEN_ORDNER"] = str(arbeitsordner(name))
         os.environ["NOTIZMAPPE_KONFIG"] = str(nutzer.konfigordner(name))
         return getattr(BRUECKE, methode)(*args)
 
@@ -402,12 +447,12 @@ def anhang(bitte: Request, notizbuch: str = "", abschnitt: str = "",
     wer = angemeldet(bitte)
     if not wer:
         return RedirectResponse("/anmelden", status_code=303)
-    if "lesen" not in nutzer.rechte_von(wer):
+    if "lesen" not in rechte_hier(wer):
         return JSONResponse({"fehler": "Dafür fehlt deiner Rolle das Recht zum Lesen."},
                             status_code=403)
     try:
         with _arbeit:
-            os.environ["NOTIZEN_ORDNER"] = str(nutzer.notizordner(wer))
+            os.environ["NOTIZEN_ORDNER"] = str(arbeitsordner(wer))
             os.environ["NOTIZMAPPE_KONFIG"] = str(nutzer.konfigordner(wer))
             pfad = speicher.anhang_lesen(notizbuch, abschnitt, name, datei)
             inhalt = speicher.anhang_inhalt(notizbuch, abschnitt, name, datei)
@@ -475,6 +520,71 @@ def fassung(bitte: Request):
     return stand
 
 
+@app.get("/bereiche")
+def bereiche(bitte: Request):
+    """Wo dieser Benutzer arbeiten kann: eigene Notizen und seine Projekte."""
+    wer = angemeldet(bitte)
+    if not wer:
+        return JSONResponse({"fehler": "Nicht angemeldet"}, status_code=401)
+    return {"jetzt": bereich_lesen(wer), "projekte": nutzer.projekte_von(wer),
+            "rechte_hier": sorted(rechte_hier(wer))}
+
+
+@app.post("/bereich")
+async def bereich_wechseln(bitte: Request):
+    wer = angemeldet(bitte)
+    if not wer:
+        return JSONResponse({"fehler": "Nicht angemeldet"}, status_code=401)
+    if bitte.headers.get("x-notizmappe") != "1":
+        return JSONResponse({"fehler": "Falscher Aufruf"}, status_code=400)
+    d = _rumpf(await bitte.json() if await bitte.body() else {})
+    try:
+        jetzt = bereich_setzen(wer, str(d.get("bereich") or ""))
+    except nutzer.BenutzerFehler as f:
+        return JSONResponse({"fehler": str(f)}, status_code=400)
+    return {"jetzt": jetzt}
+
+
+@app.post("/verwaltung/projekt")
+async def verwaltung_projekt(bitte: Request):
+    """Projekte anlegen, Mitglieder setzen, entfernen."""
+    wer = angemeldet(bitte)
+    if not wer:
+        return JSONResponse({"fehler": "Nicht angemeldet"}, status_code=401)
+    if bitte.headers.get("x-notizmappe") != "1":
+        return JSONResponse({"fehler": "Falscher Aufruf"}, status_code=400)
+    d = _rumpf(await bitte.json() if await bitte.body() else {})
+    was = str(d.get("was") or "")
+    projekt = str(d.get("projekt") or "")
+    meine = nutzer.rechte_von(wer)
+
+    # Anlegen darf, wer "Projekte verwalten" hat. Innerhalb eines Projekts darf
+    # auch, wer dort "verwalten" ist - sonst muesste fuer jede Kleinigkeit ein
+    # Verwalter kommen.
+    darf_hier = "projekte" in meine or nutzer.projekt_recht(wer, projekt) == "verwalten"
+    try:
+        if was == "anlegen":
+            if "projekte" not in meine:
+                return JSONResponse({"fehler": "Dafür fehlt dir das Recht, Projekte anzulegen."},
+                                    status_code=403)
+            nutzer.projekt_anlegen(str(d.get("name") or ""), wer)
+        elif not darf_hier:
+            return JSONResponse({"fehler": "Dieses Projekt darfst du nicht verwalten."},
+                                status_code=403)
+        elif was == "mitglied":
+            nutzer.mitglied_setzen(projekt, str(d.get("benutzer") or ""),
+                                   str(d.get("recht") or ""))
+        elif was == "mitglied-raus":
+            nutzer.mitglied_entfernen(projekt, str(d.get("benutzer") or ""))
+        elif was == "entfernen":
+            nutzer.projekt_entfernen(projekt)
+        else:
+            return JSONResponse({"fehler": "Unbekannt"}, status_code=400)
+    except nutzer.BenutzerFehler as f:
+        return JSONResponse({"fehler": str(f)}, status_code=400)
+    return {"ok": True}
+
+
 @app.get("/verwaltung")
 def verwaltung(bitte: Request):
     """Alles, was der Abschnitt in den Einstellungen braucht - als JSON."""
@@ -482,16 +592,20 @@ def verwaltung(bitte: Request):
     if not wer:
         return JSONResponse({"fehler": "Nicht angemeldet"}, status_code=401)
     meine = sorted(nutzer.rechte_von(wer))
-    if "benutzer" not in meine:
+    if "benutzer" not in meine and "projekte" not in meine:
         # Kein Verwalter: nur die eigene Lage, damit die Oberflaeche weiss,
         # dass sie den Abschnitt gar nicht erst zeigen muss.
         return {"darf": False, "ich": wer, "meine_rechte": meine}
     return {
-        "darf": True, "ich": wer, "meine_rechte": meine,
+        "darf": "benutzer" in meine, "ich": wer, "meine_rechte": meine,
         "benutzer": nutzer.liste(),
         "rollen": [{"name": n, "rechte": r["rechte"], "fest": bool(r.get("fest"))}
                    for n, r in sorted(nutzer.rollen().items())],
         "rechte": nutzer.RECHTE,
+        "projekte": [{"name": n, "mitglieder": pr["mitglieder"]}
+                     for n, pr in sorted(nutzer.projekte().items())],
+        "projektrechte": list(nutzer.PROJEKTRECHTE),
+        "darf_projekte": "projekte" in nutzer.rechte_von(wer),
     }
 
 
@@ -650,7 +764,7 @@ async def bruecke(methode: str, bitte: Request):
                        f"im Image steckt Notizmappe {DESKTOP_FASSUNG}."},
             status_code=501)
     noetig = RECHT_JE_METHODE.get(methode, "lesen")
-    if methode in ERLAUBT and noetig not in nutzer.rechte_von(name):
+    if methode in ERLAUBT and noetig not in rechte_hier(name):
         return JSONResponse(
             {"fehler": f"Dafür fehlt deiner Rolle das Recht „{nutzer.RECHTE.get(noetig, noetig)}“."},
             status_code=403)
@@ -701,6 +815,12 @@ def _antwort(name: str, methode: str, rumpf: dict):
         return {"fehler": "Diese Notizen sind mit der Sperre des Desktop-Programms "
                           "verschlüsselt. Am Server lässt sie sich nicht öffnen - "
                           "dort abschalten oder einen anderen Ordner verwenden."}
+    # Wo die Dateien auf dem Server liegen, geht den Browser nichts an - das
+    # ist eine Auskunft ueber den Rechner, nicht ueber die Notizen.
+    if isinstance(aus, dict) and isinstance(aus.get("ordner"), str):
+        bereich = bereich_lesen(name)
+        aus = dict(aus)
+        aus["ordner"] = f"Projekt: {bereich}" if bereich else f"Server: {name}"
     if methode == "einstellungen" and isinstance(aus, dict):
         aus = dict(aus)
         # Die Oberflaeche richtet sich danach: nicht am selben Rechner, also kein

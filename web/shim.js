@@ -139,8 +139,14 @@
       wer.textContent = 'Angemeldet als ' + d.ich
         + (d.meine_rechte ? ' · darf: ' + d.meine_rechte.join(', ') : '');
     }
-    abschnitt.hidden = !d.darf;
-    if (!d.darf) return;
+    abschnitt.hidden = !(d.darf || d.darf_projekte || (d.projekte || []).length);
+    const nurprojekte = !d.darf;
+    for (const id of ['v-benutzer', 'v-rollen']) {
+      const k = document.getElementById(id);
+      if (k) k.hidden = nurprojekte;
+    }
+    zeichneProjekte(d);
+    if (!d.darf) return;            // Projekte darf man auch ohne Benutzerverwaltung sehen
     zeichneBenutzer(d);
     zeichneRollen(d);
   }
@@ -182,6 +188,71 @@
         el('span', { textContent: b.name + (b.name === d.ich ? ' (du)' : '')
           + (b.zuletzt ? ' · zuletzt ' + b.zuletzt : ' · noch nie angemeldet') }),
         el('span', {}, [auswahl, neuespw, ...(b.name === d.ich ? [] : [raus])]),
+      ]));
+    }
+  }
+
+  function zeichneProjekte(d) {
+    const wo = document.getElementById('v-projekte');
+    if (!wo) return;
+    wo.textContent = '';
+    for (const pr of d.projekte || []) {
+      const meins = pr.mitglieder[d.ich];
+      const darf = d.darf_projekte || meins === 'verwalten';
+      const zeilen = Object.entries(pr.mitglieder).map(([wer, recht]) => {
+        const auswahl = el('select', {});
+        for (const r of d.projektrechte) {
+          auswahl.append(el('option', { value: r, textContent: r, selected: r === recht }));
+        }
+        auswahl.disabled = !darf;
+        auswahl.addEventListener('change', async () => {
+          try {
+            await hol('/verwaltung/projekt', { was: 'mitglied', projekt: pr.name,
+                                               benutzer: wer, recht: auswahl.value });
+            verwaltungLaden();
+          } catch (f) { sagen(f.message); verwaltungLaden(); }
+        });
+        const raus = el('button', { type: 'button', textContent: 'raus' });
+        raus.disabled = !darf;
+        raus.addEventListener('click', async () => {
+          try {
+            await hol('/verwaltung/projekt', { was: 'mitglied-raus', projekt: pr.name, benutzer: wer });
+            verwaltungLaden();
+          } catch (f) { sagen(f.message); }
+        });
+        return el('p', { className: 'zeile2' }, [
+          el('span', { textContent: wer }), el('span', {}, [auswahl, raus])]);
+      });
+
+      const dazu = el('select', {});
+      for (const b of d.benutzer || []) {
+        if (!(b.name in pr.mitglieder)) dazu.append(el('option', { value: b.name, textContent: b.name }));
+      }
+      const dazuRecht = el('select', {});
+      for (const r of d.projektrechte) dazuRecht.append(el('option', { value: r, textContent: r }));
+      const dazuKnopf = el('button', { type: 'button', textContent: 'dazunehmen' });
+      dazuKnopf.disabled = !darf;
+      dazuKnopf.addEventListener('click', async () => {
+        try {
+          await hol('/verwaltung/projekt', { was: 'mitglied', projekt: pr.name,
+                                             benutzer: dazu.value, recht: dazuRecht.value });
+          verwaltungLaden();
+        } catch (f) { sagen(f.message); }
+      });
+      const weg = el('button', { type: 'button', textContent: 'Projekt entfernen' });
+      weg.disabled = !darf;
+      weg.addEventListener('click', async () => {
+        if (!confirm(`Projekt „${pr.name}" entfernen? Die Notizen darin bleiben liegen.`)) return;
+        try {
+          await hol('/verwaltung/projekt', { was: 'entfernen', projekt: pr.name });
+          verwaltungLaden();
+        } catch (f) { sagen(f.message); }
+      });
+      wo.append(el('div', { className: 'rollenkasten' }, [
+        el('strong', { textContent: pr.name + (meins ? ` — du: ${meins}` : '') }),
+        ...zeilen,
+        el('p', { className: 'ordnerzeile' }, [dazu, dazuRecht, dazuKnopf]),
+        el('p', { className: 'knoepfe' }, [weg]),
       ]));
     }
   }
@@ -248,6 +319,54 @@
       if (kind.tagName !== 'H3') kind.remove();
     }
     abschnitt.append(el('p', { className: 'hinweis', textContent: text }));
+  }
+
+  /* --- Bereich: eigene Notizen oder ein Projekt ---------------------------
+   *
+   * Am Desktop gibt es das nicht - dort ist der Datenordner der Bereich. Hier
+   * steht die Wahl oben im Band, weil man sie immer sehen muss: wer nicht
+   * weiß, in welchem Bereich er schreibt, schreibt irgendwann ins falsche.
+   */
+  async function bereicheLaden() {
+    const wahl = document.getElementById('bereichwahl');
+    if (!wahl) return;
+    let d;
+    try { d = await hol('/bereiche'); } catch (f) { return; }
+    wahl.textContent = '';
+    wahl.append(el('option', { value: '', textContent: 'Meine Notizen',
+                               selected: !d.jetzt }));
+    for (const p of d.projekte || []) {
+      wahl.append(el('option', { value: p.name, selected: p.name === d.jetzt,
+                                 textContent: `Projekt: ${p.name} (${p.recht})` }));
+    }
+    wahl.hidden = !(d.projekte || []).length;
+    const anzeige = document.getElementById('bereichjetzt');
+    if (anzeige) {
+      anzeige.textContent = d.jetzt ? `Projekt: ${d.jetzt}` : 'Meine Notizen';
+      anzeige.classList.toggle('improjekt', !!d.jetzt);
+    }
+  }
+
+  function bereichBauen() {
+    const band = document.querySelector('#band #reiter .bandrechts');
+    if (!band || document.getElementById('bereichwahl')) return;
+    const anzeige = el('span', { id: 'bereichjetzt', textContent: 'Meine Notizen' });
+    const wahl = el('select', { id: 'bereichwahl', title: 'Wo arbeitest du gerade?' });
+    wahl.addEventListener('change', async () => {
+      try {
+        await hol('/bereich', { bereich: wahl.value });
+        location.reload();          // der ganze Baum ist ein anderer
+      } catch (f) { alert(f.message); }
+    });
+    band.insertBefore(wahl, band.firstChild);
+    band.insertBefore(anzeige, band.firstChild);
+    const stil = document.createElement('style');
+    stil.textContent = `
+      #bereichjetzt { font-size: 12px; color: var(--matt); }
+      #bereichjetzt.improjekt { color: var(--akzent); font-weight: 600; }
+      #bereichwahl { height: 26px; border: 1px solid var(--linie); border-radius: 6px;
+        background: var(--papier); color: var(--schrift); font-size: 12px; max-width: 220px; }`;
+    document.head.append(stil);
   }
 
   function kontoseite() {
@@ -354,6 +473,18 @@
       } catch (f) { sagen(f.message); }
     });
 
+    const projektName = el('input', { type: 'text', placeholder: 'Name des neuen Projekts' });
+    const projektAnlegen = el('button', { type: 'button', textContent: 'Projekt anlegen' });
+    projektAnlegen.addEventListener('click', async () => {
+      try {
+        await hol('/verwaltung/projekt', { was: 'anlegen', name: projektName.value });
+        sagen(`Projekt „${projektName.value}" angelegt - du bist darin Verwalter.`);
+        projektName.value = '';
+        verwaltungLaden();
+        bereicheLaden();
+      } catch (f) { sagen(f.message); }
+    });
+
     const rollenName = el('input', { type: 'text', placeholder: 'Name der neuen Rolle' });
     const rollenRechte = el('div', { className: 'rechte' });
     const rollenAnlegen = el('button', { type: 'button', textContent: 'Rolle anlegen' });
@@ -372,6 +503,13 @@
       el('div', { id: 'v-benutzer' }),
       el('p', { className: 'ordnerzeile' }, [neuerName, neuesPw, neueRolle]),
       el('p', { className: 'knoepfe' }, [anlegen]),
+      el('h3', { textContent: 'Projekte', style: 'margin-top:14px' }),
+      el('p', { className: 'hinweis', textContent:
+        'Ein Projekt ist ein geteilter Bereich mit eigenen Notizbüchern. Umgeschaltet '
+        + 'wird oben im Band. Private Notizen bleiben privat - dort kommt niemand hinein, '
+        + 'auch kein Verwalter.' }),
+      el('div', { id: 'v-projekte' }),
+      el('p', { className: 'ordnerzeile' }, [projektName, projektAnlegen]),
       el('h3', { textContent: 'Rollen', style: 'margin-top:14px' }),
       el('div', { id: 'v-rollen' }),
       el('p', { className: 'ordnerzeile' }, [rollenName]),
@@ -418,6 +556,8 @@
   window.addEventListener('DOMContentLoaded', function () {
     einstellungenAnpassen();
     abschnittBauen();
+    bereichBauen();
+    bereicheLaden();
     verwaltungLaden();
     const zahnrad = document.getElementById('zahnrad');
     if (zahnrad) zahnrad.addEventListener('click', function () { setTimeout(verwaltungLaden, 50); });
