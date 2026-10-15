@@ -12,6 +12,7 @@ on:
 
 permissions:
   contents: write
+  actions: write          # um den Imagebau anzustossen, siehe unten
 
 jobs:
   nachziehen:
@@ -42,3 +43,14 @@ jobs:
           unveraendert. Zieht der Desktop weiter, muss der Server mitgehen -
           sonst sehen die beiden Fassungen unterschiedlich aus."
           git push
+
+      # Ein Push, den ein Workflow mit dem eingebauten Token macht, loest keine
+      # weiteren Workflows aus - GitHub verhindert so Endlosschleifen. Ohne die
+      # naechste Zeile wuerde also die Fassungsnummer nachgezogen und das Image
+      # bliebe stehen: die Serverfassung saehe weiter alt aus, und niemand
+      # merkte es. Genau das ist beim ersten Lauf passiert.
+      - name: Imagebau anstossen
+        if: steps.f.outputs.neu != steps.f.outputs.alt && steps.f.outputs.neu != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run image.yml --ref master
