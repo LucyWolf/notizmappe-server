@@ -587,7 +587,13 @@ def oberflaeche(datei: str):
     typ = MITGELIEFERT.get(datei)
     if not typ:
         return JSONResponse({"fehler": "Gibt es nicht"}, status_code=404)
-    return FileResponse(OBERFLAECHE / datei, media_type=typ)
+    # "no-cache" heisst nicht "nicht speichern", sondern "vorher nachfragen":
+    # der Browser behaelt die Datei, holt sie aber nur neu, wenn sie sich
+    # geaendert hat (FileResponse schickt dafuer ETag und Datum mit). Ohne das
+    # kann nach einem Update des Images noch tagelang die alte Oberflaeche im
+    # Fenster stehen - und niemand versteht, warum eine Aenderung nicht ankommt.
+    return FileResponse(OBERFLAECHE / datei, media_type=typ,
+                        headers={"Cache-Control": "no-cache"})
 
 
 # --- Die Bruecke -------------------------------------------------------------

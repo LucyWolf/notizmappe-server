@@ -335,6 +335,19 @@ pruefe("Und nicht entfernen",
        verwalte(k, "/verwaltung/benutzer", {"was": "entfernen", "name": "lucy"}).status_code == 400)
 pruefe("lucy ist noch Verwalter", "benutzer" in server.nutzer.rechte_von("lucy"))
 
+# --- Keine alte Oberfläche aus dem Zwischenspeicher --------------------------
+print("\nZwischenspeicher")
+a = k.get("/mappe.js")
+pruefe("mappe.js wird vor dem Benutzen nachgefragt",
+       "no-cache" in a.headers.get("cache-control", ""), a.headers.get("cache-control"))
+pruefe("Und bringt eine Kennung mit, damit das billig bleibt",
+       bool(a.headers.get("etag") or a.headers.get("last-modified")), dict(a.headers))
+b2 = k.get("/mappe.js", headers={"If-None-Match": a.headers.get("etag", "")})
+pruefe("Unveraendert kommt nur ein kurzes 'passt schon'",
+       b2.status_code in (200, 304), b2.status_code)
+pruefe("Die Seite selbst wird nie zwischengespeichert",
+       "no-store" in k.get("/").headers.get("cache-control", ""))
+
 # --- Die Einstellungen passen zum Server -------------------------------------
 print("\nEinstellungen")
 d = gast2.get("/verwaltung").json()
