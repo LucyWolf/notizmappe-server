@@ -232,7 +232,10 @@
    * warum - ein Knopf, der nichts tut, ist schlimmer als keiner, aber ein
    * Abschnitt, der kommentarlos fehlt, lässt einen suchen. */
   function abschnittSuchen(ueberschrift) {
-    for (const s of document.querySelectorAll('#einstellungen .tafel section')) {
+    // Seit die Einstellungen in der Datei-Ebene stehen, liegt "Version" unter
+    // Informationen und der Rest unter Optionen - also an beiden Stellen suchen.
+    for (const s of document.querySelectorAll(
+        '#einstellungen .tafel section, #einstellungen-oben section')) {
       const h = s.querySelector('h3');
       if (h && h.textContent.trim() === ueberschrift) return s;
     }
@@ -265,7 +268,7 @@
         'Diese Notizmappe läuft auf einem Server. Jeder Zugang hat seinen eigenen '
         + 'Notizordner und sieht nur die eigenen Seiten.' }),
     ]);
-    tafel.insertBefore(kopf, tafel.querySelector('section'));
+    tafel.insertBefore(kopf, tafel.firstChild);
 
     stattdessen(abschnittSuchen('Aus OneNote übernehmen'),
       'Geht nur am eigenen Rechner: zum Einlesen muss die Datei über einen '
