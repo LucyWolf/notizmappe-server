@@ -44,6 +44,11 @@ def pruefe(was, bedingung, extra=""):
         fehler.append(was)
 
 
+def klient_roh(klient, methode, args):
+    return klient.post(f"/bruecke/{methode}", json={"args": args},
+                       headers={"X-Notizmappe": "1"})
+
+
 def ruf(klient, methode, *args):
     a = klient.post(f"/bruecke/{methode}", json={"args": list(args)},
                     headers={"X-Notizmappe": "1"})
@@ -171,6 +176,57 @@ a = g.get("/anhang", params={"notizbuch": buch, "abschnitt": absch, "name": seit
 pruefe("Der Gast bekommt den Anhang nicht", a.status_code == 404)
 anonym = TestClient(server.app, follow_redirects=False)
 pruefe("Ohne Anmeldung gar nichts", anonym.get("/anhang").status_code == 303)
+
+# --- Unsinn an der Brücke ----------------------------------------------------
+print("\nUnsinn über das Netz")
+lage, a = ruf(k, "versionen", 1, 2, 3, 4, 5, 6, 7, 8)
+pruefe("Zu viele Werte: klare Meldung", "Ungültiger Aufruf" in a.get("fehler", ""), a)
+pruefe("Und die Signatur wird nicht verraten", "Bruecke." not in str(a), a)
+lage, a = ruf(k, "versionen")
+pruefe("Zu wenige Werte: klare Meldung", "Ungültiger Aufruf" in a.get("fehler", ""), a)
+schlimm = []
+for methode in sorted(server.ERLAUBT):
+    for wert in (None, 42, [[[1]]], {"a": 1}, "\x00", "../../etc/passwd", True, 1e308):
+        for args in ([wert], [wert] * 3):
+            antwort = klient_roh(k, methode, args)
+            if antwort.status_code >= 500 or "wo" in (antwort.json() if antwort.headers.get("content-type","").startswith("application/json") else {}):
+                schlimm.append(f"{methode} {str(args)[:30]}")
+pruefe("Keine Methode fällt bei Unsinn um", not schlimm, ", ".join(schlimm[:5]))
+
+# --- Bremse: der eigene Zugang darf nicht fremdverriegelt werden -------------
+print("\nBremse")
+server.nutzer.anlegen("bremse", "bremsepasswort")
+fremder = TestClient(server.app, follow_redirects=False, client=("203.0.113.9", 1))
+for _ in range(10):
+    fremder.post("/anmelden", data={"name": "bremse", "passwort": "falsch"})
+eigen = TestClient(server.app, follow_redirects=False, client=("192.168.1.5", 2))
+a = eigen.post("/anmelden", data={"name": "bremse", "passwort": "bremsepasswort"})
+pruefe("Ein Fremder kann niemanden aussperren", a.headers.get("location") == "/", a.headers.get("location"))
+a = fremder.post("/anmelden", data={"name": "bremse", "passwort": "bremsepasswort"})
+pruefe("Der Fremde selbst bleibt gebremst", "Versuche" in a.headers.get("location", ""))
+for i in range(server.MAX_BREMSE + 500):
+    server.fehlversuch(f"9.9.9.9|name{i}")
+pruefe("Die Bremse wächst nicht unbegrenzt", len(server._fehlversuche) <= server.MAX_BREMSE,
+       len(server._fehlversuche))
+
+# --- Passwortwechsel beendet offene Sitzungen --------------------------------
+print("\nPasswortwechsel")
+server.nutzer.anlegen("wechsel", "erstespasswort")
+drin = TestClient(server.app, follow_redirects=False)
+drin.post("/anmelden", data={"name": "wechsel", "passwort": "erstespasswort"})
+pruefe("Vorher drin", drin.get("/").status_code == 200)
+server.nutzer.passwort_setzen("wechsel", "zweitespasswort")
+pruefe("Nach dem Wechsel draußen", drin.get("/").status_code == 303)
+pruefe("Und auch nicht mehr an der Brücke", ruf(drin, "baum")[0] == 401)
+wieder = TestClient(server.app, follow_redirects=False)
+wieder.post("/anmelden", data={"name": "wechsel", "passwort": "zweitespasswort"})
+pruefe("Mit dem neuen Passwort geht es wieder", wieder.get("/").status_code == 200)
+
+# --- Der Stellvertreter springt nicht weg ------------------------------------
+shim = (WURZEL / "web/shim.js").read_text(encoding="utf-8")
+ohne_kommentare = "\n".join(z for z in shim.splitlines() if not z.strip().startswith("//"))
+pruefe("Downloads springen nicht auf die Fehlerseite",
+       "location.assign" not in ohne_kommentare and "fetch('/anhang" in shim)
 
 # --- Verlauf und Papierkorb am Server ----------------------------------------
 print("\nVerlauf und Papierkorb")

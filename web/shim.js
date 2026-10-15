@@ -39,13 +39,39 @@
    * Benutzer öffnen oder speichern. Am Desktop macht das bruecke.py mit dem
    * Dialog des Systems - hier wird daraus ein Download. Die Oberfläche merkt
    * davon nichts, sie bekommt wie immer {ok: true} zurück. */
-  function herunterladen(args) {
+  async function herunterladen(args) {
     const felder = new URLSearchParams({
       notizbuch: args[0] || '', abschnitt: args[1] || '',
       name: args[2] || '', datei: args[3] || '',
     });
-    location.assign('/anhang?' + felder.toString());
-    return { ok: true, ziel: 'Download' };
+    // Nicht location.assign: geht dabei etwas schief, springt der Browser auf
+    // die Fehlermeldung und ersetzt damit die ganze Seite - samt allem, was
+    // noch nicht gespeichert war. Also holen, und erst dann anbieten.
+    let antwort;
+    try {
+      antwort = await fetch('/anhang?' + felder.toString(), { credentials: 'same-origin' });
+    } catch (f) {
+      return { fehler: 'Der Anhang ließ sich nicht holen: ' + f.message };
+    }
+    if (!antwort.ok) {
+      let text = 'Der Anhang ließ sich nicht holen (' + antwort.status + ')';
+      try {
+        const d = await antwort.json();
+        if (d && d.fehler) text = d.fehler;
+      } catch (f) { /* dann der Satz von oben */ }
+      return { fehler: text };
+    }
+    const brocken = await antwort.blob();
+    const adresse = URL.createObjectURL(brocken);
+    const verweis = document.createElement('a');
+    verweis.href = adresse;
+    verweis.download = args[3] || 'anhang';
+    document.body.append(verweis);
+    verweis.click();
+    verweis.remove();
+    // Die Adresse haelt den Inhalt im Speicher fest, bis man sie freigibt.
+    setTimeout(function () { URL.revokeObjectURL(adresse); }, 30000);
+    return { ok: true, ziel: verweis.download };
   }
 
   const SELBST = {

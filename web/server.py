@@ -17,6 +17,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import inspect
 import json
 import os
 import sys
@@ -120,6 +121,24 @@ def _args_pruefen(roh) -> list:
     return [tief(w) for w in roh]
 
 
+def _passt(methode: str, args: list) -> str | None:
+    """Passt die Anzahl der Werte zur Methode?
+
+    Ohne diese Pruefung faengt die Bruecke den TypeError ab und schickt ihn
+    wortwoertlich zurueck - mitsamt dem Namen der Methode und der Zahl ihrer
+    Werte. Das ist eine Auskunft ueber das Innere des Programms, die niemanden
+    etwas angeht, und als Meldung ist sie auch nichts wert.
+    """
+    sig = inspect.signature(getattr(BRUECKE, methode))
+    stellen = [p for p in sig.parameters.values()
+               if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)]
+    noetig = [p for p in stellen if p.default is p.empty]
+    if not len(noetig) <= len(args) <= len(stellen):
+        return (f"Der Aufruf erwartet {len(noetig)} bis {len(stellen)} Werte, "
+                f"bekommen hat er {len(args)}")
+    return None
+
+
 def _ausfuehren(name: str, methode: str, args: list):
     """Eine Bruecken-Methode fuer einen Benutzer laufen lassen.
 
@@ -144,15 +163,15 @@ def _unterschreiben(text: str) -> str:
 
 def keks_bauen(name: str) -> str:
     ablauf = int(time.time()) + SITZUNG_TAGE * 24 * 3600
-    kern = f"{name}:{ablauf}"
+    kern = f"{name}:{ablauf}:{nutzer.sitzungsmarke(name)}"
     return f"{kern}:{_unterschreiben(kern)}"
 
 
 def keks_lesen(wert: str | None) -> str | None:
-    if not wert or wert.count(":") != 2:
-        return None
-    name, ablauf, unterschrift = wert.split(":")
-    kern = f"{name}:{ablauf}"
+    if not wert or wert.count(":") != 3:
+        return None                         # auch alte Kekse ohne Marke
+    name, ablauf, marke, unterschrift = wert.split(":")
+    kern = f"{name}:{ablauf}:{marke}"
     if not hmac.compare_digest(unterschrift, _unterschreiben(kern)):
         return None
     try:
@@ -162,6 +181,11 @@ def keks_lesen(wert: str | None) -> str | None:
         return None
     if name not in {b["name"] for b in nutzer.liste()}:
         return None                         # Zugang entfernt: Keks gilt nicht mehr
+    # Und: gehoert der Keks noch zum jetzigen Passwort? Nach einem Wechsel
+    # sollen offene Sitzungen enden - das ist der Sinn eines Wechsels.
+    jetzige = nutzer.sitzungsmarke(name)
+    if not jetzige or not hmac.compare_digest(marke, jetzige):
+        return None
     return name
 
 
@@ -175,7 +199,30 @@ def keks_setzen(antwort: Response, name: str) -> None:
 
 
 # --- Bremse gegen Durchprobieren --------------------------------------------
+#
+# Gezaehlt wird je **Herkunft und Name**, nicht je Name allein. Sonst kann ein
+# Fremder jemanden aus dem eigenen Zugang aussperren, indem er oft genug mit
+# dessen Namen danebenliegt - er braucht das Passwort gar nicht zu erraten, nur
+# die Geduld. Genau das ist beim Durchprobieren herausgekommen.
 _fehlversuche: dict[str, list] = {}
+MAX_BREMSE = 2000               # mehr Eintraege nicht; sonst waere das Fuellen
+                                # dieses Woerterbuchs selbst der Angriff
+
+
+def bremsschluessel(bitte: Request, name: str) -> str:
+    herkunft = bitte.client.host if bitte.client else "?"
+    return f"{herkunft}|{(name or '').strip().lower()}"
+
+
+def _aufraeumen() -> None:
+    """Abgelaufene Eintraege wegwerfen, und notfalls die aeltesten dazu."""
+    jetzt = time.time()
+    for schluessel, (_, bis) in list(_fehlversuche.items()):
+        if bis + 3600 < jetzt:
+            _fehlversuche.pop(schluessel, None)
+    while len(_fehlversuche) > MAX_BREMSE:
+        aeltester = min(_fehlversuche, key=lambda k: _fehlversuche[k][1])
+        _fehlversuche.pop(aeltester, None)
 
 
 def gebremst(wer: str) -> int:
@@ -192,6 +239,7 @@ def fehlversuch(wer: str) -> None:
     # 1-3 Versuche frei, danach steigend bis 5 Minuten
     wartezeit = 0 if anzahl <= 3 else min(300, 5 * 2 ** (anzahl - 4))
     _fehlversuche[wer] = [anzahl, time.time() + wartezeit]
+    _aufraeumen()
 
 
 def geklappt(wer: str) -> None:
@@ -224,12 +272,12 @@ def anmeldeseite(bitte: Request, fehler: str = ""):
 
 @app.post("/anmelden")
 def anmelden(bitte: Request, name: str = Form(""), passwort: str = Form("")):
-    wer = (name or "").strip().lower()
+    wer = bremsschluessel(bitte, name)
     warte = gebremst(wer)
     if warte:
         return RedirectResponse(f"/anmelden?fehler=Zu+viele+Versuche.+Bitte+{warte}+Sekunden+warten.",
                                 status_code=303)
-    b = nutzer.pruefen(wer, passwort)
+    b = nutzer.pruefen(name, passwort)
     if not b:
         fehlversuch(wer)
         # Nicht sagen, ob der Name oder das Passwort falsch war: sonst ist die
@@ -457,6 +505,9 @@ def _antwort(name: str, methode: str, rumpf: dict):
         args = _args_pruefen(rumpf.get("args") or [])
     except ValueError as f:
         return {"fehler": f"Ungültiger Aufruf: {f}"}
+    schief = _passt(methode, args)
+    if schief:
+        return {"fehler": f"Ungültiger Aufruf: {schief}"}
     try:
         aus = _ausfuehren(name, methode, args)
     except TypeError as f:

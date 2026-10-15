@@ -170,6 +170,23 @@ def entfernen(name: str) -> None:
         _schreiben(daten)
 
 
+def sitzungsmarke(name: str) -> str:
+    """Kurzes Kennzeichen des aktuellen Passworts eines Benutzers.
+
+    Steht mit im Sitzungs-Keks. Aendert sich das Passwort, aendert sich die
+    Marke - und alle offenen Sitzungen gelten nicht mehr. Ohne das bliebe
+    jemand, der hineingekommen ist, auch nach dem Passwortwechsel drin; und
+    genau dann wechselt man es ja.
+
+    Der Hash selbst steht nicht im Keks, nur ein davon abgeleitetes Kuerzel.
+    """
+    b = _lesen()["benutzer"].get((name or "").strip().lower())
+    if not b:
+        return ""
+    roh = hashlib.sha256((b.get("hash", "") + b.get("salz", "")).encode("utf-8")).hexdigest()
+    return roh[:10]
+
+
 def geheimnis() -> bytes:
     """Der Schluessel, mit dem Sitzungs-Kekse unterschrieben werden. Liegt im
     Datenordner, damit eine Anmeldung einen Neustart ueberlebt."""
