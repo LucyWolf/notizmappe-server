@@ -172,6 +172,25 @@ pruefe("Der Gast bekommt den Anhang nicht", a.status_code == 404)
 anonym = TestClient(server.app, follow_redirects=False)
 pruefe("Ohne Anmeldung gar nichts", anonym.get("/anhang").status_code == 303)
 
+# --- Verlauf und Papierkorb am Server ----------------------------------------
+print("\nVerlauf und Papierkorb")
+lage, v = ruf(k, "versionen", buch, absch, seite)
+pruefe("Versionen lassen sich abfragen", lage == 200 and "versionen" in v, v)
+lage, korb = ruf(k, "papierkorb")
+pruefe("Papierkorb lässt sich abfragen", lage == 200 and "eintraege" in korb, korb)
+lage, _ = ruf(k, "onenote_einlesen", {})
+pruefe("OneNote-Einlesen bleibt gesperrt (bräuchte einen Dateidialog)", lage == 403)
+
+# Und die Trennung gilt auch hier: der Gast sieht den Papierkorb von lucy nicht.
+ruf(k, "loeschen", "seite", [buch, absch, seite])
+lage, meiner = ruf(k, "papierkorb")
+lage, gastkorb = ruf(g, "papierkorb")
+pruefe("Der Gast sieht den Papierkorb von lucy nicht",
+       len(gastkorb.get("eintraege", [])) == 0 and len(meiner.get("eintraege", [])) > 0,
+       (meiner, gastkorb))
+lage, _ = ruf(k, "papierkorb_zurueck", {"eintrag": meiner["eintraege"][0]["eintrag"]})
+pruefe("Zurückholen geht am Server", lage == 200 and "fehler" not in _, _)
+
 # --- Eine verschluesselte Mappe ---------------------------------------------
 print("\nVerschlüsselte Mappe (Sperre vom Desktop)")
 sys.path.insert(0, str(DESKTOP / "app"))

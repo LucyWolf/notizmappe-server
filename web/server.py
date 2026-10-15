@@ -63,6 +63,11 @@ ERLAUBT = {
     "baum", "notizbuch_anlegen", "abschnitt_anlegen", "seite_anlegen",
     "seite_lesen", "seite_speichern", "seite_umbenennen", "stand", "loeschen",
     "anhang_ablegen", "anhang_bild", "einstellungen", "schriften", "favorit_setzen",
+    # Verlauf und Papierkorb: reine Dateiarbeit im Ordner des angemeldeten
+    # Benutzers. Der Reiter dafuer kommt mit der Oberflaeche des Desktops
+    # automatisch mit - ohne diese Zeilen waeren alle drei Knoepfe dort tot.
+    "versionen", "version_lesen", "version_zurueck",
+    "papierkorb", "papierkorb_zurueck", "papierkorb_weg", "papierkorb_leeren",
 }
 # Ausdruecklich gesperrt, mit Grund:
 #   ordner_waehlen, ordner_setzen  - Dateidialoge und Pfade des Servers
@@ -74,6 +79,8 @@ ERLAUBT = {
 #       Prozess und passt nicht zu mehreren Sitzungen; am Server ist die
 #       Anmeldung die Sperre
 #   optionen_setzen                - Update-Optionen gelten fuer den Rechner
+#   onenote_einlesen               - braucht einen Dateidialog am Rechner; am
+#       Server muesste das ein Upload werden
 
 MAX_TEXT = 40 * 1024 * 1024          # ein Anhang kommt als Base64 durch
 _arbeit = threading.Lock()
