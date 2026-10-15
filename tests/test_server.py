@@ -250,6 +250,65 @@ pruefe("Der Gast sieht den Papierkorb von lucy nicht",
 lage, _ = ruf(k, "papierkorb_zurueck", {"eintrag": meiner["eintraege"][0]["eintrag"]})
 pruefe("Zurückholen geht am Server", lage == 200 and "fehler" not in _, _)
 
+# --- Rollen und Rechte -------------------------------------------------------
+#
+# Der Punkt ist nicht, dass die Oberfläche Knöpfe ausgraut, sondern dass der
+# Server es durchsetzt. Ein Recht, das man mit einem eigenen Aufruf umgehen
+# kann, ist keins.
+print("\nRollen und Rechte")
+v = k.get("/verwaltung").json()
+pruefe("Verwalter sieht die Verwaltung", v.get("darf") is True, v)
+pruefe("Die mitgelieferten Rollen sind da",
+       {r["name"] for r in v["rollen"]} >= {"Verwalter", "Benutzer", "Gast"}, v["rollen"])
+pruefe("Mitgelieferte Rollen sind als fest gekennzeichnet",
+       all(r["fest"] for r in v["rollen"] if r["name"] in ("Verwalter", "Benutzer", "Gast")))
+
+def verwalte(klient, weg, rumpf):
+    return klient.post(weg, json=rumpf, headers={"X-Notizmappe": "1"})
+
+a = verwalte(k, "/verwaltung/benutzer", {"was": "anlegen", "name": "nurlesen",
+                                         "passwort": "gastpasswort1", "rolle": "Gast"})
+pruefe("Benutzer mit Rolle anlegen", a.status_code == 200, a.text[:80])
+gast2 = TestClient(server.app, follow_redirects=False)
+gast2.post("/anmelden", data={"name": "nurlesen", "passwort": "gastpasswort1"})
+lage, _ = ruf(gast2, "baum")
+pruefe("Gast darf lesen", lage == 200, _)
+lage, _ = ruf(gast2, "notizbuch_anlegen", "Heimlich")
+pruefe("Gast darf NICHT anlegen", lage == 403, (lage, _))
+lage, _ = ruf(gast2, "seite_speichern", {"notizbuch": "x", "abschnitt": "y", "name": "z",
+                                         "rev": 1, "titel": "t", "elemente": []})
+pruefe("Gast darf NICHT schreiben", lage == 403, (lage, _))
+lage, _ = ruf(gast2, "loeschen", "seite", ["a", "b", "c"])
+pruefe("Gast darf NICHT löschen", lage == 403, (lage, _))
+lage, _ = ruf(gast2, "papierkorb")
+pruefe("Gast kommt nicht an den Papierkorb", lage == 403, (lage, _))
+pruefe("Gast sieht die Verwaltung nicht", gast2.get("/verwaltung").json().get("darf") is False)
+pruefe("Und kann auch keinen anlegen",
+       verwalte(gast2, "/verwaltung/benutzer",
+                {"was": "anlegen", "name": "schmuggel", "passwort": "egalegal1"}).status_code == 403)
+
+# Eigene Rolle
+a = verwalte(k, "/verwaltung/rolle", {"name": "Schreiber", "rechte": ["lesen", "schreiben"]})
+pruefe("Eigene Rolle anlegen", a.status_code == 200, a.text[:80])
+pruefe("Rolle ohne Rechte wird abgelehnt",
+       verwalte(k, "/verwaltung/rolle", {"name": "Nichts", "rechte": []}).status_code == 400)
+pruefe("Mitgelieferte Rolle lässt sich nicht ändern",
+       verwalte(k, "/verwaltung/rolle", {"name": "Gast", "rechte": ["lesen", "schreiben"]}).status_code == 400)
+verwalte(k, "/verwaltung/benutzer", {"was": "rolle", "name": "nurlesen", "rolle": "Schreiber"})
+lage, _ = ruf(gast2, "notizbuch_anlegen", "Jetzt erlaubt")
+pruefe("Mit der neuen Rolle darf er schreiben", lage == 200 and "fehler" not in _, (lage, _))
+lage, _ = ruf(gast2, "loeschen", "notizbuch", [_["name"]])
+pruefe("Löschen bleibt ihm verwehrt", lage == 403, (lage, _))
+pruefe("Rolle in Benutzung lässt sich nicht löschen",
+       verwalte(k, "/verwaltung/rolle", {"was": "entfernen", "name": "Schreiber"}).status_code == 400)
+
+# Den letzten Verwalter darf niemand entmachten
+pruefe("Letzten Verwalter nicht entmachten",
+       verwalte(k, "/verwaltung/benutzer", {"was": "rolle", "name": "lucy", "rolle": "Gast"}).status_code == 400)
+pruefe("Und nicht entfernen",
+       verwalte(k, "/verwaltung/benutzer", {"was": "entfernen", "name": "lucy"}).status_code == 400)
+pruefe("lucy ist noch Verwalter", "benutzer" in server.nutzer.rechte_von("lucy"))
+
 # --- Eine verschluesselte Mappe ---------------------------------------------
 print("\nVerschlüsselte Mappe (Sperre vom Desktop)")
 sys.path.insert(0, str(DESKTOP / "app"))

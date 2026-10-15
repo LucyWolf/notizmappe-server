@@ -34,8 +34,41 @@ docker compose up -d
 ```
 
 Dann `http://<rechner>:8112` aufrufen. Beim ersten Mal kommt die
-Einrichtungsseite: der erste Zugang wird gleich der **Verwalter** und kann unter
-`/benutzer` weitere Benutzer anlegen.
+Einrichtungsseite: der erste Zugang wird gleich der **Verwalter**.
+
+## Benutzer und Rollen
+
+In den **Einstellungen** (Zahnrad) gibt es für Verwalter einen Abschnitt
+„Benutzer und Rollen": Benutzer anlegen, Rolle zuweisen, Passwort setzen,
+Zugang entfernen — und eigene Rollen anlegen.
+
+Eine Rolle ist eine Auswahl aus diesen Rechten:
+
+| Recht | erlaubt |
+|---|---|
+| `lesen` | Notizen lesen |
+| `schreiben` | Notizen schreiben und anlegen |
+| `anhaenge` | Bilder und Dateien anhängen |
+| `loeschen` | Löschen und Papierkorb leeren |
+| `verlauf` | Frühere Fassungen und Papierkorb |
+| `benutzer` | Benutzer und Rollen verwalten |
+
+Mitgeliefert und nicht änderbar: **Verwalter** (alles), **Benutzer** (alles
+außer Verwaltung), **Gast** (nur lesen). Eigene Rollen kommen dazu.
+
+Die Rechte werden **am Server durchgesetzt**, nicht in der Oberfläche: jede
+Brückenmethode hat ein Recht, das sie braucht. Ein Recht, das man mit einem
+eigenen Aufruf umgehen kann, wäre keins — deshalb prüft der Test genau das.
+
+Zwei Sperren gegen Aussperren: der letzte Zugang mit dem Recht `benutzer` lässt
+sich weder entfernen noch entmachten, und eine Rolle, die noch jemand hat, lässt
+sich nicht löschen.
+
+Dieser Abschnitt wird von `shim.js` in die Einstellungen **eingesetzt** — am
+Desktop gibt es keine Benutzer, dort hätte er nichts zu zeigen. Das ist der eine
+Unterschied, den die Serverfassung haben darf; die Seite selbst bleibt dieselbe.
+
+Ohne Oberfläche geht es auch: die Seite `/benutzer` gibt es weiterhin.
 
 Selbst bauen statt das fertige Image ziehen: in `docker-compose.yml` `image:`
 auskommentieren und `build: .` setzen.

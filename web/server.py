@@ -25,7 +25,7 @@ import threading
 import time
 from pathlib import Path
 
-from fastapi import FastAPI, Form, Request
+from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from starlette.concurrency import run_in_threadpool
 
@@ -81,6 +81,19 @@ ERLAUBT = {
     "versionen", "version_lesen", "version_zurueck",
     "papierkorb", "papierkorb_zurueck", "papierkorb_weg", "papierkorb_leeren",
 }
+# Welches Recht jede Methode braucht. Was hier nicht steht, braucht "lesen".
+# Das ist die Stelle, an der aus einer angehakten Rolle eine Wirkung wird -
+# ohne sie waere ein Recht nur eine Beschriftung.
+RECHT_JE_METHODE = {
+    "notizbuch_anlegen": "schreiben", "abschnitt_anlegen": "schreiben",
+    "seite_anlegen": "schreiben", "seite_speichern": "schreiben",
+    "seite_umbenennen": "schreiben", "favorit_setzen": "schreiben",
+    "anhang_ablegen": "anhaenge",
+    "loeschen": "loeschen", "papierkorb_weg": "loeschen", "papierkorb_leeren": "loeschen",
+    "versionen": "verlauf", "version_lesen": "verlauf", "version_zurueck": "verlauf",
+    "papierkorb": "verlauf", "papierkorb_zurueck": "verlauf",
+}
+
 # Ausdruecklich gesperrt, mit Grund:
 #   ordner_waehlen, ordner_setzen  - Dateidialoge und Pfade des Servers
 #   anhang_oeffnen, anhang_speichern_unter - starten Programme bzw. Dialoge auf
@@ -369,6 +382,9 @@ def anhang(bitte: Request, notizbuch: str = "", abschnitt: str = "",
     wer = angemeldet(bitte)
     if not wer:
         return RedirectResponse("/anmelden", status_code=303)
+    if "lesen" not in nutzer.rechte_von(wer):
+        return JSONResponse({"fehler": "Dafür fehlt deiner Rolle das Recht zum Lesen."},
+                            status_code=403)
     try:
         with _arbeit:
             os.environ["NOTIZEN_ORDNER"] = str(nutzer.notizordner(wer))
@@ -393,13 +409,87 @@ def anhang(bitte: Request, notizbuch: str = "", abschnitt: str = "",
 # nicht.
 
 def _verwalter(bitte: Request) -> str | None:
+    """Wer darf Benutzer und Rollen verwalten?"""
+    wer = angemeldet(bitte)
+    if wer and "benutzer" in nutzer.rechte_von(wer):
+        return wer
+    return None
+
+
+def _nur_verwalter(bitte: Request) -> str:
+    wer = _verwalter(bitte)
+    if not wer:
+        raise HTTPException(status_code=403, detail="Das darf nur, wer Benutzer verwalten kann.")
+    return wer
+
+
+@app.get("/verwaltung")
+def verwaltung(bitte: Request):
+    """Alles, was der Abschnitt in den Einstellungen braucht - als JSON."""
     wer = angemeldet(bitte)
     if not wer:
-        return None
-    for b in nutzer.liste():
-        if b["name"] == wer and b["verwalter"]:
-            return wer
-    return None
+        return JSONResponse({"fehler": "Nicht angemeldet"}, status_code=401)
+    meine = sorted(nutzer.rechte_von(wer))
+    if "benutzer" not in meine:
+        # Kein Verwalter: nur die eigene Lage, damit die Oberflaeche weiss,
+        # dass sie den Abschnitt gar nicht erst zeigen muss.
+        return {"darf": False, "ich": wer, "meine_rechte": meine}
+    return {
+        "darf": True, "ich": wer, "meine_rechte": meine,
+        "benutzer": nutzer.liste(),
+        "rollen": [{"name": n, "rechte": r["rechte"], "fest": bool(r.get("fest"))}
+                   for n, r in sorted(nutzer.rollen().items())],
+        "rechte": nutzer.RECHTE,
+    }
+
+
+def _rumpf(wert) -> dict:
+    return wert if isinstance(wert, dict) else {}
+
+
+@app.post("/verwaltung/benutzer")
+async def verwaltung_benutzer(bitte: Request):
+    """Anlegen, Rolle setzen, Passwort setzen, entfernen - je nach "was"."""
+    _nur_verwalter(bitte)
+    if bitte.headers.get("x-notizmappe") != "1":
+        return JSONResponse({"fehler": "Falscher Aufruf"}, status_code=400)
+    d = _rumpf(await bitte.json() if await bitte.body() else {})
+    was = str(d.get("was") or "")
+    name = str(d.get("name") or "").strip().lower()
+    try:
+        if was == "anlegen":
+            nutzer.anlegen(name, str(d.get("passwort") or ""), rolle=str(d.get("rolle") or ""))
+        elif was == "rolle":
+            nutzer.rolle_zuweisen(name, str(d.get("rolle") or ""))
+        elif was == "passwort":
+            nutzer.passwort_setzen(name, str(d.get("passwort") or ""))
+        elif was == "entfernen":
+            if name == angemeldet(bitte):
+                return JSONResponse({"fehler": "Den eigenen Zugang nicht"}, status_code=400)
+            nutzer.entfernen(name)
+        else:
+            return JSONResponse({"fehler": "Unbekannt"}, status_code=400)
+    except nutzer.BenutzerFehler as f:
+        return JSONResponse({"fehler": str(f)}, status_code=400)
+    return {"ok": True}
+
+
+@app.post("/verwaltung/rolle")
+async def verwaltung_rolle(bitte: Request):
+    _nur_verwalter(bitte)
+    if bitte.headers.get("x-notizmappe") != "1":
+        return JSONResponse({"fehler": "Falscher Aufruf"}, status_code=400)
+    d = _rumpf(await bitte.json() if await bitte.body() else {})
+    name = str(d.get("name") or "")
+    try:
+        if d.get("was") == "entfernen":
+            nutzer.rolle_entfernen(name)
+        else:
+            rechte = d.get("rechte")
+            nutzer.rolle_setzen(name, rechte if isinstance(rechte, list) else [])
+    except nutzer.BenutzerFehler as f:
+        return JSONResponse({"fehler": str(f)}, status_code=400)
+    return {"ok": True}
 
 
 @app.get("/benutzer", response_class=HTMLResponse)
@@ -501,6 +591,11 @@ async def bruecke(methode: str, bitte: Request):
             {"fehler": "Diese Fassung des Programms kennt das noch nicht - "
                        f"im Image steckt Notizmappe {DESKTOP_FASSUNG}."},
             status_code=501)
+    noetig = RECHT_JE_METHODE.get(methode, "lesen")
+    if methode in ERLAUBT and noetig not in nutzer.rechte_von(name):
+        return JSONResponse(
+            {"fehler": f"Dafür fehlt deiner Rolle das Recht „{nutzer.RECHTE.get(noetig, noetig)}“."},
+            status_code=403)
     if methode not in ERLAUBT:
         if methode == "version":
             return JSONResponse({"installiert": DESKTOP_FASSUNG, "verfuegbar": DESKTOP_FASSUNG,

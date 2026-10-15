@@ -25,6 +25,26 @@ R = 8
 P = 1
 MAXMEM = 160 * 1024 * 1024
 NAME_MUSTER = re.compile(r"^[a-z0-9][a-z0-9._-]{1,30}$")
+ROLLEN_MUSTER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._-]{1,30}$")
+
+# Die Rechte, die es gibt. Jedes steht fuer einen Satz von Methoden, die der
+# Server durchlaesst - sie sind also erzwungen und nicht nur angezeigt. Ein
+# Recht, das die Oberflaeche nur ausgraut, waere keins.
+RECHTE = {
+    "lesen":     "Notizen lesen",
+    "schreiben": "Notizen schreiben und anlegen",
+    "anhaenge":  "Bilder und Dateien anhängen",
+    "loeschen":  "Löschen und Papierkorb leeren",
+    "verlauf":   "Frühere Fassungen und Papierkorb",
+    "benutzer":  "Benutzer und Rollen verwalten",
+}
+
+# Mitgeliefert und nicht loeschbar - sonst koennte man sich selbst aussperren.
+FESTE_ROLLEN = {
+    "Verwalter": list(RECHTE),
+    "Benutzer":  ["lesen", "schreiben", "anhaenge", "loeschen", "verlauf"],
+    "Gast":      ["lesen"],
+}
 
 _sperre = threading.RLock()
 
@@ -63,9 +83,24 @@ def _lesen() -> dict:
     try:
         roh = json.loads(datei().read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        return {"benutzer": {}}
+        roh = {}
     if not isinstance(roh, dict) or not isinstance(roh.get("benutzer"), dict):
-        return {"benutzer": {}}
+        roh = {"benutzer": {}}
+    rollen = roh.get("rollen")
+    if not isinstance(rollen, dict):
+        rollen = {}
+    # Die festen Rollen gibt es immer, mit ihren festen Rechten. Sonst koennte
+    # ein verungluecktes Bearbeiten den letzten Verwalter entmachten.
+    for name, rechte in FESTE_ROLLEN.items():
+        rollen[name] = {"rechte": list(rechte), "fest": True}
+    for name, r in list(rollen.items()):
+        if not isinstance(r, dict) or not isinstance(r.get("rechte"), list):
+            rollen.pop(name, None)
+    roh["rollen"] = rollen
+    # Aeltere Dateien kennen nur "verwalter": ja/nein.
+    for name, b in roh["benutzer"].items():
+        if not b.get("rolle"):
+            b["rolle"] = "Verwalter" if b.get("verwalter") else "Benutzer"
     return roh
 
 
@@ -85,6 +120,83 @@ def _hash(passwort: str, salz: bytes) -> str:
     return base64.b64encode(roh).decode("ascii")
 
 
+def rollen() -> dict:
+    """Alle Rollen mit ihren Rechten."""
+    return _lesen()["rollen"]
+
+
+def rolle_setzen(name: str, rechte: list) -> None:
+    """Rolle anlegen oder aendern."""
+    name = (name or "").strip()
+    if not ROLLEN_MUSTER.match(name):
+        raise BenutzerFehler("Der Rollenname darf 2 bis 31 Zeichen haben, "
+                             "Buchstaben, Zahlen, Leerzeichen, Punkt, Minus, Unterstrich")
+    if name in FESTE_ROLLEN:
+        raise BenutzerFehler(f"„{name}“ ist eine mitgelieferte Rolle und lässt sich nicht ändern")
+    sauber = [r for r in (rechte or []) if r in RECHTE]
+    if not sauber:
+        raise BenutzerFehler("Eine Rolle ohne Rechte wäre sinnlos - mindestens eines anhaken")
+    with _sperre:
+        daten = _lesen()
+        daten["rollen"][name] = {"rechte": sauber, "fest": False}
+        _schreiben(daten)
+
+
+def rolle_entfernen(name: str) -> None:
+    with _sperre:
+        daten = _lesen()
+        if name in FESTE_ROLLEN:
+            raise BenutzerFehler(f"„{name}“ ist mitgeliefert und bleibt")
+        if name not in daten["rollen"]:
+            raise BenutzerFehler("Die Rolle gibt es nicht")
+        benutzt = [n for n, b in daten["benutzer"].items() if b.get("rolle") == name]
+        if benutzt:
+            raise BenutzerFehler(
+                f"Die Rolle haben noch: {', '.join(benutzt)}. Erst umstellen, dann löschen.")
+        daten["rollen"].pop(name, None)
+        _schreiben(daten)
+
+
+def rechte_von(name: str) -> set:
+    """Was dieser Benutzer darf."""
+    daten = _lesen()
+    b = daten["benutzer"].get((name or "").strip().lower())
+    if not b:
+        return set()
+    rolle = daten["rollen"].get(b.get("rolle") or "")
+    return set(rolle["rechte"]) if rolle else set()
+
+
+def _verwalter_uebrig(daten: dict, ausser: str = "") -> int:
+    """Wie viele koennen noch Benutzer verwalten?"""
+    zahl = 0
+    for n, b in daten["benutzer"].items():
+        if n == ausser:
+            continue
+        rolle = daten["rollen"].get(b.get("rolle") or "")
+        if rolle and "benutzer" in rolle["rechte"]:
+            zahl += 1
+    return zahl
+
+
+def rolle_zuweisen(name: str, rolle: str) -> None:
+    name = (name or "").strip().lower()
+    with _sperre:
+        daten = _lesen()
+        if name not in daten["benutzer"]:
+            raise BenutzerFehler("Den Benutzer gibt es nicht")
+        if rolle not in daten["rollen"]:
+            raise BenutzerFehler("Die Rolle gibt es nicht")
+        # Niemand darf den letzten Verwalter entmachten - sonst kommt an die
+        # Benutzerverwaltung nie wieder jemand heran.
+        verliert = "benutzer" not in daten["rollen"][rolle]["rechte"]
+        if verliert and _verwalter_uebrig(daten, ausser=name) == 0:
+            raise BenutzerFehler("Das ist der letzte Zugang, der Benutzer verwalten darf")
+        daten["benutzer"][name]["rolle"] = rolle
+        daten["benutzer"][name]["verwalter"] = "benutzer" in daten["rollen"][rolle]["rechte"]
+        _schreiben(daten)
+
+
 def leer() -> bool:
     """Noch kein Benutzer da? Dann fuehrt der Server zur Ersteinrichtung."""
     return not _lesen()["benutzer"]
@@ -94,11 +206,12 @@ def liste() -> list[dict]:
     aus = []
     for name, b in sorted(_lesen()["benutzer"].items()):
         aus.append({"name": name, "verwalter": bool(b.get("verwalter")),
+                    "rolle": b.get("rolle") or "Benutzer",
                     "angelegt": b.get("angelegt", ""), "zuletzt": b.get("zuletzt", "")})
     return aus
 
 
-def anlegen(name: str, passwort: str, verwalter: bool = False) -> None:
+def anlegen(name: str, passwort: str, verwalter: bool = False, rolle: str = "") -> None:
     name = (name or "").strip().lower()
     if not NAME_MUSTER.match(name):
         raise BenutzerFehler("Der Name darf nur Kleinbuchstaben, Zahlen, Punkt, "
@@ -109,11 +222,15 @@ def anlegen(name: str, passwort: str, verwalter: bool = False) -> None:
         daten = _lesen()
         if name in daten["benutzer"]:
             raise BenutzerFehler("Den Namen gibt es schon")
+        gewuenscht = (rolle or "").strip() or ("Verwalter" if verwalter else "Benutzer")
+        if gewuenscht not in daten["rollen"]:
+            raise BenutzerFehler(f"Die Rolle „{gewuenscht}“ gibt es nicht")
         salz = os.urandom(16)
         daten["benutzer"][name] = {
             "salz": base64.b64encode(salz).decode("ascii"),
             "hash": _hash(passwort, salz),
-            "verwalter": bool(verwalter),
+            "rolle": gewuenscht,
+            "verwalter": "benutzer" in daten["rollen"][gewuenscht]["rechte"],
             "angelegt": time.strftime("%Y-%m-%d %H:%M:%S"),
         }
         _schreiben(daten)
@@ -163,9 +280,8 @@ def entfernen(name: str) -> None:
         daten = _lesen()
         if name not in daten["benutzer"]:
             raise BenutzerFehler("Den Benutzer gibt es nicht")
-        if daten["benutzer"][name].get("verwalter") and \
-                sum(1 for b in daten["benutzer"].values() if b.get("verwalter")) <= 1:
-            raise BenutzerFehler("Das ist der letzte Verwalter - dann käme niemand mehr rein")
+        if _verwalter_uebrig(daten, ausser=name) == 0:
+            raise BenutzerFehler("Das ist der letzte Zugang, der Benutzer verwalten darf")
         del daten["benutzer"][name]
         _schreiben(daten)
 
