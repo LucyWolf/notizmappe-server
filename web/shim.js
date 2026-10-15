@@ -610,15 +610,61 @@
     const alt = verwaltungLaden;
     verwaltungLaden = async function () { await alt(); fuellen(); };
 
+    // Eingesetzte Elemente bringen ihre Gestaltung selbst mit. Sonst nehmen sie
+    // die Standarddarstellung des Browsers - weisse Felder und Knoepfe in einer
+    // dunklen Oberflaeche, und das sieht aus wie hineingefallen.
     const stil = document.createElement('style');
     stil.textContent = `
-      #serververwaltung .zeile2 span:last-child { display: flex; gap: 6px; }
-      #serververwaltung select { height: 28px; border: 1px solid var(--linie);
-        border-radius: 6px; background: var(--papier); color: var(--schrift); font-size: 13px; }
+      #serverkopf, #serververwaltung { max-width: 760px; }
+      #serverkopf h3, #serververwaltung h3 {
+        margin: 22px 0 8px; font-size: 13px; text-transform: uppercase;
+        letter-spacing: .04em; color: var(--matt); font-weight: 600;
+      }
+      #serverkopf .zeile2, #serververwaltung .zeile2 {
+        display: flex; align-items: center; justify-content: space-between;
+        gap: 12px; margin: 6px 0; padding-bottom: 6px;
+        border-bottom: 1px solid var(--linie);
+      }
+      #serverkopf .zeile2 span:last-child,
+      #serververwaltung .zeile2 span:last-child { display: flex; gap: 6px; flex: 0 0 auto; }
+      #serverkopf .hinweis, #serververwaltung .hinweis {
+        color: var(--matt); font-size: 12px; margin: 8px 0 0; max-width: 640px;
+      }
+      #serverkopf button, #serververwaltung button {
+        border: 1px solid var(--linie); background: var(--leiste); color: var(--schrift);
+        border-radius: 6px; padding: 5px 10px; cursor: pointer; font: inherit; font-size: 13px;
+      }
+      #serverkopf button:hover, #serververwaltung button:hover { border-color: var(--akzent); }
+      #serverkopf button:disabled, #serververwaltung button:disabled {
+        opacity: .45; cursor: default; border-color: var(--linie);
+      }
+      #serververwaltung input[type="text"], #serververwaltung input[type="password"],
+      #serververwaltung select, #serverkopf select {
+        padding: 5px 8px; height: 28px; border: 1px solid var(--linie); border-radius: 6px;
+        background: var(--papier); color: var(--schrift); font: inherit; font-size: 13px;
+      }
+      #serververwaltung input::placeholder { color: var(--matt); }
+      #serververwaltung .ordnerzeile { display: flex; gap: 8px; margin: 10px 0 4px; flex-wrap: wrap; }
+      #serververwaltung .ordnerzeile input[type="text"],
+      #serververwaltung .ordnerzeile input[type="password"] { flex: 1; min-width: 140px; }
+      #serververwaltung .knoepfe { display: flex; gap: 8px; margin: 10px 0 0; flex-wrap: wrap; }
       #serververwaltung .rechte { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 6px 0; }
-      #serververwaltung .rollenkasten { border: 1px solid var(--linie); border-radius: 8px;
-        padding: 8px 10px; margin-bottom: 8px; }
-      #serververwaltung .haken { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; }`;
+      #serververwaltung .rollenkasten {
+        border: 1px solid var(--linie); border-radius: 8px; background: var(--leiste);
+        padding: 10px 12px; margin-bottom: 8px;
+      }
+      #serververwaltung .rollenkasten strong { display: block; margin-bottom: 6px; }
+      #serververwaltung .haken {
+        display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--matt);
+      }
+      #serververwaltung .haken input { accent-color: var(--akzent); }
+      /* Der Einladungslink wird abgeschrieben oder kopiert - also breit und
+         in gleichmaessiger Schrift, nicht als schmales Eingabefeld. */
+      #v-einladungslink {
+        flex: 1; min-width: 240px; font-family: ui-monospace, "DejaVu Sans Mono", monospace;
+        font-size: 12px; background: var(--flaeche, var(--papier));
+      }
+      #v-meldung { color: var(--matt); font-size: 12px; margin-top: 10px; }`;
     document.head.append(stil);
   }
 
