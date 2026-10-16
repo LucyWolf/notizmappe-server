@@ -109,6 +109,36 @@ Ohne Oberfläche geht es auch: die Seite `/benutzer` gibt es weiterhin.
 Selbst bauen statt das fertige Image ziehen: in `docker-compose.yml` `image:`
 auskommentieren und `build: .` setzen.
 
+## Zwei Schritte beim Anmelden
+
+Unter **Datei → Konto → Zwei Schritte beim Anmelden** richtet sich jeder für
+seinen eigenen Zugang ein. Die Reihenfolge ist Absicht:
+
+1. **QR-Code** in eine Authenticator-App einlesen (oder das Geheimnis abtippen).
+2. **Zehn Notfallcodes** werden gezeigt — *bevor* etwas eingeschaltet wird. Sie
+   erscheinen danach nie wieder und sind der Weg hinein, wenn das Telefon weg
+   ist. Jeder gilt genau einmal.
+3. **Erst mit einem gültigen Code aus der App wird eingeschaltet.** Wer sein
+   Geheimnis nie in die App bekommen hat, sperrt sich sonst selbst aus.
+
+Beim Anmelden kommt danach ein zweiter Schritt. Der Zwischenzustand ist ein
+eigener, anders unterschriebener Keks: er **öffnet nichts**, verfällt nach fünf
+Minuten und merkt sich nur, wer gerade beim zweiten Schritt steht. Auch die
+Brücke bleibt bis dahin zu, und Fehlversuche laufen in dieselbe Bremse wie beim
+Passwort.
+
+Verliert jemand Telefon **und** Notfallcodes, kann ein Verwalter die zwei
+Schritte für ihn abschalten. Einrichten dagegen muss jeder selbst — das
+Geheimnis gehört in seine App und sonst nirgendwohin.
+
+TOTP ist selbst geschrieben (RFC 6238, dreißig Zeilen `hmac` und `struct`), der
+QR-Code kommt von `segno`: reines Python, keine Bildbibliothek. Der Code ist
+schwarz auf weiß, auch in dunkler Oberfläche — manche Kameras lesen umgekehrte
+QR-Codes nicht.
+
+Auch aus dem **Fenster** heraus funktioniert das: meldet man sich dort an einem
+Server mit zwei Schritten an, erscheint das Feld für den Code gleich darunter.
+
 ## Was wo liegt
 
 Alles, was bleiben muss, liegt im Volume `./daten`:
