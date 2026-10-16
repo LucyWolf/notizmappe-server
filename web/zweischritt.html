@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Notizmappe - zweiter Schritt</title>
+<link rel="icon" href="icon.png">
+<link rel="stylesheet" href="stil.css">
+</head>
+<body>
+<div id="sperrschirm">
+  <div class="tafel" role="dialog" aria-label="Zweiter Schritt">
+    <h2>Noch ein Schritt</h2>
+    <p>Gib den Code aus deiner Authenticator-App ein, {{wer}}.</p>
+    <form method="post" action="/zweiter-schritt" autocomplete="off">
+      <p class="ordnerzeile">
+        <input type="text" name="code" placeholder="123456" inputmode="numeric"
+               autocomplete="one-time-code" spellcheck="false" autofocus>
+        <button type="submit" id="s-auf">Weiter</button>
+      </p>
+    </form>
+    <p class="fehlerzeile">{{fehler}}</p>
+    <details>
+      <summary>Kein Zugriff auf die App?</summary>
+      <p class="hinweis">Dann nimm einen deiner Notfallcodes — in dasselbe Feld.
+        Jeder gilt genau einmal. Sind alle verbraucht und die App ist weg, kann
+        ein Verwalter die zwei Schritte für dich abschalten.</p>
+    </details>
+  </div>
+</div>
+</body>
+</html>

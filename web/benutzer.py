@@ -12,6 +12,9 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import urllib.parse
+import struct
+import hmac
 import json
 import os
 import re
@@ -175,6 +178,138 @@ def _hash(passwort: str, salz: bytes) -> str:
 def rollen() -> dict:
     """Alle Rollen mit ihren Rechten."""
     return _lesen()["rollen"]
+
+
+# --- Zwei Schritte beim Anmelden ---------------------------------------------
+#
+# TOTP nach RFC 6238, selbst geschrieben: das sind dreissig Zeilen hmac und
+# struct, und dafuer braucht es keine weitere Abhaengigkeit. Was die Apps
+# erwarten, ist seit Jahren dasselbe - sechs Ziffern, alle 30 Sekunden neu,
+# abgeleitet aus einem gemeinsamen Geheimnis.
+TOTP_STELLEN = 6
+TOTP_TAKT = 30
+TOTP_FENSTER = 1                    # eine Stufe vor und zurueck: Uhren gehen auseinander
+NOTFALLCODES = 10
+
+
+def _totp(geheim_b32: str, zaehler: int) -> str:
+    roh = base64.b32decode(geheim_b32 + "=" * (-len(geheim_b32) % 8), casefold=True)
+    h = hmac.new(roh, struct.pack(">Q", zaehler), hashlib.sha1).digest()
+    versatz = h[-1] & 0x0F
+    zahl = struct.unpack(">I", h[versatz:versatz + 4])[0] & 0x7FFFFFFF
+    return str(zahl % (10 ** TOTP_STELLEN)).zfill(TOTP_STELLEN)
+
+
+def totp_geheimnis() -> str:
+    """20 zufaellige Bytes als Base32 - das Format, das die Apps lesen."""
+    return base64.b32encode(os.urandom(20)).decode("ascii").rstrip("=")
+
+
+def totp_stimmt(geheim_b32: str, code: str) -> bool:
+    code = re.sub(r"\s", "", code or "")
+    if not code.isdigit() or len(code) != TOTP_STELLEN:
+        return False
+    jetzt = int(time.time() // TOTP_TAKT)
+    for stufe in range(-TOTP_FENSTER, TOTP_FENSTER + 1):
+        if secrets.compare_digest(code, _totp(geheim_b32, jetzt + stufe)):
+            return True
+    return False
+
+
+def totp_adresse(name: str, geheim_b32: str) -> str:
+    """Die otpauth-Adresse, aus der der QR-Code wird."""
+    wer = urllib.parse.quote(f"Notizmappe:{name}")
+    return (f"otpauth://totp/{wer}?secret={geheim_b32}&issuer=Notizmappe"
+            f"&algorithm=SHA1&digits={TOTP_STELLEN}&period={TOTP_TAKT}")
+
+
+def _codehash(code: str) -> str:
+    """Notfallcodes sind lang und zufaellig - da genuegt ein schneller Hash.
+
+    Passwoerter werden mit scrypt gerechnet, weil Menschen sie sich ausdenken.
+    Diese hier kommen aus dem Zufallsgenerator; sie zu raten ist aussichtslos,
+    und zehn scrypt-Durchlaeufe je Anmeldeversuch waeren eine Bremse ohne Nutzen.
+    """
+    return hashlib.sha256(re.sub(r"[\s-]", "", (code or "")).upper().encode()).hexdigest()
+
+
+def notfallcodes_erzeugen() -> list[str]:
+    # Kein O/0 und kein I/1: diese Codes werden abgeschrieben.
+    zeichen = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+    aus = []
+    for _ in range(NOTFALLCODES):
+        roh = "".join(secrets.choice(zeichen) for _ in range(10))
+        aus.append(f"{roh[:5]}-{roh[5:]}")
+    return aus
+
+
+def zwei_schritte_stand(name: str) -> dict:
+    b = _lesen()["benutzer"].get((name or "").strip().lower()) or {}
+    zwei = b.get("zwei") or {}
+    return {"an": bool(zwei.get("an")),
+            "codes_uebrig": len(zwei.get("codes") or []) if zwei.get("an") else 0}
+
+
+def zwei_schritte_vorbereiten(name: str) -> dict:
+    """Geheimnis und Notfallcodes erzeugen - aber noch nicht einschalten.
+
+    Eingeschaltet wird erst, wenn ein Code aus der App stimmt. Sonst sperrt
+    sich jemand aus, dessen App das Geheimnis gar nicht bekommen hat.
+    """
+    name = (name or "").strip().lower()
+    geheim = totp_geheimnis()
+    codes = notfallcodes_erzeugen()
+    with _sperre:
+        daten = _lesen()
+        if name not in daten["benutzer"]:
+            raise BenutzerFehler("Den Benutzer gibt es nicht")
+        daten["benutzer"][name]["zwei"] = {
+            "an": False, "geheim": geheim,
+            "codes": [_codehash(c) for c in codes],
+            "begonnen": time.strftime("%Y-%m-%d %H:%M:%S"),
+        }
+        _schreiben(daten)
+    return {"geheim": geheim, "adresse": totp_adresse(name, geheim), "codes": codes}
+
+
+def zwei_schritte_einschalten(name: str, code: str) -> None:
+    name = (name or "").strip().lower()
+    with _sperre:
+        daten = _lesen()
+        zwei = (daten["benutzer"].get(name) or {}).get("zwei") or {}
+        if not zwei.get("geheim"):
+            raise BenutzerFehler("Erst einrichten, dann einschalten")
+        if not totp_stimmt(zwei["geheim"], code):
+            raise BenutzerFehler("Der Code stimmt nicht - geht die Uhr im Gerät richtig?")
+        zwei["an"] = True
+        _schreiben(daten)
+
+
+def zwei_schritte_aus(name: str) -> None:
+    name = (name or "").strip().lower()
+    with _sperre:
+        daten = _lesen()
+        if name in daten["benutzer"]:
+            daten["benutzer"][name].pop("zwei", None)
+            _schreiben(daten)
+
+
+def zweiter_schritt_pruefen(name: str, code: str) -> bool:
+    """Code aus der App - oder einer der Notfallcodes, der dabei verbraucht wird."""
+    name = (name or "").strip().lower()
+    with _sperre:
+        daten = _lesen()
+        zwei = (daten["benutzer"].get(name) or {}).get("zwei") or {}
+        if not zwei.get("an"):
+            return True                         # gar nicht eingeschaltet
+        if totp_stimmt(zwei.get("geheim", ""), code):
+            return True
+        gesucht = _codehash(code)
+        if gesucht in (zwei.get("codes") or []):
+            zwei["codes"].remove(gesucht)       # jeder Code gilt einmal
+            _schreiben(daten)
+            return True
+    return False
 
 
 # --- Einladungen -------------------------------------------------------------

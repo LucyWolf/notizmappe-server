@@ -204,6 +204,20 @@ datei.write_bytes(sicherung)
 pruefe("Nach der Reparatur geht wieder alles",
        anonym2.get("/anmelden").status_code == 200)
 
+# --- Kein Weg zweimal --------------------------------------------------------
+#
+# Steht eine Route doppelt im Server, gewinnt die erste und die zweite ist
+# toter Code - wer daran etwas ändert, wundert sich, warum nichts passiert.
+# Genau das war eine Zeitlang so: 152 Zeilen standen zweimal identisch drin.
+import re as _re                                                    # noqa: E402
+
+serverquelle = (WURZEL / "web/server.py").read_text(encoding="utf-8")
+alle_wege = [f"{a.upper()} {b}" for a, b in
+             _re.findall(r'@app\.(get|post)\("([^"]+)"', serverquelle)]
+doppelte = sorted({w for w in alle_wege if alle_wege.count(w) > 1})
+pruefe("kein Weg steht zweimal im Server", not doppelte, ", ".join(doppelte))
+pruefe("es gibt ueberhaupt Wege", len(alle_wege) > 10, f"{len(alle_wege)}")
+
 # --- Unsinn an der Brücke ----------------------------------------------------
 print("\nUnsinn über das Netz")
 lage, a = ruf(k, "versionen", 1, 2, 3, 4, 5, 6, 7, 8)
@@ -377,6 +391,72 @@ abmelder.post("/anmelden", data={"name": "lucy", "passwort": "geheim1234"})
 pruefe("Vorher drin", abmelder.get("/").status_code == 200)
 pruefe("Abmelden funktioniert", abmelder.get("/abmelden").status_code == 303)
 pruefe("Und danach draußen", abmelder.get("/").status_code == 303)
+
+# --- Zwei Schritte beim Anmelden ---------------------------------------------
+#
+# Worauf es ankommt: der Zwischenzustand oeffnet nichts, die Notfallcodes gelten
+# genau einmal, und eingeschaltet wird erst, wenn ein Code aus der App stimmt -
+# sonst sperrt sich jemand aus, dessen App das Geheimnis nie bekommen hat.
+print("\nZwei Schritte")
+server.nutzer.anlegen("zwei", "zweipasswort1", rolle="Benutzer")
+Z2 = TestClient(server.app, follow_redirects=False)
+Z2.post("/anmelden", data={"name": "zwei", "passwort": "zweipasswort1"})
+v = Z2.post("/zwei-schritte", json={"was": "vorbereiten"},
+            headers={"X-Notizmappe": "1"}).json()
+pruefe("Vorbereiten liefert QR, Geheimnis und Codes",
+       v.get("qr", "").startswith("<svg") and len(v.get("codes", [])) == 10 and v.get("geheim"),
+       list(v))
+pruefe("Die Notfallcodes kommen VOR dem Einschalten",
+       Z2.get("/zwei-schritte").json()["an"] is False)
+pruefe("Mit falschem Code wird nicht eingeschaltet",
+       Z2.post("/zwei-schritte", json={"was": "einschalten", "code": "000000"},
+               headers={"X-Notizmappe": "1"}).status_code == 400
+       and Z2.get("/zwei-schritte").json()["an"] is False)
+
+echt = server.nutzer._totp(v["geheim"], int(time.time() // 30))
+pruefe("Mit echtem Code geht es an",
+       Z2.post("/zwei-schritte", json={"was": "einschalten", "code": echt},
+               headers={"X-Notizmappe": "1"}).json().get("an") is True)
+
+neu_an = TestClient(server.app, follow_redirects=False)
+a = neu_an.post("/anmelden", data={"name": "zwei", "passwort": "zweipasswort1"})
+pruefe("Anmelden führt zum zweiten Schritt", a.headers.get("location") == "/zweiter-schritt")
+pruefe("Und öffnet noch gar nichts", neu_an.get("/").status_code == 303)
+pruefe("Auch die Brücke bleibt zu", ruf(neu_an, "baum")[0] == 401)
+a = neu_an.post("/zweiter-schritt", data={"code": "000000"})
+pruefe("Falscher Code bringt nichts", "fehler=" in a.headers.get("location", ""))
+a = neu_an.post("/zweiter-schritt",
+                data={"code": server.nutzer._totp(v["geheim"], int(time.time() // 30))})
+pruefe("Richtiger Code lässt hinein",
+       a.headers.get("location") == "/" and neu_an.get("/").status_code == 200)
+
+mit_code = TestClient(server.app, follow_redirects=False)
+mit_code.post("/anmelden", data={"name": "zwei", "passwort": "zweipasswort1"})
+a = mit_code.post("/zweiter-schritt", data={"code": v["codes"][0]})
+pruefe("Ein Notfallcode geht auch", a.headers.get("location") == "/")
+pruefe("Und ist danach verbraucht",
+       Z2.get("/zwei-schritte").json()["codes_uebrig"] == 9)
+nochmal = TestClient(server.app, follow_redirects=False)
+nochmal.post("/anmelden", data={"name": "zwei", "passwort": "zweipasswort1"})
+pruefe("Derselbe Notfallcode kein zweites Mal",
+       "fehler=" in nochmal.post("/zweiter-schritt",
+                                 data={"code": v["codes"][0]}).headers.get("location", ""))
+
+pruefe("Ohne Zwischenschritt kommt man nicht an die Seite",
+       TestClient(server.app, follow_redirects=False).get("/zweiter-schritt").status_code == 303)
+pruefe("Einrichten für jemand anderen geht nicht - auch nicht als Verwalter",
+       k.post("/zwei-schritte", json={"was": "vorbereiten", "benutzer": "zwei"},
+              headers={"X-Notizmappe": "1"}).status_code == 403)
+pruefe("Abschalten für jemand anderen darf ein Verwalter",
+       k.post("/zwei-schritte", json={"was": "aus", "benutzer": "zwei"},
+              headers={"X-Notizmappe": "1"}).status_code == 200)
+pruefe("Danach genügt wieder das Passwort",
+       TestClient(server.app, follow_redirects=False).post(
+           "/anmelden", data={"name": "zwei", "passwort": "zweipasswort1"}
+       ).headers.get("location") == "/")
+pruefe("Ein Benutzer darf das nicht bei anderen",
+       gast2.post("/zwei-schritte", json={"was": "aus", "benutzer": "lucy"},
+                  headers={"X-Notizmappe": "1"}).status_code == 403)
 
 # --- Einladungen -------------------------------------------------------------
 #

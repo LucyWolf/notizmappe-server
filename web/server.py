@@ -20,6 +20,8 @@ import hmac
 import inspect
 import urllib.parse
 import urllib.request
+
+import segno
 import json
 import os
 import sys
@@ -243,6 +245,36 @@ def _unterschreiben(text: str) -> str:
     return base64.urlsafe_b64encode(unterschrift).decode("ascii").rstrip("=")
 
 
+HALBKEKS = "notizmappe_halb"
+HALB_MINUTEN = 5
+
+
+def halbkeks_bauen(name: str) -> str:
+    """Zwischen Passwort und zweitem Schritt.
+
+    Dieser Keks oeffnet nichts - er merkt sich nur, wer gerade beim zweiten
+    Schritt steht, und das fuenf Minuten lang statt zwei Wochen. Er ist
+    ausdruecklich anders unterschrieben als der richtige, damit sich der eine
+    nie als der andere ausgeben kann.
+    """
+    ablauf = int(time.time()) + HALB_MINUTEN * 60
+    return f"{name}:{ablauf}:{_unterschreiben(f'halb:{name}:{ablauf}')}"
+
+
+def halbkeks_lesen(wert: str | None) -> str | None:
+    if not wert or wert.count(":") != 2:
+        return None
+    name, ablauf, unterschrift = wert.split(":")
+    if not hmac.compare_digest(unterschrift, _unterschreiben(f"halb:{name}:{ablauf}")):
+        return None
+    try:
+        if int(ablauf) < time.time():
+            return None
+    except ValueError:
+        return None
+    return name
+
+
 def keks_bauen(name: str) -> str:
     ablauf = int(time.time()) + SITZUNG_TAGE * 24 * 3600
     kern = f"{name}:{ablauf}:{nutzer.sitzungsmarke(name)}"
@@ -380,9 +412,46 @@ def anmelden(bitte: Request, name: str = Form(""), passwort: str = Form("")):
         # Seite eine Auskunft darueber, welche Namen es gibt.
         return RedirectResponse("/anmelden?fehler=Name+oder+Passwort+stimmt+nicht.", status_code=303)
     geklappt(wer)
+    if nutzer.zwei_schritte_stand(b["name"])["an"]:
+        antwort = RedirectResponse("/zweiter-schritt", status_code=303)
+        antwort.set_cookie(HALBKEKS, halbkeks_bauen(b["name"]),
+                           max_age=HALB_MINUTEN * 60, httponly=True,
+                           samesite="lax", secure=HTTPS, path="/")
+        return antwort
     nutzer.gesehen(b["name"])
     antwort = RedirectResponse("/", status_code=303)
     keks_setzen(antwort, b["name"])
+    return antwort
+
+
+@app.get("/zweiter-schritt", response_class=HTMLResponse)
+def zweiter_schritt_seite(bitte: Request, fehler: str = ""):
+    wer = halbkeks_lesen(bitte.cookies.get(HALBKEKS))
+    if not wer:
+        return RedirectResponse("/anmelden", status_code=303)
+    return HTMLResponse(_vorlage("zweischritt.html", wer=_text(wer), fehler=_text(fehler)))
+
+
+@app.post("/zweiter-schritt")
+def zweiter_schritt(bitte: Request, code: str = Form("")):
+    wer = halbkeks_lesen(bitte.cookies.get(HALBKEKS))
+    if not wer:
+        return RedirectResponse("/anmelden?fehler=Bitte+neu+anmelden.", status_code=303)
+    bremse = bremsschluessel(bitte, wer + "/zweiter")
+    warte = gebremst(bremse)
+    if warte:
+        return RedirectResponse(
+            f"/zweiter-schritt?fehler=Zu+viele+Versuche.+Bitte+{warte}+Sekunden+warten.",
+            status_code=303)
+    if not nutzer.zweiter_schritt_pruefen(wer, code):
+        fehlversuch(bremse)
+        return RedirectResponse("/zweiter-schritt?fehler=Der+Code+stimmt+nicht.",
+                                status_code=303)
+    geklappt(bremse)
+    nutzer.gesehen(wer)
+    antwort = RedirectResponse("/", status_code=303)
+    keks_setzen(antwort, wer)
+    antwort.delete_cookie(HALBKEKS, path="/")
     return antwort
 
 
@@ -545,6 +614,56 @@ async def bereich_wechseln(bitte: Request):
     return {"jetzt": jetzt}
 
 
+@app.get("/zwei-schritte")
+def zwei_schritte_lesen(bitte: Request):
+    wer = angemeldet(bitte)
+    if not wer:
+        return JSONResponse({"fehler": "Nicht angemeldet"}, status_code=401)
+    return nutzer.zwei_schritte_stand(wer)
+
+
+@app.post("/zwei-schritte")
+async def zwei_schritte(bitte: Request):
+    """Einrichten, einschalten, abschalten - immer nur fuer sich selbst.
+
+    Ausnahme: ein Verwalter darf sie bei jemand anderem abschalten. Ohne das
+    waere ein verlorenes Telefon mit aufgebrauchten Notfallcodes das Ende des
+    Zugangs - und jemand muss ja helfen koennen.
+    """
+    wer = angemeldet(bitte)
+    if not wer:
+        return JSONResponse({"fehler": "Nicht angemeldet"}, status_code=401)
+    if bitte.headers.get("x-notizmappe") != "1":
+        return JSONResponse({"fehler": "Falscher Aufruf"}, status_code=400)
+    d = _rumpf(await bitte.json() if await bitte.body() else {})
+    was = str(d.get("was") or "")
+    ziel = str(d.get("benutzer") or "").strip().lower() or wer
+    if ziel != wer and "benutzer" not in nutzer.rechte_von(wer):
+        return JSONResponse({"fehler": "Das geht nur für den eigenen Zugang."}, status_code=403)
+    try:
+        if was in ("vorbereiten", "einschalten") and ziel != wer:
+            return JSONResponse({"fehler": "Einrichten muss jeder selbst - "
+                                           "das Geheimnis gehört in seine App."},
+                                status_code=403)
+        if was == "vorbereiten":
+            vor = nutzer.zwei_schritte_vorbereiten(wer)
+            # Schwarz auf weiss, auch in einer dunklen Oberflaeche: manche
+            # Kameras lesen umgekehrte QR-Codes nicht. Der weisse Rand gehoert
+            # dazu, sonst findet der Scanner die Ecken nicht.
+            qr = segno.make(vor["adresse"], error="m")
+            return {**vor, "qr": qr.svg_inline(scale=4, border=3,
+                                               dark="#000000", light="#ffffff")}
+        if was == "einschalten":
+            nutzer.zwei_schritte_einschalten(wer, str(d.get("code") or ""))
+        elif was == "aus":
+            nutzer.zwei_schritte_aus(ziel)
+        else:
+            return JSONResponse({"fehler": "Unbekannt"}, status_code=400)
+    except nutzer.BenutzerFehler as f:
+        return JSONResponse({"fehler": str(f)}, status_code=400)
+    return {"ok": True, **nutzer.zwei_schritte_stand(ziel)}
+
+
 @app.post("/verwaltung/einladung")
 async def verwaltung_einladung(bitte: Request):
     """Einen Einladungslink erzeugen oder zuruecknehmen."""
@@ -654,159 +773,8 @@ def verwaltung(bitte: Request):
         return {"darf": False, "ich": wer, "meine_rechte": meine}
     return {
         "darf": "benutzer" in meine, "ich": wer, "meine_rechte": meine,
-        "benutzer": nutzer.liste(),
-        "rollen": [{"name": n, "erklaerung": r["erklaerung"]}
-                   for n, r in nutzer.ROLLEN.items()],
-        "projekte": [{"name": n, "mitglieder": pr["mitglieder"]}
-                     for n, pr in sorted(nutzer.projekte().items())],
-        "projektrechte": list(nutzer.PROJEKTRECHTE),
-        "darf_projekte": "benutzer" in nutzer.rechte_von(wer),
-        "einladungen": nutzer.einladungen() if "benutzer" in meine else [],
-        "einladung_minuten": nutzer.EINLADUNG_MINUTEN,
-    }
-
-
-def _rumpf(wert) -> dict:
-    return wert if isinstance(wert, dict) else {}
-
-
-@app.post("/verwaltung/benutzer")
-async def verwaltung_benutzer(bitte: Request):
-    """Anlegen, Rolle setzen, Passwort setzen, entfernen - je nach "was"."""
-    _nur_verwalter(bitte)
-    if bitte.headers.get("x-notizmappe") != "1":
-        return JSONResponse({"fehler": "Falscher Aufruf"}, status_code=400)
-    d = _rumpf(await bitte.json() if await bitte.body() else {})
-    was = str(d.get("was") or "")
-    name = str(d.get("name") or "").strip().lower()
-    try:
-        if was == "anlegen":
-            nutzer.anlegen(name, str(d.get("passwort") or ""), rolle=str(d.get("rolle") or ""))
-        elif was == "rolle":
-            nutzer.rolle_zuweisen(name, str(d.get("rolle") or ""))
-        elif was == "passwort":
-            nutzer.passwort_setzen(name, str(d.get("passwort") or ""))
-        elif was == "entfernen":
-            if name == angemeldet(bitte):
-                return JSONResponse({"fehler": "Den eigenen Zugang nicht"}, status_code=400)
-            nutzer.entfernen(name)
-        else:
-            return JSONResponse({"fehler": "Unbekannt"}, status_code=400)
-    except nutzer.BenutzerFehler as f:
-        return JSONResponse({"fehler": str(f)}, status_code=400)
-    return {"ok": True}
-
-
-@app.post("/verwaltung/einladung")
-async def verwaltung_einladung(bitte: Request):
-    """Einen Einladungslink erzeugen oder zuruecknehmen."""
-    _nur_verwalter(bitte)
-    if bitte.headers.get("x-notizmappe") != "1":
-        return JSONResponse({"fehler": "Falscher Aufruf"}, status_code=400)
-    d = _rumpf(await bitte.json() if await bitte.body() else {})
-    try:
-        if d.get("was") == "zuruecknehmen":
-            nutzer.einladung_zuruecknehmen(str(d.get("marke") or ""))
-            return {"ok": True}
-        e = nutzer.einladung_anlegen(
-            angemeldet(bitte), str(d.get("rolle") or "Benutzer"),
-            str(d.get("projekt") or ""), str(d.get("recht") or "schreiben"),
-            int(d.get("minuten") or nutzer.EINLADUNG_MINUTEN))
-    except (nutzer.BenutzerFehler, ValueError, TypeError) as f:
-        return JSONResponse({"fehler": str(f)}, status_code=400)
-    # Die Adresse so bauen, wie der Browser sie gerade benutzt - hinter einem
-    # Proxy ist das nicht dieselbe, die der Server von sich kennt.
-    grund = str(bitte.base_url).rstrip("/")
-    return {**e, "link": f"{grund}/einladung/{e['marke']}"}
-
-
-@app.get("/einladung/{marke}", response_class=HTMLResponse)
-def einladungsseite(marke: str, fehler: str = ""):
-    e = nutzer.einladung_lesen(marke)
-    if not e:
-        # Nicht verraten, ob es die Marke mal gab - es gibt nichts zu holen.
-        return HTMLResponse(
-            "<h2>Diese Einladung gilt nicht mehr</h2>"
-            "<p>Einladungen laufen nach wenigen Minuten ab und gelten einmal. "
-            "Bitte um eine neue.</p>", status_code=410)
-    projekt = f" · Projekt {_text(e['projekt'])} ({_text(e['recht'])})" if e.get("projekt") else ""
-    rest = max(0, int(e["bis"] - time.time()))
-    return HTMLResponse(_vorlage(
-        "einladung.html", wer=_text(e.get("von") or "Jemand"), rolle=_text(e["rolle"]),
-        projekt=projekt, marke=_text(marke), bis=int(e["bis"]),
-        rest=f"{rest // 60}:{rest % 60:02d}", fehler=_text(fehler)))
-
-
-@app.post("/einladung/{marke}")
-def einladung_einloesen(marke: str, bitte: Request, name: str = Form(""),
-                        passwort: str = Form(""), passwort2: str = Form("")):
-    if passwort != passwort2:
-        return RedirectResponse(f"/einladung/{marke}?fehler=Die+Passw%C3%B6rter+sind+nicht+gleich.",
-                                status_code=303)
-    try:
-        wer = nutzer.einladung_einloesen(marke, name, passwort)
-    except nutzer.BenutzerFehler as f:
-        return RedirectResponse(
-            f"/einladung/{marke}?fehler={urllib.parse.quote_plus(str(f))}", status_code=303)
-    antwort = RedirectResponse("/", status_code=303)
-    keks_setzen(antwort, wer)
-    return antwort
-
-
-@app.post("/verwaltung/projekt")
-async def verwaltung_projekt(bitte: Request):
-    """Projekte anlegen, Mitglieder setzen, entfernen."""
-    wer = angemeldet(bitte)
-    if not wer:
-        return JSONResponse({"fehler": "Nicht angemeldet"}, status_code=401)
-    if bitte.headers.get("x-notizmappe") != "1":
-        return JSONResponse({"fehler": "Falscher Aufruf"}, status_code=400)
-    d = _rumpf(await bitte.json() if await bitte.body() else {})
-    was = str(d.get("was") or "")
-    projekt = str(d.get("projekt") or "")
-    meine = nutzer.rechte_von(wer)
-
-    # Anlegen darf ein Verwalter. Innerhalb eines Projekts darf auch, wer dort
-    # "verwalten" ist - sonst muesste fuer jede Kleinigkeit ein Verwalter
-    # kommen, und das ist genau die Art Huerde, die niemand will.
-    darf_hier = "benutzer" in meine or nutzer.projekt_recht(wer, projekt) == "verwalten"
-    try:
-        if was == "anlegen":
-            if "benutzer" not in meine:
-                return JSONResponse({"fehler": "Projekte anlegen darf nur ein Verwalter."},
-                                    status_code=403)
-            nutzer.projekt_anlegen(str(d.get("name") or ""), wer)
-        elif not darf_hier:
-            return JSONResponse({"fehler": "Dieses Projekt darfst du nicht verwalten."},
-                                status_code=403)
-        elif was == "mitglied":
-            nutzer.mitglied_setzen(projekt, str(d.get("benutzer") or ""),
-                                   str(d.get("recht") or ""))
-        elif was == "mitglied-raus":
-            nutzer.mitglied_entfernen(projekt, str(d.get("benutzer") or ""))
-        elif was == "entfernen":
-            nutzer.projekt_entfernen(projekt)
-        else:
-            return JSONResponse({"fehler": "Unbekannt"}, status_code=400)
-    except nutzer.BenutzerFehler as f:
-        return JSONResponse({"fehler": str(f)}, status_code=400)
-    return {"ok": True}
-
-
-@app.get("/verwaltung")
-def verwaltung(bitte: Request):
-    """Alles, was der Abschnitt in den Einstellungen braucht - als JSON."""
-    wer = angemeldet(bitte)
-    if not wer:
-        return JSONResponse({"fehler": "Nicht angemeldet"}, status_code=401)
-    meine = sorted(nutzer.rechte_von(wer))
-    if "benutzer" not in meine:
-        # Kein Verwalter: nur die eigene Lage, damit die Oberflaeche weiss,
-        # dass sie den Abschnitt gar nicht erst zeigen muss.
-        return {"darf": False, "ich": wer, "meine_rechte": meine}
-    return {
-        "darf": "benutzer" in meine, "ich": wer, "meine_rechte": meine,
-        "benutzer": nutzer.liste(),
+        "benutzer": [{**b, "zwei": nutzer.zwei_schritte_stand(b["name"])["an"]}
+                     for b in nutzer.liste()],
         "rollen": [{"name": n, "erklaerung": r["erklaerung"]}
                    for n, r in nutzer.ROLLEN.items()],
         "projekte": [{"name": n, "mitglieder": pr["mitglieder"]}
