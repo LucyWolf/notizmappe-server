@@ -27,26 +27,39 @@ MAXMEM = 160 * 1024 * 1024
 NAME_MUSTER = re.compile(r"^[a-z0-9][a-z0-9._-]{1,30}$")
 ROLLEN_MUSTER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._-]{1,30}$")
 
-# Die Rechte, die es gibt. Jedes steht fuer einen Satz von Methoden, die der
-# Server durchlaesst - sie sind also erzwungen und nicht nur angezeigt. Ein
-# Recht, das die Oberflaeche nur ausgraut, waere keins.
+# Drei Rollen, fertig. Eine Rechtetabelle mit Haken zum Selberbauen waere das,
+# was grosse Firmen brauchen; hier hat jeder seine eigenen Notizen und
+# arbeitet manchmal zusammen. Wer einspringen koennen soll, wenn der eine nicht
+# da ist, wird einfach auch Verwalter - davon darf es mehrere geben.
+#
+# Die Rechte darunter bleiben, weil der Server damit wirklich prueft. Sie sind
+# nur nichts mehr, was jemand zusammenklicken muss.
 RECHTE = {
     "lesen":     "Notizen lesen",
     "schreiben": "Notizen schreiben und anlegen",
     "anhaenge":  "Bilder und Dateien anhängen",
     "loeschen":  "Löschen und Papierkorb leeren",
     "verlauf":   "Frühere Fassungen und Papierkorb",
-    "projekte":  "Projekte anlegen und verwalten",
-    "benutzer":  "Benutzer und Rollen verwalten",
+    "benutzer":  "Benutzer, Einladungen und Projekte verwalten",
 }
 
-# Mitgeliefert und nicht loeschbar - sonst koennte man sich selbst aussperren.
-FESTE_ROLLEN = {
-    "Verwalter": list(RECHTE),
-    "Moderator": ["lesen", "schreiben", "anhaenge", "loeschen", "verlauf", "projekte"],
-    "Benutzer":  ["lesen", "schreiben", "anhaenge", "loeschen", "verlauf"],
-    "Gast":      ["lesen"],
+ROLLEN = {
+    "Verwalter": {
+        "rechte": list(RECHTE),
+        "erklaerung": "Alles: eigene Notizen, Benutzer anlegen, einladen, Projekte. "
+                      "Davon darf es mehrere geben - so kann jemand einspringen.",
+    },
+    "Benutzer": {
+        "rechte": ["lesen", "schreiben", "anhaenge", "loeschen", "verlauf"],
+        "erklaerung": "Eigene Notizen vollständig; in Projekten so viel, wie dort "
+                      "für ihn eingestellt ist.",
+    },
+    "Gast": {
+        "rechte": ["lesen"],
+        "erklaerung": "Darf nur mitlesen - nichts schreiben, nichts löschen.",
+    },
 }
+FESTE_ROLLEN = {name: r["rechte"] for name, r in ROLLEN.items()}
 
 # Was ein Mitglied in einem Projekt darf. Gilt zusaetzlich zur Rolle - und zwar
 # das Schwaechere von beidem: wer als Gast angemeldet ist, darf auch in einem
@@ -123,22 +136,22 @@ def _lesen() -> dict:
     rollen = roh.get("rollen")
     if not isinstance(rollen, dict):
         rollen = {}
-    # Die festen Rollen gibt es immer, mit ihren festen Rechten. Sonst koennte
-    # ein verungluecktes Bearbeiten den letzten Verwalter entmachten.
-    for name, rechte in FESTE_ROLLEN.items():
-        rollen[name] = {"rechte": list(rechte), "fest": True}
-    for name, r in list(rollen.items()):
-        if not isinstance(r, dict) or not isinstance(r.get("rechte"), list):
-            rollen.pop(name, None)
+    # Es gibt genau die drei Rollen - selbstgebaute aus frueheren Fassungen
+    # verschwinden hier, und wer eine davon hatte, bekommt unten eine der drei.
+    rollen = {name: {"rechte": list(rechte), "fest": True}
+              for name, rechte in FESTE_ROLLEN.items()}
     roh["rollen"] = rollen
     if not isinstance(roh.get("projekte"), dict):
         roh["projekte"] = {}
     for name, pr in list(roh["projekte"].items()):
         if not isinstance(pr, dict) or not isinstance(pr.get("mitglieder"), dict):
             roh["projekte"].pop(name, None)
-    # Aeltere Dateien kennen nur "verwalter": ja/nein.
+    # Aeltere Dateien kennen nur "verwalter": ja/nein - und Fassungen dazwischen
+    # kennen Moderator oder selbstgebaute Rollen. Niemand darf dabei seinen
+    # Zugang verlieren: wer verwalten durfte, bleibt Verwalter, alle anderen
+    # werden Benutzer.
     for name, b in roh["benutzer"].items():
-        if not b.get("rolle"):
+        if b.get("rolle") not in rollen:
             b["rolle"] = "Verwalter" if b.get("verwalter") else "Benutzer"
     return roh
 
@@ -162,38 +175,6 @@ def _hash(passwort: str, salz: bytes) -> str:
 def rollen() -> dict:
     """Alle Rollen mit ihren Rechten."""
     return _lesen()["rollen"]
-
-
-def rolle_setzen(name: str, rechte: list) -> None:
-    """Rolle anlegen oder aendern."""
-    name = (name or "").strip()
-    if not ROLLEN_MUSTER.match(name):
-        raise BenutzerFehler("Der Rollenname darf 2 bis 31 Zeichen haben, "
-                             "Buchstaben, Zahlen, Leerzeichen, Punkt, Minus, Unterstrich")
-    if name in FESTE_ROLLEN:
-        raise BenutzerFehler(f"„{name}“ ist eine mitgelieferte Rolle und lässt sich nicht ändern")
-    sauber = [r for r in (rechte or []) if r in RECHTE]
-    if not sauber:
-        raise BenutzerFehler("Eine Rolle ohne Rechte wäre sinnlos - mindestens eines anhaken")
-    with _sperre:
-        daten = _lesen()
-        daten["rollen"][name] = {"rechte": sauber, "fest": False}
-        _schreiben(daten)
-
-
-def rolle_entfernen(name: str) -> None:
-    with _sperre:
-        daten = _lesen()
-        if name in FESTE_ROLLEN:
-            raise BenutzerFehler(f"„{name}“ ist mitgeliefert und bleibt")
-        if name not in daten["rollen"]:
-            raise BenutzerFehler("Die Rolle gibt es nicht")
-        benutzt = [n for n, b in daten["benutzer"].items() if b.get("rolle") == name]
-        if benutzt:
-            raise BenutzerFehler(
-                f"Die Rolle haben noch: {', '.join(benutzt)}. Erst umstellen, dann löschen.")
-        daten["rollen"].pop(name, None)
-        _schreiben(daten)
 
 
 # --- Einladungen -------------------------------------------------------------
@@ -408,7 +389,8 @@ def rolle_zuweisen(name: str, rolle: str) -> None:
         if name not in daten["benutzer"]:
             raise BenutzerFehler("Den Benutzer gibt es nicht")
         if rolle not in daten["rollen"]:
-            raise BenutzerFehler("Die Rolle gibt es nicht")
+            raise BenutzerFehler(f"Die Rolle „{rolle}“ gibt es nicht - "
+                                 f"möglich sind: {', '.join(ROLLEN)}")
         # Niemand darf den letzten Verwalter entmachten - sonst kommt an die
         # Benutzerverwaltung nie wieder jemand heran.
         verliert = "benutzer" not in daten["rollen"][rolle]["rechte"]

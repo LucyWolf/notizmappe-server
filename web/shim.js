@@ -280,41 +280,16 @@
   }
 
   function zeichneRollen(d) {
+    // Keine Haken zum Selberbauen mehr: es gibt drei Rollen, und hier steht
+    // nur, wofür sie da sind. Wer feiner steuern will, wer was darf, stellt
+    // das im Projekt ein - dort gehört es hin.
     const wo = document.getElementById('v-rollen');
+    if (!wo) return;
     wo.textContent = '';
-    for (const r of d.rollen) {
-      const haken = [];
-      for (const [schluessel, text] of Object.entries(d.rechte)) {
-        const kasten = el('input', { type: 'checkbox', checked: r.rechte.includes(schluessel),
-                                     disabled: r.fest });
-        kasten.dataset.recht = schluessel;
-        haken.push(el('label', { className: 'haken', title: text }, [kasten, document.createTextNode(' ' + text)]));
-      }
-      const knoepfe = [];
-      if (!r.fest) {
-        const sichern = el('button', { type: 'button', textContent: 'Speichern' });
-        sichern.addEventListener('click', async () => {
-          const rechte = haken.map((h) => h.firstChild).filter((k) => k.checked).map((k) => k.dataset.recht);
-          try {
-            await hol('/verwaltung/rolle', { name: r.name, rechte });
-            sagen(`Rolle „${r.name}“ gespeichert.`);
-            verwaltungLaden();
-          } catch (f) { sagen(f.message); }
-        });
-        const weg = el('button', { type: 'button', textContent: 'Rolle löschen' });
-        weg.addEventListener('click', async () => {
-          if (!confirm(`Rolle „${r.name}“ löschen?`)) return;
-          try {
-            await hol('/verwaltung/rolle', { was: 'entfernen', name: r.name });
-            verwaltungLaden();
-          } catch (f) { sagen(f.message); }
-        });
-        knoepfe.push(sichern, weg);
-      }
-      wo.append(el('div', { className: 'rollenkasten' }, [
-        el('strong', { textContent: r.name + (r.fest ? ' (mitgeliefert)' : '') }),
-        el('div', { className: 'rechte' }, haken),
-        el('p', { className: 'knoepfe' }, knoepfe),
+    for (const r of d.rollen || []) {
+      wo.append(el('p', { className: 'zeile2' }, [
+        el('strong', { textContent: r.name }),
+        el('span', { className: 'rollenwozu', textContent: r.erklaerung }),
       ]));
     }
   }
@@ -540,19 +515,6 @@
       } catch (f) { sagen(f.message); }
     });
 
-    const rollenName = el('input', { type: 'text', placeholder: 'Name der neuen Rolle' });
-    const rollenRechte = el('div', { className: 'rechte' });
-    const rollenAnlegen = el('button', { type: 'button', textContent: 'Rolle anlegen' });
-    rollenAnlegen.addEventListener('click', async () => {
-      const rechte = Array.from(rollenRechte.querySelectorAll('input:checked')).map((k) => k.dataset.recht);
-      try {
-        await hol('/verwaltung/rolle', { name: rollenName.value, rechte });
-        rollenName.value = '';
-        sagen(`Rolle „${rollenName.value}“ angelegt.`);
-        verwaltungLaden();
-      } catch (f) { sagen(f.message); }
-    });
-
     const abschnitt = el('section', { id: 'serververwaltung', hidden: true }, [
       el('h3', { textContent: 'Benutzer und Rollen' }),
       el('div', { id: 'v-benutzer' }),
@@ -572,11 +534,12 @@
         + 'auch kein Verwalter.' }),
       el('div', { id: 'v-projekte' }),
       el('p', { className: 'ordnerzeile' }, [projektName, projektAnlegen]),
-      el('h3', { textContent: 'Rollen', style: 'margin-top:14px' }),
+      el('h3', { textContent: 'Was die Rollen bedeuten', style: 'margin-top:14px' }),
       el('div', { id: 'v-rollen' }),
-      el('p', { className: 'ordnerzeile' }, [rollenName]),
-      rollenRechte,
-      el('p', { className: 'knoepfe' }, [rollenAnlegen]),
+      el('p', { className: 'hinweis', textContent:
+        'Mehr Rollen gibt es bewusst nicht. Wer einspringen können soll, wird einfach '
+        + 'auch Verwalter; wer in einem Projekt mehr oder weniger darf, wird dort '
+        + 'eingestellt.' }),
       el('p', { className: 'hinweis', id: 'v-meldung' }),
       el('p', { className: 'hinweis', textContent:
         'Die Rechte werden am Server durchgesetzt, nicht nur in der Oberfläche. '
@@ -598,13 +561,6 @@
       einProjekt.append(el('option', { value: '', textContent: 'ohne Projekt' }));
       for (const pr of verwaltungStand.projekte || []) {
         einProjekt.append(el('option', { value: pr.name, textContent: 'Projekt: ' + pr.name }));
-      }
-      if (!rollenRechte.children.length) {
-        for (const [schluessel, text] of Object.entries(verwaltungStand.rechte)) {
-          const kasten = el('input', { type: 'checkbox' });
-          kasten.dataset.recht = schluessel;
-          rollenRechte.append(el('label', { className: 'haken' }, [kasten, document.createTextNode(' ' + text)]));
-        }
       }
     };
     const alt = verwaltungLaden;
@@ -664,6 +620,8 @@
         flex: 1; min-width: 240px; font-family: ui-monospace, "DejaVu Sans Mono", monospace;
         font-size: 12px; background: var(--flaeche, var(--papier));
       }
+      #serververwaltung .rollenwozu { color: var(--matt); font-size: 12px;
+        max-width: 430px; text-align: right; }
       #v-meldung { color: var(--matt); font-size: 12px; margin-top: 10px; }`;
     document.head.append(stil);
   }

@@ -285,10 +285,10 @@ pruefe("Zurückholen geht am Server", lage == 200 and "fehler" not in _, _)
 print("\nRollen und Rechte")
 v = k.get("/verwaltung").json()
 pruefe("Verwalter sieht die Verwaltung", v.get("darf") is True, v)
-pruefe("Die mitgelieferten Rollen sind da",
-       {r["name"] for r in v["rollen"]} >= {"Verwalter", "Benutzer", "Gast"}, v["rollen"])
-pruefe("Mitgelieferte Rollen sind als fest gekennzeichnet",
-       all(r["fest"] for r in v["rollen"] if r["name"] in ("Verwalter", "Benutzer", "Gast")))
+pruefe("Es gibt genau drei Rollen",
+       [r["name"] for r in v["rollen"]] == ["Verwalter", "Benutzer", "Gast"], v["rollen"])
+pruefe("Und jede sagt, wofür sie da ist",
+       all(r.get("erklaerung") for r in v["rollen"]), v["rollen"])
 
 def verwalte(klient, weg, rumpf):
     return klient.post(weg, json=rumpf, headers={"X-Notizmappe": "1"})
@@ -314,20 +314,14 @@ pruefe("Und kann auch keinen anlegen",
        verwalte(gast2, "/verwaltung/benutzer",
                 {"was": "anlegen", "name": "schmuggel", "passwort": "egalegal1"}).status_code == 403)
 
-# Eigene Rolle
-a = verwalte(k, "/verwaltung/rolle", {"name": "Schreiber", "rechte": ["lesen", "schreiben"]})
-pruefe("Eigene Rolle anlegen", a.status_code == 200, a.text[:80])
-pruefe("Rolle ohne Rechte wird abgelehnt",
-       verwalte(k, "/verwaltung/rolle", {"name": "Nichts", "rechte": []}).status_code == 400)
-pruefe("Mitgelieferte Rolle lässt sich nicht ändern",
-       verwalte(k, "/verwaltung/rolle", {"name": "Gast", "rechte": ["lesen", "schreiben"]}).status_code == 400)
-verwalte(k, "/verwaltung/benutzer", {"was": "rolle", "name": "nurlesen", "rolle": "Schreiber"})
+pruefe("Eigene Rollen gibt es nicht mehr",
+       verwalte(k, "/verwaltung/rolle", {"name": "Schreiber", "rechte": ["lesen"]}).status_code == 404)
+pruefe("Eine erfundene Rolle wird abgelehnt",
+       verwalte(k, "/verwaltung/benutzer",
+                {"was": "rolle", "name": "nurlesen", "rolle": "Schreiber"}).status_code == 400)
+verwalte(k, "/verwaltung/benutzer", {"was": "rolle", "name": "nurlesen", "rolle": "Benutzer"})
 lage, _ = ruf(gast2, "notizbuch_anlegen", "Jetzt erlaubt")
-pruefe("Mit der neuen Rolle darf er schreiben", lage == 200 and "fehler" not in _, (lage, _))
-lage, _ = ruf(gast2, "loeschen", "notizbuch", [_["name"]])
-pruefe("Löschen bleibt ihm verwehrt", lage == 403, (lage, _))
-pruefe("Rolle in Benutzung lässt sich nicht löschen",
-       verwalte(k, "/verwaltung/rolle", {"was": "entfernen", "name": "Schreiber"}).status_code == 400)
+pruefe("Als Benutzer darf er schreiben", lage == 200 and "fehler" not in _, (lage, _))
 
 # Den letzten Verwalter darf niemand entmachten
 pruefe("Letzten Verwalter nicht entmachten",
@@ -452,7 +446,7 @@ pruefe("Eingeladene landen gleich im Projekt",
 # Rollen sagen, *was* jemand darf - Projekte, *wo*. Beides muss zusammen
 # greifen, und zwar immer das Schwaechere von beidem.
 print("\nProjekte")
-server.nutzer.anlegen("mod", "modpasswort1", rolle="Moderator")
+server.nutzer.anlegen("mod", "modpasswort1", rolle="Verwalter")
 server.nutzer.anlegen("anna", "annapasswort1", rolle="Benutzer")
 server.nutzer.anlegen("zuschauer", "zuschauerpw1", rolle="Gast")
 M = TestClient(server.app, follow_redirects=False)
@@ -467,7 +461,7 @@ def verw(klient, weg, rumpf):
     return klient.post(weg, json=rumpf, headers={"X-Notizmappe": "1"})
 
 
-pruefe("Moderator darf Projekte anlegen",
+pruefe("Ein Verwalter darf Projekte anlegen",
        verw(M, "/verwaltung/projekt", {"was": "anlegen", "name": "Hausbau"}).status_code == 200)
 pruefe("Ein Benutzer darf das nicht",
        verw(A, "/verwaltung/projekt", {"was": "anlegen", "name": "Heimlich"}).status_code == 403)

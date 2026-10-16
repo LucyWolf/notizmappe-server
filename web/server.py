@@ -614,14 +614,14 @@ async def verwaltung_projekt(bitte: Request):
     projekt = str(d.get("projekt") or "")
     meine = nutzer.rechte_von(wer)
 
-    # Anlegen darf, wer "Projekte verwalten" hat. Innerhalb eines Projekts darf
-    # auch, wer dort "verwalten" ist - sonst muesste fuer jede Kleinigkeit ein
-    # Verwalter kommen.
-    darf_hier = "projekte" in meine or nutzer.projekt_recht(wer, projekt) == "verwalten"
+    # Anlegen darf ein Verwalter. Innerhalb eines Projekts darf auch, wer dort
+    # "verwalten" ist - sonst muesste fuer jede Kleinigkeit ein Verwalter
+    # kommen, und das ist genau die Art Huerde, die niemand will.
+    darf_hier = "benutzer" in meine or nutzer.projekt_recht(wer, projekt) == "verwalten"
     try:
         if was == "anlegen":
-            if "projekte" not in meine:
-                return JSONResponse({"fehler": "Dafür fehlt dir das Recht, Projekte anzulegen."},
+            if "benutzer" not in meine:
+                return JSONResponse({"fehler": "Projekte anlegen darf nur ein Verwalter."},
                                     status_code=403)
             nutzer.projekt_anlegen(str(d.get("name") or ""), wer)
         elif not darf_hier:
@@ -648,20 +648,19 @@ def verwaltung(bitte: Request):
     if not wer:
         return JSONResponse({"fehler": "Nicht angemeldet"}, status_code=401)
     meine = sorted(nutzer.rechte_von(wer))
-    if "benutzer" not in meine and "projekte" not in meine:
+    if "benutzer" not in meine:
         # Kein Verwalter: nur die eigene Lage, damit die Oberflaeche weiss,
         # dass sie den Abschnitt gar nicht erst zeigen muss.
         return {"darf": False, "ich": wer, "meine_rechte": meine}
     return {
         "darf": "benutzer" in meine, "ich": wer, "meine_rechte": meine,
         "benutzer": nutzer.liste(),
-        "rollen": [{"name": n, "rechte": r["rechte"], "fest": bool(r.get("fest"))}
-                   for n, r in sorted(nutzer.rollen().items())],
-        "rechte": nutzer.RECHTE,
+        "rollen": [{"name": n, "erklaerung": r["erklaerung"]}
+                   for n, r in nutzer.ROLLEN.items()],
         "projekte": [{"name": n, "mitglieder": pr["mitglieder"]}
                      for n, pr in sorted(nutzer.projekte().items())],
         "projektrechte": list(nutzer.PROJEKTRECHTE),
-        "darf_projekte": "projekte" in nutzer.rechte_von(wer),
+        "darf_projekte": "benutzer" in nutzer.rechte_von(wer),
         "einladungen": nutzer.einladungen() if "benutzer" in meine else [],
         "einladung_minuten": nutzer.EINLADUNG_MINUTEN,
     }
@@ -698,19 +697,153 @@ async def verwaltung_benutzer(bitte: Request):
     return {"ok": True}
 
 
-@app.post("/verwaltung/rolle")
-async def verwaltung_rolle(bitte: Request):
+@app.post("/verwaltung/einladung")
+async def verwaltung_einladung(bitte: Request):
+    """Einen Einladungslink erzeugen oder zuruecknehmen."""
     _nur_verwalter(bitte)
     if bitte.headers.get("x-notizmappe") != "1":
         return JSONResponse({"fehler": "Falscher Aufruf"}, status_code=400)
     d = _rumpf(await bitte.json() if await bitte.body() else {})
-    name = str(d.get("name") or "")
     try:
-        if d.get("was") == "entfernen":
-            nutzer.rolle_entfernen(name)
+        if d.get("was") == "zuruecknehmen":
+            nutzer.einladung_zuruecknehmen(str(d.get("marke") or ""))
+            return {"ok": True}
+        e = nutzer.einladung_anlegen(
+            angemeldet(bitte), str(d.get("rolle") or "Benutzer"),
+            str(d.get("projekt") or ""), str(d.get("recht") or "schreiben"),
+            int(d.get("minuten") or nutzer.EINLADUNG_MINUTEN))
+    except (nutzer.BenutzerFehler, ValueError, TypeError) as f:
+        return JSONResponse({"fehler": str(f)}, status_code=400)
+    # Die Adresse so bauen, wie der Browser sie gerade benutzt - hinter einem
+    # Proxy ist das nicht dieselbe, die der Server von sich kennt.
+    grund = str(bitte.base_url).rstrip("/")
+    return {**e, "link": f"{grund}/einladung/{e['marke']}"}
+
+
+@app.get("/einladung/{marke}", response_class=HTMLResponse)
+def einladungsseite(marke: str, fehler: str = ""):
+    e = nutzer.einladung_lesen(marke)
+    if not e:
+        # Nicht verraten, ob es die Marke mal gab - es gibt nichts zu holen.
+        return HTMLResponse(
+            "<h2>Diese Einladung gilt nicht mehr</h2>"
+            "<p>Einladungen laufen nach wenigen Minuten ab und gelten einmal. "
+            "Bitte um eine neue.</p>", status_code=410)
+    projekt = f" · Projekt {_text(e['projekt'])} ({_text(e['recht'])})" if e.get("projekt") else ""
+    rest = max(0, int(e["bis"] - time.time()))
+    return HTMLResponse(_vorlage(
+        "einladung.html", wer=_text(e.get("von") or "Jemand"), rolle=_text(e["rolle"]),
+        projekt=projekt, marke=_text(marke), bis=int(e["bis"]),
+        rest=f"{rest // 60}:{rest % 60:02d}", fehler=_text(fehler)))
+
+
+@app.post("/einladung/{marke}")
+def einladung_einloesen(marke: str, bitte: Request, name: str = Form(""),
+                        passwort: str = Form(""), passwort2: str = Form("")):
+    if passwort != passwort2:
+        return RedirectResponse(f"/einladung/{marke}?fehler=Die+Passw%C3%B6rter+sind+nicht+gleich.",
+                                status_code=303)
+    try:
+        wer = nutzer.einladung_einloesen(marke, name, passwort)
+    except nutzer.BenutzerFehler as f:
+        return RedirectResponse(
+            f"/einladung/{marke}?fehler={urllib.parse.quote_plus(str(f))}", status_code=303)
+    antwort = RedirectResponse("/", status_code=303)
+    keks_setzen(antwort, wer)
+    return antwort
+
+
+@app.post("/verwaltung/projekt")
+async def verwaltung_projekt(bitte: Request):
+    """Projekte anlegen, Mitglieder setzen, entfernen."""
+    wer = angemeldet(bitte)
+    if not wer:
+        return JSONResponse({"fehler": "Nicht angemeldet"}, status_code=401)
+    if bitte.headers.get("x-notizmappe") != "1":
+        return JSONResponse({"fehler": "Falscher Aufruf"}, status_code=400)
+    d = _rumpf(await bitte.json() if await bitte.body() else {})
+    was = str(d.get("was") or "")
+    projekt = str(d.get("projekt") or "")
+    meine = nutzer.rechte_von(wer)
+
+    # Anlegen darf ein Verwalter. Innerhalb eines Projekts darf auch, wer dort
+    # "verwalten" ist - sonst muesste fuer jede Kleinigkeit ein Verwalter
+    # kommen, und das ist genau die Art Huerde, die niemand will.
+    darf_hier = "benutzer" in meine or nutzer.projekt_recht(wer, projekt) == "verwalten"
+    try:
+        if was == "anlegen":
+            if "benutzer" not in meine:
+                return JSONResponse({"fehler": "Projekte anlegen darf nur ein Verwalter."},
+                                    status_code=403)
+            nutzer.projekt_anlegen(str(d.get("name") or ""), wer)
+        elif not darf_hier:
+            return JSONResponse({"fehler": "Dieses Projekt darfst du nicht verwalten."},
+                                status_code=403)
+        elif was == "mitglied":
+            nutzer.mitglied_setzen(projekt, str(d.get("benutzer") or ""),
+                                   str(d.get("recht") or ""))
+        elif was == "mitglied-raus":
+            nutzer.mitglied_entfernen(projekt, str(d.get("benutzer") or ""))
+        elif was == "entfernen":
+            nutzer.projekt_entfernen(projekt)
         else:
-            rechte = d.get("rechte")
-            nutzer.rolle_setzen(name, rechte if isinstance(rechte, list) else [])
+            return JSONResponse({"fehler": "Unbekannt"}, status_code=400)
+    except nutzer.BenutzerFehler as f:
+        return JSONResponse({"fehler": str(f)}, status_code=400)
+    return {"ok": True}
+
+
+@app.get("/verwaltung")
+def verwaltung(bitte: Request):
+    """Alles, was der Abschnitt in den Einstellungen braucht - als JSON."""
+    wer = angemeldet(bitte)
+    if not wer:
+        return JSONResponse({"fehler": "Nicht angemeldet"}, status_code=401)
+    meine = sorted(nutzer.rechte_von(wer))
+    if "benutzer" not in meine:
+        # Kein Verwalter: nur die eigene Lage, damit die Oberflaeche weiss,
+        # dass sie den Abschnitt gar nicht erst zeigen muss.
+        return {"darf": False, "ich": wer, "meine_rechte": meine}
+    return {
+        "darf": "benutzer" in meine, "ich": wer, "meine_rechte": meine,
+        "benutzer": nutzer.liste(),
+        "rollen": [{"name": n, "erklaerung": r["erklaerung"]}
+                   for n, r in nutzer.ROLLEN.items()],
+        "projekte": [{"name": n, "mitglieder": pr["mitglieder"]}
+                     for n, pr in sorted(nutzer.projekte().items())],
+        "projektrechte": list(nutzer.PROJEKTRECHTE),
+        "darf_projekte": "benutzer" in nutzer.rechte_von(wer),
+        "einladungen": nutzer.einladungen() if "benutzer" in meine else [],
+        "einladung_minuten": nutzer.EINLADUNG_MINUTEN,
+    }
+
+
+def _rumpf(wert) -> dict:
+    return wert if isinstance(wert, dict) else {}
+
+
+@app.post("/verwaltung/benutzer")
+async def verwaltung_benutzer(bitte: Request):
+    """Anlegen, Rolle setzen, Passwort setzen, entfernen - je nach "was"."""
+    _nur_verwalter(bitte)
+    if bitte.headers.get("x-notizmappe") != "1":
+        return JSONResponse({"fehler": "Falscher Aufruf"}, status_code=400)
+    d = _rumpf(await bitte.json() if await bitte.body() else {})
+    was = str(d.get("was") or "")
+    name = str(d.get("name") or "").strip().lower()
+    try:
+        if was == "anlegen":
+            nutzer.anlegen(name, str(d.get("passwort") or ""), rolle=str(d.get("rolle") or ""))
+        elif was == "rolle":
+            nutzer.rolle_zuweisen(name, str(d.get("rolle") or ""))
+        elif was == "passwort":
+            nutzer.passwort_setzen(name, str(d.get("passwort") or ""))
+        elif was == "entfernen":
+            if name == angemeldet(bitte):
+                return JSONResponse({"fehler": "Den eigenen Zugang nicht"}, status_code=400)
+            nutzer.entfernen(name)
+        else:
+            return JSONResponse({"fehler": "Unbekannt"}, status_code=400)
     except nutzer.BenutzerFehler as f:
         return JSONResponse({"fehler": str(f)}, status_code=400)
     return {"ok": True}

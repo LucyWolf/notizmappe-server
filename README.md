@@ -39,45 +39,30 @@ Einrichtungsseite: der erste Zugang wird gleich der **Verwalter**.
 ## Benutzer und Rollen
 
 Unter **Datei → Konto**: wer angemeldet ist, was diese Rolle darf, Abmelden —
-und für Verwalter darunter „Benutzer und Rollen": Benutzer anlegen, Rolle
-zuweisen, Passwort setzen, Zugang entfernen, eigene Rollen anlegen.
+und für Verwalter darunter Benutzer anlegen, einladen, Projekte, Rollen
+zuweisen.
 
-Am Desktop steht dort etwas anderes (die Verbindung zu einem Server), und das
-bleibt auch so: dort gibt es keine Benutzer. Die gemeinsame Oberfläche wird
-dafür nicht angefasst — `shim.js` blendet am Server aus, was dort sinnlos ist,
-und hängt die Verwaltung an.
+Es gibt **drei Rollen**, mehr nicht:
 
-Eine Rolle ist eine Auswahl aus diesen Rechten:
-
-| Recht | erlaubt |
+| Rolle | darf |
 |---|---|
-| `lesen` | Notizen lesen |
-| `schreiben` | Notizen schreiben und anlegen |
-| `anhaenge` | Bilder und Dateien anhängen |
-| `loeschen` | Löschen und Papierkorb leeren |
-| `verlauf` | Frühere Fassungen und Papierkorb |
-| `benutzer` | Benutzer und Rollen verwalten |
+| **Verwalter** | alles: eigene Notizen, Benutzer anlegen, einladen, Projekte. Davon darf es mehrere geben — so kann jemand einspringen |
+| **Benutzer** | eigene Notizen vollständig; in Projekten so viel, wie dort für ihn eingestellt ist |
+| **Gast** | nur mitlesen |
 
-Mitgeliefert und nicht änderbar: **Verwalter** (alles), **Moderator** (alles
-außer Benutzerverwaltung, dafür mit Projekten), **Benutzer** (eigene Notizen,
-schreiben, löschen, Verlauf), **Gast** (nur lesen). Eigene Rollen kommen dazu.
+Selbstgebaute Rollen mit angehakten Einzelrechten gab es einmal und sind wieder
+weg: das ist, was große Firmen brauchen. Hier hat jeder seine eigenen Notizen
+und arbeitet manchmal zusammen — wer mehr oder weniger dürfen soll, wird **im
+Projekt** eingestellt, und wer einspringen können soll, wird einfach auch
+Verwalter.
 
-### Einladen statt Passwörter verschicken
+Intern prüft der Server weiterhin je Methode ein Recht (lesen, schreiben,
+anhaenge, loeschen, verlauf, benutzer) — das ist die Durchsetzung. Es ist nur
+nichts mehr, was jemand zusammenklicken muss.
 
-Unter **Datei → Konto → Einladen** erzeugt ein Verwalter einen Link. Wer ihn
-öffnet, legt sich **Name und Passwort selbst** an und ist danach gleich
-angemeldet — es muss also nie ein Passwort durch Chat oder Mail gehen.
-
-* Jeder Link ist ein **anderer** (24 zufällige Bytes) und steht nirgends sonst.
-* Er gilt **5 Minuten** (wahlweise 15 oder 60) und **genau einmal**.
-* Rolle und optional ein Projekt samt Recht hängen am Link — der Eingeladene
-  landet also direkt dort, wo er hingehört.
-* Abgelaufene verschwinden von allein; zurücknehmen kann man sie jederzeit.
-* Ein Fehlversuch (zu kurzes Passwort, Name vergeben) verbraucht die Einladung
-  **nicht** — sonst wäre sie nach einem Tippfehler weg.
-
-Die Seite zeigt mit, wie lange der Link noch gilt, und sperrt sich selbst, wenn
-die Zeit um ist.
+Wer aus einer früheren Fassung eine eigene Rolle oder „Moderator" hatte, wird
+beim nächsten Lesen zu **Benutzer** — außer er durfte verwalten, dann zu
+**Verwalter**. Niemand verliert dabei seinen Zugang.
 
 ## Projekte: zusammen an etwas arbeiten
 

@@ -99,6 +99,21 @@ js = (DESKTOP / "app/oberflaeche/mappe.js").read_text(encoding="utf-8")
 anders = set(re.findall(r"window\.pywebview\.(\w+)", js)) - {"api"}
 pruefe("die Oberflaeche benutzt nur window.pywebview.api", not anders, str(anders))
 
+# --- Der Stellvertreter muss überhaupt laufen können -------------------------
+#
+# Er wird vom Browser ausgeführt, nicht von Python - ein Tippfehler darin fällt
+# sonst erst dort auf, und zwar als tote Oberfläche. Genau das ist mir beim
+# Vereinfachen der Rollen passiert: eine Klammer zu viel, alle Tests grün.
+try:
+    import esprima
+
+    esprima.parseScript((WURZEL / "web/shim.js").read_text(encoding="utf-8"))
+    pruefe("shim.js lässt sich überhaupt lesen", True)
+except ImportError:
+    print("  --  esprima fehlt, Syntax von shim.js ungeprüft (pip install esprima)")
+except Exception as f:                                              # noqa: BLE001
+    pruefe("shim.js lässt sich überhaupt lesen", False, str(f))
+
 print()
 print("Desktop und Server sind dieselbe Oberflaeche" if not fehler
       else f"{len(fehler)} FEHLER:\n - " + "\n - ".join(fehler))
