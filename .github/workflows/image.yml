@@ -52,14 +52,17 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Bauen und schieben
+      # Erst oertlich bauen, pruefen, DANN hochladen. Vorher stand das Image
+      # schon als :latest in der Registry, waehrend die Startproben noch liefen -
+      # ein Image, das gar nicht hochkommt, war damit bereits das, was ein
+      # "docker compose pull" geholt haette. Von Hand faellt das auf; sobald
+      # etwas automatisch zieht, nicht mehr.
+      - name: Bauen (noch nicht schieben)
         uses: docker/build-push-action@v6
         with:
           context: .
-          push: true
-          tags: |
-            ghcr.io/lucywolf/notizmappe-server:latest
-            ghcr.io/lucywolf/notizmappe-server:${{ steps.f.outputs.desktop }}
+          load: true
+          tags: ghcr.io/lucywolf/notizmappe-server:${{ steps.f.outputs.desktop }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -118,3 +121,15 @@ jobs:
           echo "Serverprozess laeuft als Uid $uid"
           [ "$uid" != "0" ] || { echo "Laeuft als root - start.py hat die Rechte nicht abgelegt"; exit 1; }
           docker rm -f probe2
+
+      # Beide Proben gruen - jetzt erst darf es :latest werden. Gebaut wird
+      # nicht neu, das kommt vollstaendig aus dem Cache von oben.
+      - name: Schieben
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/lucywolf/notizmappe-server:latest
+            ghcr.io/lucywolf/notizmappe-server:${{ steps.f.outputs.desktop }}
+          cache-from: type=gha
