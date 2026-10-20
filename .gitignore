@@ -3,3 +3,9 @@ __pycache__/
 .venv/
 desktop/
 daten/
+
+# Die eigene Einrichtung - NIE ins Repo. Docker Compose liest sie von sich
+# aus zusaetzlich zur docker-compose.yml. Dort stehen NAS-Adresse und
+# Zugangsdaten; die Vorlage dazu ist docker-compose.override.yml.beispiel.
+docker-compose.override.yml
+.smb-zugang

@@ -1,0 +1,54 @@
+# Die eigene Einrichtung - kopieren nach docker-compose.override.yml und
+# ausfuellen. Docker Compose liest diese Datei von sich aus zusaetzlich, es
+# braucht also keinen extra Schalter beim Aufruf.
+#
+#     cp docker-compose.override.yml.beispiel docker-compose.override.yml
+#     $EDITOR docker-compose.override.yml
+#     docker compose up -d
+#
+# Sie steht in .gitignore und geht damit nie ins Repo - genau deshalb gehoeren
+# Zugangsdaten hierher und nicht in die docker-compose.yml.
+
+services:
+  notizmappe:
+    volumes:
+      # Ersetzt den Ordner auf der Platte durch die Freigabe der NAS.
+      - !reset []
+      - nas:/daten
+    environment:
+      # Muessen zu uid/gid in den Mount-Optionen unten passen, sonst kann der
+      # Server auf der Freigabe nicht schreiben.
+      PUID: "1000"
+      PGID: "1000"
+
+volumes:
+  nas:
+    driver: local
+    driver_opts:
+      # ------------------------------------------------------------------
+      # SMB / CIFS
+      # ------------------------------------------------------------------
+      type: cifs
+      device: "//nas.fritz.box/notizmappe"      # <-- Rechnername und Freigabe
+      # file_mode/dir_mode sind nicht optional: auf einer SMB-Freigabe
+      # bestimmen die Mount-Optionen die Rechte, chmod im Programm laeuft ins
+      # Leere. Ohne sie liegen benutzer.json UND .sitzungsschluessel fuer jeden
+      # lesbar da - und mit dem Sitzungsschluessel laesst sich ein gueltiger
+      # Keks fuer jeden Zugang bauen, ohne Passwort und an der
+      # Zwei-Schritte-Anmeldung vorbei.
+      #
+      # Das Passwort steht ABSICHTLICH nicht hier, sondern in einer Datei, die
+      # nur dir gehoert:
+      #     printf 'username=notizmappe\npassword=GEHEIM\n' > .smb-zugang
+      #     chmod 600 .smb-zugang
+      # (auch .smb-zugang steht in .gitignore)
+      o: "credentials=/home/lucy-wolf/projekte/notizmappe-server/.smb-zugang,vers=3.0,uid=1000,gid=1000,file_mode=0600,dir_mode=0700,nobrl"
+
+      # ------------------------------------------------------------------
+      # oder NFS - dort greifen die Rechte normal, kein file_mode noetig.
+      # "hard" statt "soft": bei einer Netzstoerung soll ein Schreibvorgang
+      # warten, nicht mittendrin abbrechen.
+      # ------------------------------------------------------------------
+      # type: nfs
+      # device: ":/volume1/notizmappe"
+      # o: "addr=nas.fritz.box,nfsvers=4,hard,noatime"

@@ -15,10 +15,12 @@ services:
     ports:
       - "8112:8000"
     volumes:
-      - ./daten:/daten
-      # NAS statt lokalem Ordner: diese Zeile gegen eine der beiden unten
-      # tauschen. Siehe den Block "volumes:" am Ende der Datei.
-      # - nas:/daten
+      # Wo die Notizen liegen. Standard ist ./daten daneben; fuer eine NAS, die
+      # auf diesem Rechner schon eingehaengt ist, genuegt eine Zeile in .env:
+      #     NOTIZMAPPE_ABLAGE=/mnt/nas/notizmappe
+      # Soll Docker die Freigabe selbst einhaengen, siehe
+      # docker-compose.override.yml.beispiel.
+      - ${NOTIZMAPPE_ABLAGE:-./daten}:/daten
     environment:
       # Auf 1, wenn ein Proxy mit Zertifikat davorsteht (nginx, Caddy). Dann
       # bekommt der Sitzungs-Keks "Secure" und geht nur noch ueber HTTPS.
@@ -31,17 +33,21 @@ services:
       # PGID: "1000"
 
 # ---------------------------------------------------------------------------
-# NAS als Ablage (SMB oder NFS)
+# NAS als Ablage
 #
-# Eingehaengt wird von Docker selbst, nicht vom Container - der braucht dafuer
-# keine Sonderrechte. Oben bei "volumes:" dann "nas:/daten" eintragen statt
-# "./daten:/daten".
+# Zwei Wege, beide ohne Sonderrechte fuer den Container:
 #
-# WICHTIG bei SMB: die Mount-Optionen setzen die Rechte fest, der Server kann
-# sie nicht aendern. Ohne file_mode/dir_mode liegen benutzer.json UND
-# .sitzungsschluessel offen auf der Freigabe - und mit dem Sitzungsschluessel
-# laesst sich ein gueltiger Keks fuer jeden Zugang bauen. uid/gid muessen zu
-# PUID/PGID passen. Der Start sagt im Protokoll, wenn die Rechte nicht greifen.
+#   1. Die Freigabe ist auf diesem Rechner schon eingehaengt (fstab, systemd):
+#      eine Zeile in .env genuegt -> NOTIZMAPPE_ABLAGE=/mnt/nas/notizmappe
+#
+#   2. Docker soll sie selbst einhaengen: docker-compose.override.yml.beispiel
+#      kopieren nach docker-compose.override.yml und ausfuellen. Compose liest
+#      sie von allein dazu, und sie steht in .gitignore - deshalb gehoeren die
+#      Zugangsdaten dorthin und nicht in diese Datei hier, die im Repo liegt.
+#
+# Bei SMB sind file_mode=0600,dir_mode=0700 Pflicht: dort bestimmen die
+# Mount-Optionen die Rechte, chmod im Programm laeuft ins Leere. Der Start sagt
+# es im Protokoll, wenn sie fehlen.
 #
 # Nur EIN Server pro Freigabe: die Sperre im Code gilt im Prozess, nicht ueber
 # das Netz. Zwei Container auf derselben Ablage zerschiessen sich Dateien.
@@ -49,16 +55,3 @@ services:
 # FTP geht hierfuer nicht - kein atomares Umbenennen, keine Dateisperren. Ein
 # Abbruch mitten im Speichern hinterlaesst eine halbe Seite statt der alten.
 # ---------------------------------------------------------------------------
-# volumes:
-#   nas:
-#     driver: local
-#     driver_opts:
-#       # --- SMB / CIFS ---
-#       type: cifs
-#       device: "//nas.fritz.box/notizmappe"
-#       o: "username=notizmappe,password=GEHEIM,vers=3.0,uid=1000,gid=1000,file_mode=0600,dir_mode=0700,nobrl"
-#
-#       # --- oder NFS (Rechte greifen hier normal, kein file_mode noetig) ---
-#       # type: nfs
-#       # device: ":/volume1/notizmappe"
-#       # o: "addr=nas.fritz.box,nfsvers=4,hard,noatime"

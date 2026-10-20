@@ -157,10 +157,43 @@ einstellst.
 
 ## NAS als Ablage
 
-Der Datenordner muss nicht auf der Platte des Docker-Rechners liegen. Eingehängt
-wird dabei von **Docker selbst**, nicht vom Container — der braucht dafür keine
-Sonderrechte. In der `docker-compose.yml` steht die Vorlage für SMB und NFS; oben
-bei `volumes:` dann `nas:/daten` statt `./daten:/daten`.
+Der Datenordner muss nicht auf der Platte des Docker-Rechners liegen. Der
+Container braucht dafür **keine** Sonderrechte — eingehängt wird entweder vom
+Rechner selbst oder von Docker.
+
+### Weg 1: die Freigabe ist schon eingehängt
+
+Hängt die NAS auf dem Rechner bereits (fstab, systemd, autofs), genügt eine
+Zeile in einer Datei `.env` neben der `docker-compose.yml`:
+
+```
+NOTIZMAPPE_ABLAGE=/mnt/nas/notizmappe
+```
+
+Dann `docker compose up -d`. Ohne diese Zeile bleibt es bei `./daten`.
+
+### Weg 2: Docker hängt sie selbst ein
+
+```bash
+cp docker-compose.override.yml.beispiel docker-compose.override.yml
+$EDITOR docker-compose.override.yml
+docker compose up -d
+```
+
+Compose liest die `override`-Datei von allein dazu, ein extra Schalter ist nicht
+nötig. Sie steht in `.gitignore` — und genau dort gehören die Zugangsdaten hin,
+denn die `docker-compose.yml` liegt im Repo. Wer sein NAS-Passwort dort einträgt
+und pusht, hat es auf GitHub stehen.
+
+Noch besser als das Passwort in der Datei ist eine eigene Zugangsdatei, auf die
+die Mount-Optionen zeigen:
+
+```bash
+printf 'username=notizmappe\npassword=GEHEIM\n' > .smb-zugang
+chmod 600 .smb-zugang
+```
+
+(`.smb-zugang` steht ebenfalls in `.gitignore`.)
 
 ### SMB: die Rechte greifen nicht
 
