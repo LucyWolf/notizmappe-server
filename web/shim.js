@@ -517,23 +517,49 @@
       for (const p of version.querySelectorAll('p.hinweis')) {
         if (p.textContent.indexOf('Läuft nur auf dem Rechner') === 0) p.remove();
       }
+      const BEFEHLE = 'docker compose pull\ndocker compose up -d';
       const knopf = el('button', { type: 'button', textContent: 'Nach Updates sehen' });
-      const befehl = el('pre', { id: 'serverbefehl', hidden: true, textContent:
-        'docker compose pull\ndocker compose up -d' });
+      // Ein echter "Jetzt aktualisieren"-Knopf kann hier nicht stehen: ein
+      // Container kann sich nicht selbst ersetzen. Dafuer braeuchte er den
+      // Docker-Socket - und wer den hat, ist root auf dem Rechner. Das ueber
+      // eine Weboberflaeche erreichbar zu machen, waere die groesste Luecke im
+      // ganzen Programm. Also der naechstbeste Knopf: die Befehle mitnehmen.
+      const kopieren = el('button', { type: 'button', id: 'e-befehl-kopieren',
+                                      textContent: 'Befehle kopieren', hidden: true });
+      const befehl = el('pre', { id: 'serverbefehl', hidden: true, textContent: BEFEHLE });
+      kopieren.addEventListener('click', async () => {
+        const hinweis = document.getElementById('e-updatehinweis');
+        try {
+          await navigator.clipboard.writeText(BEFEHLE);
+          kopieren.textContent = 'kopiert';
+          setTimeout(() => { kopieren.textContent = 'Befehle kopieren'; }, 1500);
+        } catch (e2) {
+          // Ohne HTTPS gibt der Browser die Zwischenablage nicht her - dann
+          // wenigstens markieren, damit Strg+C reicht.
+          const w = window.getSelection(); const r = document.createRange();
+          r.selectNodeContents(befehl); w.removeAllRanges(); w.addRange(r);
+          hinweis.textContent = 'Die Zwischenablage ist hier gesperrt (das gibt es '
+            + 'nur über HTTPS) - die Befehle sind markiert, Strg+C genügt.';
+        }
+      });
       knopf.addEventListener('click', async () => {
         const hinweis = document.getElementById('e-updatehinweis');
         hinweis.textContent = 'wird nachgesehen …';
         try {
           const f = await hol('/fassung');
           document.getElementById('e-verfuegbar').textContent = f.neueste || '—';
+          const dort = document.getElementById('e-version');
+          if (dort && f.laeuft) dort.textContent = f.laeuft;
           befehl.hidden = !f.neuer;
+          kopieren.hidden = !f.neuer;
           hinweis.textContent = f.fehler ? f.fehler
-            : (f.neuer ? `Es gibt ${f.neueste} - hier läuft ${f.laeuft}. Auf dem Rechner, `
-                       + 'auf dem der Container läuft:'
+            : (f.neuer ? `Es gibt ${f.neueste} - hier läuft ${f.laeuft}. Der Server kann `
+                       + 'sich nicht selbst austauschen; auf dem Rechner, auf dem der '
+                       + 'Container läuft:'
                        : `Hier läuft ${f.laeuft}, das ist die neueste.`);
         } catch (e2) { hinweis.textContent = e2.message; }
       });
-      version.append(el('p', { className: 'knoepfe' }, [knopf]), befehl);
+      version.append(el('p', { className: 'knoepfe' }, [knopf, kopieren]), befehl);
       const stil = document.createElement('style');
       stil.textContent = '#serverbefehl { background: var(--flaeche); border: 1px solid var(--linie);'
         + ' border-radius: 6px; padding: 8px 10px; font-size: 12px; margin: 8px 0 0; }';
