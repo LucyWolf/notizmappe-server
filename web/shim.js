@@ -574,6 +574,83 @@
     }
   }
 
+  /* ------------------------------------------------------- Profil statt Zahnrad
+
+     Am eigenen Rechner gibt es nur einen Menschen, deshalb steht unten in der
+     Leiste ein Zahnrad. Auf dem Server ist die wichtigere Frage "wer bin ich
+     hier gerade" - also steht dort jetzt Name und Profil, und die
+     Einstellungen haengen darin.
+
+     Das Zahnrad wird nur versteckt, nicht entfernt: ein Dutzend Stellen in der
+     gemeinsamen Oberflaeche zeigen auf #zahnrad, und der Punkt "Einstellungen"
+     im Menue klickt es einfach an. So bleibt der Weg dorthin genau einer. */
+
+  function profilBauen() {
+    const zahnrad = document.getElementById('zahnrad');
+    const leiste = zahnrad && zahnrad.parentElement;
+    if (!leiste || document.getElementById('profilknopf')) return;
+    zahnrad.hidden = true;
+
+    const kreis = el('span', { id: 'profilbild', textContent: '·' });
+    const name = el('span', { id: 'profilname', textContent: 'angemeldet' });
+    const knopf = el('button', { type: 'button', id: 'profilknopf',
+                                 title: 'Konto und Einstellungen' }, [kreis, name]);
+    const menue = el('div', { id: 'profilmenue', hidden: true });
+
+    function punkt(text, tun) {
+      const k = el('button', { type: 'button', className: 'profilpunkt', textContent: text });
+      k.addEventListener('click', function () { menue.hidden = true; tun(); });
+      return k;
+    }
+
+    function dateiPunktOeffnen(welcher) {
+      // Erst die Datei-Ebene aufmachen (das kann nur die Oberflaeche selbst,
+      // ueber das versteckte Zahnrad), dann auf den Reiter wechseln.
+      zahnrad.click();
+      const ziel = document.querySelector('.dateipunkt[data-punkt="' + welcher + '"]');
+      if (ziel) ziel.click();
+    }
+
+    menue.append(
+      el('p', { id: 'profilkopf' }, [
+        el('strong', { id: 'profilwer', textContent: '…' }),
+        el('span', { id: 'profilrolle', className: 'hinweis' }),
+      ]),
+      punkt('Konto', function () { dateiPunktOeffnen('konto'); }),
+      punkt('Einstellungen', function () { dateiPunktOeffnen('optionen'); }),
+      punkt('Abmelden', function () { location.href = '/abmelden'; }),
+    );
+
+    knopf.addEventListener('click', function (ev) {
+      ev.stopPropagation();
+      menue.hidden = !menue.hidden;
+    });
+    document.addEventListener('click', function (ev) {
+      if (!menue.hidden && !menue.contains(ev.target)) menue.hidden = true;
+    });
+    document.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Escape') menue.hidden = true;
+    });
+
+    leiste.append(knopf, menue);
+    profilFuellen();
+  }
+
+  async function profilFuellen() {
+    const wer = document.getElementById('profilwer');
+    if (!wer) return;
+    let d;
+    try { d = await hol('/verwaltung'); } catch (f) { return; }
+    if (!d.ich) return;
+    document.getElementById('profilname').textContent = d.ich;
+    document.getElementById('profilbild').textContent = d.ich.slice(0, 1).toUpperCase();
+    wer.textContent = d.ich;
+    const rechte = d.meine_rechte || [];
+    document.getElementById('profilrolle').textContent =
+      rechte.indexOf('benutzer') >= 0 ? 'Verwalter'
+        : (rechte.indexOf('schreiben') >= 0 ? 'Benutzer' : 'Gast');
+  }
+
   function abschnittBauen() {
     const konto = kontoseite();
     if (!konto || document.getElementById('serververwaltung')) return;
@@ -696,6 +773,47 @@
     const stil = document.createElement('style');
     stil.textContent = `
       #serverkopf, #serververwaltung { max-width: 760px; }
+
+      /* Profil unten in der Leiste. Alles ueber die Farbnamen der Oberflaeche -
+         eigene Farben hier waeren genau der weisse Fleck, der vorher auffiel. */
+      /* Ohne das haengt sich das aufgeklappte Menue an den naechsten
+         positionierten Vorfahren - und das waere irgendwo weit oben. */
+      .fussrechts { position: relative; }
+      #profilknopf {
+        display: inline-flex; align-items: center; gap: 6px;
+        height: 28px; padding: 0 8px 0 3px;
+        border: 1px solid var(--linie); border-radius: 14px;
+        background: var(--papier); color: var(--schrift);
+        cursor: pointer; font-size: 12px; max-width: 150px;
+      }
+      #profilknopf:hover { border-color: var(--akzent); }
+      #profilbild {
+        width: 22px; height: 22px; border-radius: 50%;
+        background: var(--akzent); color: var(--papier);
+        display: inline-flex; align-items: center; justify-content: center;
+        font-size: 11px; font-weight: 700; flex: 0 0 auto;
+      }
+      #profilname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      /* Die Leiste sitzt ganz unten - das Menue klappt deshalb nach oben auf. */
+      #profilmenue {
+        position: absolute; bottom: 36px; right: 8px; z-index: 40;
+        min-width: 170px; padding: 4px;
+        background: var(--papier); color: var(--schrift);
+        border: 1px solid var(--linie); border-radius: 8px;
+        box-shadow: 0 6px 20px rgba(0, 0, 0, .28);
+      }
+      #profilkopf {
+        margin: 0; padding: 6px 8px 8px;
+        border-bottom: 1px solid var(--linie); display: grid; gap: 1px;
+      }
+      #profilkopf .hinweis { font-size: 11px; }
+      .profilpunkt {
+        display: block; width: 100%; text-align: left;
+        padding: 7px 8px; margin: 1px 0;
+        background: none; border: 0; border-radius: 6px;
+        color: var(--schrift); cursor: pointer; font-size: 13px;
+      }
+      .profilpunkt:hover { background: var(--flaeche); }
       #serverkopf h3, #serververwaltung h3 {
         margin: 22px 0 8px; font-size: 13px; text-transform: uppercase;
         letter-spacing: .04em; color: var(--matt); font-weight: 600;
@@ -775,6 +893,7 @@
     einstellungenAnpassen();
     abschnittBauen();
     bereichBauen();
+    profilBauen();
     bereicheLaden();
     verwaltungLaden();
     const zahnrad = document.getElementById('zahnrad');

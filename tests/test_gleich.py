@@ -114,6 +114,28 @@ except ImportError:
 except Exception as f:                                              # noqa: BLE001
     pruefe("shim.js lässt sich überhaupt lesen", False, str(f))
 
+# --- Woran der Stellvertreter sich festhaelt ---------------------------------
+#
+# shim.js haengt eigene Bedienelemente an Stellen der gemeinsamen Oberflaeche:
+# das Profil an die Fussleiste, die Bereichswahl ans Band, die Menuepunkte an
+# die Reiter der Datei-Ebene. Verschwindet dort drueben eine id, baut der
+# Stellvertreter stillschweigend nichts mehr - kein Fehler, keine Meldung, nur
+# ein fehlender Knopf. Genau diese Sorte Fehler faellt sonst erst dem Menschen
+# vor dem Bildschirm auf.
+html = (DESKTOP / "app/oberflaeche/index.html").read_text(encoding="utf-8")
+for anker in ('id="zahnrad"', 'class="fussrechts"',
+              'data-punkt="konto"', 'data-punkt="optionen"',
+              'id="e-version"', 'id="e-verfuegbar"', 'id="e-updatehinweis"'):
+    pruefe(f"die Oberflaeche hat noch {anker}", anker in html)
+
+# Dasselbe fuer die Farben: eine selbst erfundene Farbe hier waere der weisse
+# Fleck, der schon einmal aufgefallen ist.
+stil = (DESKTOP / "app/oberflaeche/stil.css").read_text(encoding="utf-8")
+shim = (WURZEL / "web/shim.js").read_text(encoding="utf-8")
+benutzt = set(re.findall(r"var\((--[a-z-]+)\)", shim))
+fehlend = sorted(v for v in benutzt if f"{v}:" not in stil)
+pruefe("shim.js benutzt nur Farben, die es gibt", not fehlend, str(fehlend))
+
 print()
 print("Desktop und Server sind dieselbe Oberflaeche" if not fehler
       else f"{len(fehler)} FEHLER:\n - " + "\n - ".join(fehler))
