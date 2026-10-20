@@ -155,6 +155,58 @@ Seite = JSON. Du kannst `daten/notizen/<name>` also auch einfach wegsichern oder
 mit dem Desktop-Programm öffnen, indem du den Ordner dort als Datenordner
 einstellst.
 
+## NAS als Ablage
+
+Der Datenordner muss nicht auf der Platte des Docker-Rechners liegen. Eingehängt
+wird dabei von **Docker selbst**, nicht vom Container — der braucht dafür keine
+Sonderrechte. In der `docker-compose.yml` steht die Vorlage für SMB und NFS; oben
+bei `volumes:` dann `nas:/daten` statt `./daten:/daten`.
+
+### SMB: die Rechte greifen nicht
+
+Das ist der Punkt, an dem man sich etwas einbildet, was nicht da ist. Auf einer
+SMB-Freigabe setzen die **Mount-Optionen** die Rechte fest — `chmod 0600` im Code
+läuft durch, ohne zu wirken. Ohne `file_mode=0600,dir_mode=0700` liegen
+`benutzer.json` **und `.sitzungsschluessel`** für jeden lesbar auf der Freigabe.
+Der Sitzungsschlüssel ist dabei der schlimmere Fund: damit lässt sich ein
+gültiger Keks für **jeden** Zugang bauen, ohne ein Passwort zu kennen — auch an
+der Zwei-Schritte-Anmeldung vorbei.
+
+`uid`/`gid` der Mount-Optionen müssen zu `PUID`/`PGID` passen. Der Start prüft
+das jetzt mit und schreibt eine Warnung ins Protokoll, wenn eine mit `0600`
+angelegte Datei anders auf der Ablage landet:
+
+```
+[start] ACHTUNG: eine mit 0600 angelegte Datei liegt als 0644 in /daten.
+```
+
+Bei **NFS** greifen die Rechte normal, solange die Freigabe die passende
+uid durchlässt. Dort `hard` nehmen, nicht `soft` — sonst bricht ein Schreibvorgang
+bei einer Netzstörung ab, statt zu warten.
+
+**Nur ein Server pro Freigabe.** Die Sperre im Code gilt innerhalb des Prozesses,
+nicht über das Netz. Zwei Container auf derselben Ablage zerschießen sich
+gegenseitig Dateien.
+
+### FTP geht dafür nicht
+
+Jede Seite wird über eine Hilfsdatei und `os.replace` geschrieben — damit ist beim
+Speichern immer entweder die alte oder die neue Seite da, nie eine halbe. FTP
+kennt kein garantiert atomares Umbenennen und keine Dateisperren: ein Abbruch
+mitten im Speichern hinterlässt Bruchstücke. Dazu kommt eine Netzrunde pro Datei,
+und ohne FTPS gehen die Zugangsdaten im Klartext durchs Netz.
+
+Als **Ziel für eine Sicherung** ist FTP dagegen in Ordnung — dort wird eine
+fertige Datei einmal abgelegt, nicht laufend in Stücken geschrieben.
+
+### Was eine NAS löst, und was nicht
+
+Eine NAS schützt gegen **Datenverlust** (RAID, Snapshots, Papierkorb). Gegen
+**Mitlesen** schützt sie nicht, sondern verschlechtert die Lage: die Notizen
+liegen dann auf einem zweiten Gerät im Netz, und bei SMB ohne `file_mode` sogar
+offen. Wer beides will, verschlüsselt die Ablage und lässt den Schlüssel auf dem
+Docker-Rechner — dann hat jemand mit Zugriff auf die Freigabe nur Kauderwelsch.
+
 ## Anmeldung und Absicherung
 
 * Passwörter per **scrypt** (N=2¹⁶, ~130 ms) — dieselbe Rechnung wie der Tresor

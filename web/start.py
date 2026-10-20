@@ -15,6 +15,12 @@ Deshalb richtet sich der Server nach dem Ordner, statt umgekehrt:
 * PUID/PGID gesetzt? Dann gilt das.
 
 Danach werden die Rechte abgelegt: ab dem exec laeuft nichts mehr als root.
+
+Die Schreibprobe prueft gleich mit, ob 0600 auf der Ablage ueberhaupt
+greift. Auf einer SMB-Freigabe tut es das nicht - dort setzen die
+Mount-Optionen die Rechte fest, und benutzer.json und der
+Sitzungsschluessel liegen offen. Lieber eine Zeile im Protokoll als die
+stille Annahme, das waere schon in Ordnung.
 """
 import os
 import sys
@@ -55,14 +61,29 @@ def rechte_richten() -> None:
     os.setuid(uid)
     probe = os.path.join(DATEN, ".schreibprobe")
     try:
-        with open(probe, "w") as f:
+        fd = os.open(probe, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
             f.write("ok")
+        rechte = os.stat(probe).st_mode & 0o777
         os.unlink(probe)
     except OSError as f:
         sys.exit(f"[start] In {DATEN} lässt sich nicht schreiben ({f}).\n"
                  f"        Dem Ordner auf der Platte Schreibrechte geben oder\n"
                  f"        PUID/PGID auf den Eigentümer setzen.")
     print(f"[start] läuft als {uid}:{gid}, Daten in {DATEN}", flush=True)
+    if rechte != 0o600:
+        print(f"[start] ACHTUNG: eine mit 0600 angelegte Datei liegt als "
+              f"{rechte:04o} in {DATEN}.", flush=True)
+        print("[start]   Das ist bei SMB/CIFS normal - die Mount-Optionen "
+              "setzen die Rechte fest,", flush=True)
+        print("[start]   der Server kann sie nicht ändern. Damit sind "
+              "benutzer.json UND", flush=True)
+        print("[start]   .sitzungsschluessel für andere lesbar; mit dem "
+              "Sitzungsschlüssel lässt", flush=True)
+        print("[start]   sich ein gültiger Keks für jeden Zugang bauen.",
+              flush=True)
+        print("[start]   Mount-Optionen setzen: "
+              "file_mode=0600,dir_mode=0700,uid=<puid>,gid=<pgid>", flush=True)
 
 
 if __name__ == "__main__":

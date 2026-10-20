@@ -16,6 +16,9 @@ services:
       - "8112:8000"
     volumes:
       - ./daten:/daten
+      # NAS statt lokalem Ordner: diese Zeile gegen eine der beiden unten
+      # tauschen. Siehe den Block "volumes:" am Ende der Datei.
+      # - nas:/daten
     environment:
       # Auf 1, wenn ein Proxy mit Zertifikat davorsteht (nginx, Caddy). Dann
       # bekommt der Sitzungs-Keks "Secure" und geht nur noch ueber HTTPS.
@@ -26,3 +29,36 @@ services:
       # richtet sich der Server nach dem Eigentuemer des Ordners.
       # PUID: "1000"
       # PGID: "1000"
+
+# ---------------------------------------------------------------------------
+# NAS als Ablage (SMB oder NFS)
+#
+# Eingehaengt wird von Docker selbst, nicht vom Container - der braucht dafuer
+# keine Sonderrechte. Oben bei "volumes:" dann "nas:/daten" eintragen statt
+# "./daten:/daten".
+#
+# WICHTIG bei SMB: die Mount-Optionen setzen die Rechte fest, der Server kann
+# sie nicht aendern. Ohne file_mode/dir_mode liegen benutzer.json UND
+# .sitzungsschluessel offen auf der Freigabe - und mit dem Sitzungsschluessel
+# laesst sich ein gueltiger Keks fuer jeden Zugang bauen. uid/gid muessen zu
+# PUID/PGID passen. Der Start sagt im Protokoll, wenn die Rechte nicht greifen.
+#
+# Nur EIN Server pro Freigabe: die Sperre im Code gilt im Prozess, nicht ueber
+# das Netz. Zwei Container auf derselben Ablage zerschiessen sich Dateien.
+#
+# FTP geht hierfuer nicht - kein atomares Umbenennen, keine Dateisperren. Ein
+# Abbruch mitten im Speichern hinterlaesst eine halbe Seite statt der alten.
+# ---------------------------------------------------------------------------
+# volumes:
+#   nas:
+#     driver: local
+#     driver_opts:
+#       # --- SMB / CIFS ---
+#       type: cifs
+#       device: "//nas.fritz.box/notizmappe"
+#       o: "username=notizmappe,password=GEHEIM,vers=3.0,uid=1000,gid=1000,file_mode=0600,dir_mode=0700,nobrl"
+#
+#       # --- oder NFS (Rechte greifen hier normal, kein file_mode noetig) ---
+#       # type: nfs
+#       # device: ":/volume1/notizmappe"
+#       # o: "addr=nas.fritz.box,nfsvers=4,hard,noatime"
