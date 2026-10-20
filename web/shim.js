@@ -585,6 +585,104 @@
      gemeinsamen Oberflaeche zeigen auf #zahnrad, und der Punkt "Einstellungen"
      im Menue klickt es einfach an. So bleibt der Weg dorthin genau einer. */
 
+  /* ------------------------------------------------------------------ Ablage
+
+     Wo die Notizen liegen. Eingehaengt wird beim Start, nicht hier - der
+     Serverprozess hat die Rechte dafuer abgelegt. Diese Seite stellt nur ein
+     und sagt, was beim letzten Start dabei herauskam. */
+
+  function ablageBauen() {
+    const konto = kontoseite();
+    if (!konto || document.getElementById('ablageteil')) return;
+
+    const art = el('select', { id: 'ablage-art' });
+    for (const [wert, text] of [['lokal', 'Im Docker-Volume (Standard)'],
+                                ['smb', 'SMB-Freigabe (NAS, Windows)'],
+                                ['nfs', 'NFS-Freigabe']]) {
+      art.append(el('option', { value: wert, textContent: text }));
+    }
+    const wirt = el('input', { type: 'text', id: 'ablage-wirt', placeholder: 'nas.fritz.box' });
+    const freigabe = el('input', { type: 'text', id: 'ablage-freigabe', placeholder: 'notizmappe' });
+    const pfad = el('input', { type: 'text', id: 'ablage-pfad', placeholder: '/volume1/notizmappe' });
+    const benutzer = el('input', { type: 'text', id: 'ablage-benutzer',
+                                   placeholder: 'Benutzer auf der NAS', autocapitalize: 'none' });
+    const passwort = el('input', { type: 'password', id: 'ablage-passwort',
+                                   placeholder: 'Passwort' });
+    const sichern = el('button', { type: 'button', textContent: 'Speichern' });
+    const stand = el('p', { id: 'ablage-stand', className: 'zeile2' });
+    const hinweis = el('p', { id: 'ablage-hinweis', className: 'hinweis' });
+
+    const zeileSmb = el('p', { className: 'ordnerzeile', id: 'ablage-smb' },
+                        [freigabe, benutzer, passwort]);
+    const zeileNfs = el('p', { className: 'ordnerzeile', id: 'ablage-nfs' }, [pfad]);
+
+    function zeigen() {
+      const a = art.value;
+      wirt.hidden = a === 'lokal';
+      zeileSmb.hidden = a !== 'smb';
+      zeileNfs.hidden = a !== 'nfs';
+    }
+    art.addEventListener('change', zeigen);
+
+    sichern.addEventListener('click', async () => {
+      hinweis.textContent = 'wird gespeichert …';
+      try {
+        const d = await hol('/ablage', {
+          art: art.value, wirt: wirt.value, freigabe: freigabe.value,
+          pfad: pfad.value, benutzer: benutzer.value, passwort: passwort.value,
+        });
+        passwort.value = '';
+        hinweis.textContent = d.hinweis || '';
+        standZeigen(d);
+      } catch (f) { hinweis.textContent = f.message; }
+    });
+
+    const teil = el('section', { id: 'ablageteil' }, [
+      el('h3', { textContent: 'Wo die Notizen liegen' }),
+      stand,
+      el('p', { className: 'ordnerzeile' }, [art, wirt]),
+      zeileSmb, zeileNfs,
+      el('p', { className: 'knoepfe' }, [sichern]),
+      hinweis,
+      el('p', { className: 'hinweis', textContent:
+        'Eingehängt wird beim Start des Containers, nicht sofort - der laufende '
+        + 'Server hat die Rechte dafür abgelegt. Nach dem Speichern also '
+        + 'docker compose restart notizmappe.' }),
+    ]);
+    konto.append(teil);
+    zeigen();
+    ablageLaden();
+  }
+
+  function standZeigen(d) {
+    const stand = document.getElementById('ablage-stand');
+    if (!stand) return;
+    stand.textContent = '';
+    let text;
+    if (d.art === 'lokal') text = 'im Volume ' + d.ziel;
+    else if (d.eingehaengt) text = `${d.wirt} ist eingehängt auf ${d.ziel}`;
+    else text = `${d.wirt} eingestellt, aber nicht eingehängt`;
+    stand.append(el('span', { textContent: 'Gerade' }),
+                 el('code', { textContent: text }));
+    const h = document.getElementById('ablage-hinweis');
+    if (h && d.meldung && !d.eingehaengt && d.art !== 'lokal') h.textContent = d.meldung;
+  }
+
+  async function ablageLaden() {
+    let d;
+    try { d = await hol('/ablage'); } catch (f) { return; }
+    const art = document.getElementById('ablage-art');
+    if (!art) return;
+    art.value = d.art || 'lokal';
+    for (const [id, wert] of [['ablage-wirt', d.wirt], ['ablage-freigabe', d.freigabe],
+                              ['ablage-pfad', d.pfad], ['ablage-benutzer', d.benutzer]]) {
+      const k = document.getElementById(id);
+      if (k && wert) k.value = wert;
+    }
+    art.dispatchEvent(new Event('change'));
+    standZeigen(d);
+  }
+
   function profilBauen() {
     const zahnrad = document.getElementById('zahnrad');
     const leiste = zahnrad && zahnrad.parentElement;
@@ -894,6 +992,7 @@
     abschnittBauen();
     bereichBauen();
     profilBauen();
+    ablageBauen();
     bereicheLaden();
     verwaltungLaden();
     const zahnrad = document.getElementById('zahnrad');

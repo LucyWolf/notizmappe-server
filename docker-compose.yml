@@ -21,6 +21,9 @@ services:
       # Soll Docker die Freigabe selbst einhaengen, siehe
       # docker-compose.override.yml.beispiel.
       - ${NOTIZMAPPE_ABLAGE:-./daten}:/daten
+      # Die Einrichtung liegt getrennt von den Notizen - sonst waere sie
+      # verschwunden, sobald eine Freigabe ueber /daten gehaengt wird.
+      - ./einrichtung:/einrichtung
     environment:
       # Auf 1, wenn ein Proxy mit Zertifikat davorsteht (nginx, Caddy). Dann
       # bekommt der Sitzungs-Keks "Secure" und geht nur noch ueber HTTPS.
@@ -31,6 +34,19 @@ services:
       # richtet sich der Server nach dem Eigentuemer des Ordners.
       # PUID: "1000"
       # PGID: "1000"
+
+    # Damit der Server eine NAS-Freigabe EINHAENGEN darf, die in der
+    # Oberflaeche eingestellt wurde. Ohne das laesst sich dort alles eintragen,
+    # nur passieren tut nichts - und die Oberflaeche sagt das auch.
+    #
+    # Was man damit aufgibt, ehrlich gesagt: SYS_ADMIN erlaubt Mounts im
+    # Container, und das ist ein ordentlicher Hebel - weniger als der
+    # Docker-Socket (der waere direkt root auf diesem Rechner), aber mehr als
+    # nichts. Wer das nicht will, haengt die Freigabe stattdessen auf dem
+    # Rechner ein und zeigt mit NOTIZMAPPE_ABLAGE darauf; dann bleibt der
+    # Container so unbeteiligt wie bisher.
+    # cap_add:
+    #   - SYS_ADMIN
 
 # ---------------------------------------------------------------------------
 # NAS als Ablage

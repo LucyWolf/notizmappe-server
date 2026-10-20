@@ -161,6 +161,51 @@ Der Datenordner muss nicht auf der Platte des Docker-Rechners liegen. Der
 Container braucht dafür **keine** Sonderrechte — eingehängt wird entweder vom
 Rechner selbst oder von Docker.
 
+### Weg 0: in der Oberfläche einstellen
+
+Unter **Datei → Konto → Wo die Notizen liegen** lässt sich die Freigabe direkt
+eintragen: Art (Volume / SMB / NFS), Rechnername, Freigabe, Benutzer, Passwort.
+Nur Verwalter sehen den Abschnitt.
+
+Eingehängt wird dabei **nicht sofort**, sondern beim nächsten Start — der
+laufende Serverprozess hat die Rechte dafür längst abgelegt, und soll sie auch
+nicht haben. `start.py` erledigt es in dem kurzen Moment, in dem er noch root
+ist. Nach dem Speichern also:
+
+```bash
+docker compose restart notizmappe
+```
+
+Dafür braucht der Container eine Fähigkeit, die **nicht** von allein gesetzt
+ist — in `docker-compose.yml` beim Dienst `notizmappe`:
+
+```yaml
+    cap_add:
+      - SYS_ADMIN
+```
+
+Ohne sie lässt sich alles eintragen, es passiert nur nichts; die Oberfläche
+sagt genau das, statt stumm zu schweigen.
+
+**Was man damit aufgibt:** `SYS_ADMIN` erlaubt Mounts im Container. Das ist ein
+ordentlicher Hebel — deutlich weniger als der Docker-Socket, der direkt root auf
+dem Rechner wäre, aber mehr als nichts. Wer das nicht möchte, nimmt Weg 1: die
+Freigabe auf dem Rechner einhängen und mit `NOTIZMAPPE_ABLAGE` daraufzeigen.
+Dann bleibt der Container so unbeteiligt wie bisher.
+
+Geht das Einhängen schief, **startet der Server trotzdem** und arbeitet mit dem
+Volume weiter. Was passiert ist, steht danach in der Oberfläche, nicht nur im
+Protokoll:
+
+```
+nas.fritz.box ist eingehängt.
+```
+
+Die Einstellung liegt in einem eigenen Volume `./einrichtung`, nicht in
+`./daten` — sonst wäre sie verschwunden, sobald die Freigabe darüber hängt. Das
+Passwort steht in `einrichtung/smb-zugang` mit `0600` und geht nie über die
+Kommandozeile, wo es in der Prozessliste stünde.
+
 ### Weg 1: die Freigabe ist schon eingehängt
 
 Hängt die NAS auf dem Rechner bereits (fstab, systemd, autofs), genügt eine

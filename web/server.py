@@ -33,6 +33,7 @@ from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from starlette.concurrency import run_in_threadpool
 
+import ablage
 import benutzer as nutzer
 
 HIER = Path(__file__).resolve().parent
@@ -555,6 +556,46 @@ def _nur_verwalter(bitte: Request) -> str:
     if not wer:
         raise HTTPException(status_code=403, detail="Das darf nur, wer Benutzer verwalten kann.")
     return wer
+
+
+@app.get("/ablage")
+def ablage_lesen(bitte: Request):
+    """Wo die Notizen liegen - und ob das gerade wirklich so ist."""
+    _nur_verwalter(bitte)
+    return ablage.stand()
+
+
+@app.post("/ablage")
+async def ablage_setzen(bitte: Request):
+    """Die Ablage einstellen. Wirksam wird sie beim naechsten Start.
+
+    Eingehaengt wird hier mit Absicht nicht: der Serverprozess hat die Rechte
+    dafuer laengst abgelegt (und soll sie auch nicht haben). start.py macht es
+    in dem Moment, in dem er noch root ist.
+    """
+    _nur_verwalter(bitte)
+    rumpf = _rumpf(await bitte.json())
+    try:
+        neu = ablage.pruefen(rumpf)
+        ablage.schreiben(neu, (rumpf.get("passwort") or ""))
+    except ablage.AblageFehler as f:
+        return JSONResponse({"fehler": str(f)}, status_code=400)
+    except OSError as f:
+        return JSONResponse({"fehler": f"Die Einstellung ließ sich nicht ablegen: {f}"},
+                            status_code=500)
+    stand = ablage.stand()
+    if neu["art"] == "lokal":
+        stand["hinweis"] = "Beim nächsten Start liegen die Notizen wieder im Volume."
+    elif not stand["darf"]:
+        stand["hinweis"] = (
+            "Gespeichert - aber einhängen darf dieser Container nicht. Dafür muss in "
+            "der docker-compose.yml beim Dienst notizmappe stehen:\n"
+            "    cap_add:\n      - SYS_ADMIN\n"
+            "Danach docker compose up -d.")
+    else:
+        stand["hinweis"] = ("Gespeichert. Beim nächsten Start wird eingehängt - "
+                            "docker compose restart notizmappe.")
+    return stand
 
 
 _fassung_geholt = [0.0, {}]

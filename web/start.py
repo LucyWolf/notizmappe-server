@@ -25,6 +25,9 @@ stille Annahme, das waere schon in Ordnung.
 import os
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import ablage                                                      # noqa: E402
+
 DATEN = os.environ.get("NOTIZMAPPE_DATEN", "/daten")
 EINGEBAUT = 10001
 
@@ -34,11 +37,34 @@ def zahl(name: str) -> int | None:
     return int(wert) if wert.isdigit() else None
 
 
+def ablage_einhaengen(uid: int, gid: int) -> None:
+    """Eine eingestellte Freigabe einhaengen - noch als root, vor dem Ablegen.
+
+    Geht es schief, laeuft der Server trotzdem weiter: dann eben mit dem
+    Ordner im Volume. Ein Server, der wegen einer stummen NAS gar nicht mehr
+    hochkommt, waere schlimmer als einer, der die alten Notizen zeigt und
+    dazusagt, warum.
+    """
+    eingestellt = ablage.lesen()
+    if eingestellt.get("art") == "lokal":
+        return
+    gut, text = ablage.einhaengen(eingestellt, uid, gid)
+    print(f"[start] {text}", flush=True)
+    ablage.meldung_merken(text)
+    if not gut:
+        print("[start] Die Notizen kommen bis auf Weiteres aus dem Volume.", flush=True)
+
+
 def rechte_richten() -> None:
     os.makedirs(DATEN, exist_ok=True)
     stand = os.stat(DATEN)
     uid = zahl("PUID") or (stand.st_uid or EINGEBAUT)
     gid = zahl("PGID") or (stand.st_gid or EINGEBAUT)
+
+    # Erst einhaengen, dann die Rechte richten: sonst gelten sie dem leeren
+    # Ordner darunter statt dem, was gleich darauf liegt.
+    ablage_einhaengen(uid, gid)
+    stand = os.stat(DATEN)
 
     if stand.st_uid != uid or stand.st_gid != gid:
         print(f"[start] {DATEN} gehört {stand.st_uid}:{stand.st_gid}, "
