@@ -552,6 +552,7 @@
           if (dort && f.laeuft) dort.textContent = f.laeuft;
           befehl.hidden = !f.neuer;
           kopieren.hidden = !f.neuer;
+          jetzt.hidden = !f.neuer;
           hinweis.textContent = f.fehler ? f.fehler
             : (f.neuer ? `Es gibt ${f.neueste} - hier läuft ${f.laeuft}. Der Server kann `
                        + 'sich nicht selbst austauschen; auf dem Rechner, auf dem der '
@@ -559,7 +560,48 @@
                        : `Hier läuft ${f.laeuft}, das ist die neueste.`);
         } catch (e2) { hinweis.textContent = e2.message; }
       });
-      version.append(el('p', { className: 'knoepfe' }, [knopf, kopieren]), befehl);
+      // Der eigentliche Knopf. Ein Container kann sich nicht selbst durch ein
+      // neues Image ersetzen - aber er kann seinen Inhalt erneuern und sich
+      // neu starten lassen. Genau das passiert hier; den Docker-Socket
+      // braucht dafuer niemand.
+      const jetzt = el('button', { type: 'button', id: 'e-jetzt',
+                                   textContent: 'Jetzt aktualisieren', hidden: true });
+      jetzt.addEventListener('click', async () => {
+        const hinweis = document.getElementById('e-updatehinweis');
+        jetzt.disabled = true;
+        hinweis.textContent = 'wird geholt und geprüft … das dauert einen Moment.';
+        try {
+          const d = await hol('/aktualisieren', {});
+          hinweis.textContent = d.hinweis || '';
+          if (d.getan) warten(d.fassung);
+          else jetzt.disabled = false;
+        } catch (f) {
+          hinweis.textContent = f.message;
+          jetzt.disabled = false;
+        }
+      });
+
+      // Nach dem Neustart ist der Server ein paar Sekunden weg. Statt einer
+      // toten Seite: nachfassen, bis er wieder antwortet, dann neu laden.
+      function warten(fassung) {
+        const hinweis = document.getElementById('e-updatehinweis');
+        let versuche = 0;
+        hinweis.textContent = `Fassung ${fassung} liegt bereit, der Server startet neu …`;
+        const uhr = setInterval(async () => {
+          versuche += 1;
+          try {
+            const antwort = await fetch('/anmelden', { cache: 'no-store' });
+            if (antwort.ok) { clearInterval(uhr); location.reload(); return; }
+          } catch (f) { /* noch unterwegs */ }
+          if (versuche > 40) {
+            clearInterval(uhr);
+            hinweis.textContent = 'Der Server ist nicht zurückgekommen. '
+              + 'Im Protokoll nachsehen: docker compose logs --tail 40 notizmappe';
+          }
+        }, 1500);
+      }
+
+      version.append(el('p', { className: 'knoepfe' }, [knopf, jetzt, kopieren]), befehl);
       const stil = document.createElement('style');
       stil.textContent = '#serverbefehl { background: var(--flaeche); border: 1px solid var(--linie);'
         + ' border-radius: 6px; padding: 8px 10px; font-size: 12px; margin: 8px 0 0; }';

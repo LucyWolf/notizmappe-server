@@ -139,6 +139,62 @@ QR-Codes nicht.
 Auch aus dem **Fenster** heraus funktioniert das: meldet man sich dort an einem
 Server mit zwei Schritten an, erscheint das Feld für den Code gleich darunter.
 
+## Aktualisieren
+
+In der Oberfläche unter **Datei → Informationen**: „Nach Updates sehen", und
+wenn es etwas gibt, **„Jetzt aktualisieren"**. Der Server holt die neue Fassung,
+prüft sie, startet neu und die Seite lädt sich von allein wieder.
+
+Ein Container kann sich nicht durch ein neues Image ersetzen — aber er kann
+seinen *Inhalt* erneuern. Das Nachgeladene liegt neben den Notizen:
+
+```
+daten/.programm/<fassung>/web/          die HTTP-Schicht
+daten/.programm/<fassung>/desktop/app/  Oberfläche und Ablage
+daten/.programm/aktiv                   welche Fassung gelten soll
+```
+
+`start.py` startet von dort, wenn die Fassung neuer ist als die im Image. Der
+Weg zurück ist ein gelöschter Ordner — oder der Knopf, der die Überlagerung
+fallen lässt.
+
+**Warum nicht der Docker-Socket:** wer ihn hat, ist root auf dem Rechner. In
+einem Container, der eine Weboberfläche ins Netz stellt, wird damit jede Lücke
+in der Anmeldung zur Übernahme des ganzen Rechners. In `phobos-bot` ist er aus
+genau dem Grund wieder ausgebaut worden.
+
+### Wenn die neue Fassung nicht läuft
+
+Das ist der Fall, der sonst zur Sackgasse würde: ohne Oberfläche gibt es keinen
+Knopf mehr, mit dem man es zurücknimmt. Deshalb zählt `start.py` die Anläufe,
+und der Server quittiert einen Start erst, wenn er wirklich antwortet. Nach zwei
+Fehlstarts fliegt die Überlagerung von allein raus:
+
+```
+[start] nachgeladene Fassung 1.1.84 (Anlauf 2)
+[start] Fassung 1.1.84 ist 2x nicht hochgekommen - wird verworfen,
+        es gilt wieder die aus dem Image.
+```
+
+Danach läuft wieder die Fassung aus dem Image, mit allen Notizen. Durchgespielt
+wird das in `tests/test_selbst.py` und einmal von Hand an einem echten
+Container.
+
+### Was nicht geht
+
+Braucht eine neue Fassung **andere Pakete**, sagt der Knopf das und tut nichts —
+`pip` läuft im laufenden Container nicht und soll es auch nicht. Dann ist es ein
+Fall für ein neues Image:
+
+```bash
+docker compose pull && docker compose up -d
+```
+
+Geholt wird ausschließlich über HTTPS von den beiden eigenen Repos, mit
+Größengrenze, ohne `../` oder Symlinks beim Auspacken, und jede `.py` wird
+übersetzt, bevor die Fassung überhaupt gilt. Auslösen darf das nur, wer Benutzer
+verwalten kann.
+
 ## Was wo liegt
 
 Alles, was bleiben muss, liegt im Volume `./daten`:

@@ -35,9 +35,13 @@ from starlette.concurrency import run_in_threadpool
 
 import ablage
 import benutzer as nutzer
+import selbst
 
 HIER = Path(__file__).resolve().parent
 DESKTOP = Path(os.environ.get("NOTIZMAPPE_DESKTOP", "/desktop")).resolve()
+# Derselbe Ordner, den benutzer.py verwaltet - hier fuer die nachgeladenen
+# Fassungen unter .programm/ gebraucht.
+DATEN = Path(os.environ.get("NOTIZMAPPE_DATEN", "/daten"))
 OBERFLAECHE = DESKTOP / "app" / "oberflaeche"
 
 # Das Desktop-Programm ist eine Abhaengigkeit wie jede andere - es liegt nur
@@ -69,6 +73,10 @@ def _beim_start() -> None:
     else:
         print(f"[server] Notizmappe {DESKTOP_FASSUNG}, alle freigegebenen Methoden da.",
               flush=True)
+    # Der Start zaehlt als geglueckt - erst jetzt, nicht beim Hochfahren von
+    # uvicorn. Kommt eine nachgeladene Fassung bis hierher, war sie in Ordnung;
+    # sonst findet start.py beim naechsten Mal die Marke und wirft sie weg.
+    selbst.versuch_gelungen(DATEN)
 
 
 # --- Was die Oberflaeche aufrufen darf ---------------------------------------
@@ -556,6 +564,39 @@ def _nur_verwalter(bitte: Request) -> str:
     if not wer:
         raise HTTPException(status_code=403, detail="Das darf nur, wer Benutzer verwalten kann.")
     return wer
+
+
+@app.post("/aktualisieren")
+async def aktualisieren(bitte: Request):
+    """Die neue Fassung bereitlegen und neu starten.
+
+    Das Nachladen laeuft in einem Nebenlauf, weil es ein paar Sekunden dauert
+    und sonst die ganze Oberflaeche steht. Neu gestartet wird erst, nachdem die
+    Antwort draussen ist - sonst saehe der Browser nur einen Abbruch und
+    niemand wuesste, ob es geklappt hat.
+    """
+    _nur_verwalter(bitte)
+    hier = Path(__file__).resolve().parent.parent / "requirements.txt"
+    try:
+        ergebnis = await run_in_threadpool(selbst.vorbereiten, DATEN,
+                                           DESKTOP_FASSUNG, hier)
+    except selbst.SelbstFehler as f:
+        return JSONResponse({"fehler": str(f)}, status_code=400)
+    except Exception as f:                                      # noqa: BLE001
+        return JSONResponse({"fehler": f"Das Nachladen ging schief: {f}"},
+                            status_code=502)
+    if ergebnis.get("getan"):
+        threading.Timer(1.5, lambda: os._exit(0)).start()
+    return ergebnis
+
+
+@app.post("/aktualisieren/zurueck")
+def aktualisieren_zurueck(bitte: Request):
+    """Die nachgeladene Fassung fallen lassen - zurueck auf die aus dem Image."""
+    _nur_verwalter(bitte)
+    text = selbst.zuruecknehmen(DATEN)
+    threading.Timer(1.5, lambda: os._exit(0)).start()
+    return {"hinweis": text}
 
 
 @app.get("/ablage")

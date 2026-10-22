@@ -27,6 +27,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ablage                                                      # noqa: E402
+import selbst                                                      # noqa: E402
 
 DATEN = os.environ.get("NOTIZMAPPE_DATEN", "/daten")
 EINGEBAUT = 10001
@@ -112,10 +113,42 @@ def rechte_richten() -> None:
               "file_mode=0600,dir_mode=0700,uid=<puid>,gid=<pgid>", flush=True)
 
 
+# Hoechstens zwei Anlaeufe mit einer nachgeladenen Fassung. Beim dritten ist
+# klar, dass sie nicht laeuft - und ohne Oberflaeche gaebe es keinen Knopf mehr,
+# mit dem man sie zuruecknimmt.
+MAX_ANLAEUFE = 2
+
+
+def programm_waehlen() -> tuple[str, str]:
+    """Aus dem Image starten oder aus einer nachgeladenen Fassung?
+
+    Gibt (app-dir, desktop-ordner) zurueck. Im Zweifel immer das Image: eine
+    Ueberlagerung, die zweimal nicht hochkam, fliegt hier raus.
+    """
+    image_web, image_desktop = "/srv/web", os.environ.get("NOTIZMAPPE_DESKTOP", "/desktop")
+    fassung = selbst.aktive_fassung(DATEN)
+    if not fassung:
+        return image_web, image_desktop
+
+    anlauf = selbst.versuch_merken(DATEN, fassung)
+    if anlauf > MAX_ANLAEUFE:
+        print(f"[start] Fassung {fassung} ist {anlauf - 1}x nicht hochgekommen - "
+              "wird verworfen, es gilt wieder die aus dem Image.", flush=True)
+        selbst.zuruecknehmen(DATEN)
+        selbst.versuch_gelungen(DATEN)          # Zaehler zuruecksetzen
+        return image_web, image_desktop
+
+    ordner = selbst.programmordner(DATEN) / fassung
+    print(f"[start] nachgeladene Fassung {fassung} (Anlauf {anlauf})", flush=True)
+    return str(ordner / "web"), str(ordner / "desktop")
+
+
 if __name__ == "__main__":
     if os.geteuid() == 0:
         rechte_richten()
+    web, desktop = programm_waehlen()
+    os.environ["NOTIZMAPPE_DESKTOP"] = desktop
     os.execvp("uvicorn", [
         "uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000",
-        "--app-dir", "/srv/web", "--proxy-headers", "--forwarded-allow-ips", "*",
+        "--app-dir", web, "--proxy-headers", "--forwarded-allow-ips", "*",
     ])
