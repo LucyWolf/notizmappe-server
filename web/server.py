@@ -84,6 +84,15 @@ def _beim_start() -> None:
     # uvicorn. Kommt eine nachgeladene Fassung bis hierher, war sie in Ordnung;
     # sonst findet start.py beim naechsten Mal die Marke und wirft sie weg.
     selbst.versuch_gelungen(DATEN)
+    # Bestehende Installationen kennen die Marke noch nicht - wer Zugaenge hat,
+    # bekommt sie jetzt. Sonst wuerde der Schutz erst beim naechsten frisch
+    # eingerichteten Server greifen, also genau dort nicht, wo schon Notizen
+    # liegen.
+    try:
+        if not nutzer.leer():
+            nutzer.einrichtung_merken()
+    except Exception:                                           # noqa: BLE001
+        pass
 
 
 # --- Was die Oberflaeche aufrufen darf ---------------------------------------
@@ -403,6 +412,24 @@ def anmeldeseite(bitte: Request, fehler: str = ""):
             f"<p>{_text(str(f))}</p>"
             "<p>Bis das behoben ist, wird hier nichts angeboten.</p>",
             status_code=503)
+    if keiner_da and nutzer.war_schon_eingerichtet():
+        # Hier gab es schon Zugaenge, jetzt ist der Datenordner leer. Das ist
+        # kein frischer Server, sondern ein Hinweis: Ablage umgestellt und der
+        # neue Ordner ist leer, ein Mount hat nicht gegriffen, oder der Pfad
+        # war vertippt. Die Ersteinrichtung hier anzubieten hiesse, dem
+        # Naechstbesten einen Verwalterzugang zu schenken.
+        return HTMLResponse(
+            "<h2>Der Datenordner ist leer</h2>"
+            "<p>Auf diesem Server gab es schon Zugänge - jetzt ist "
+            f"<code>{_text(ablage.datenordner_jetzt())}</code> leer.</p>"
+            "<p>Meist heißt das: die Ablage wurde umgestellt und der neue Ort ist "
+            "leer, eine Freigabe hat nicht eingehängt, oder der Pfad stimmt nicht. "
+            "Die bisherigen Notizen sind dabei nicht weg, sie liegen am alten Ort.</p>"
+            "<p>Eine Ersteinrichtung wird hier mit Absicht nicht angeboten - wer "
+            "sie bekäme, hätte einen Verwalterzugang zu diesem Server.</p>"
+            "<p>Im Protokoll steht, was beim Start passiert ist: "
+            "<code>docker compose logs --tail 40 notizmappe</code></p>",
+            status_code=503)
     if keiner_da:
         return HTMLResponse(_vorlage("einrichten.html", fehler=_text(fehler),
                                      fassung=DESKTOP_FASSUNG))
@@ -480,12 +507,16 @@ def einrichten(name: str = Form(""), passwort: str = Form(""), passwort2: str = 
     except nutzer.BenutzerFehler:
         # Unlesbare Datei ist nicht dasselbe wie "noch niemand da".
         return RedirectResponse("/anmelden", status_code=303)
+    if nutzer.war_schon_eingerichtet():
+        # Siehe /anmelden: leerer Datenordner auf einem Server, der schon lief.
+        return RedirectResponse("/anmelden", status_code=303)
     if passwort != passwort2:
         return RedirectResponse("/anmelden?fehler=Die+Passw%C3%B6rter+sind+nicht+gleich.", status_code=303)
     try:
         nutzer.anlegen(name, passwort, verwalter=True)
     except nutzer.BenutzerFehler as f:
         return RedirectResponse(f"/anmelden?fehler={_text(str(f))}", status_code=303)
+    nutzer.einrichtung_merken()
     antwort = RedirectResponse("/", status_code=303)
     keks_setzen(antwort, (name or "").strip().lower())
     return antwort
@@ -611,6 +642,15 @@ def ablage_lesen(bitte: Request):
     """Wo die Notizen liegen - und ob das gerade wirklich so ist."""
     _nur_verwalter(bitte)
     return ablage.stand()
+
+
+@app.post("/ablage/pruefen")
+async def ablage_pruefen(bitte: Request):
+    """Taugt dieser Ordner? Antwort, bevor etwas gespeichert wird."""
+    _nur_verwalter(bitte)
+    rumpf = _rumpf(await bitte.json())
+    gut, text = ablage.ordner_pruefen((rumpf.get("pfad") or "").strip())
+    return {"gut": gut, "text": text}
 
 
 @app.post("/ablage")

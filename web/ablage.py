@@ -45,7 +45,14 @@ from pathlib import Path
 EINRICHTUNG = Path(os.environ.get("NOTIZMAPPE_EINRICHTUNG", "/einrichtung"))
 ZIEL = Path(os.environ.get("NOTIZMAPPE_DATEN", "/daten"))
 
-ARTEN = ("lokal", "smb", "nfs")
+ARTEN = ("lokal", "ordner", "smb", "nfs")
+
+# "ordner" ist der Sonderfall, der ohne jedes Recht auskommt: statt etwas
+# einzuhaengen, startet der Server einfach mit einem anderen Datenordner.
+# Voraussetzung ist nur, dass der Container ihn ueberhaupt sieht - ein Pfad,
+# der nur auf dem Wirt existiert, ist hier drin nicht da. Deshalb wird er
+# geprueft, bevor er gespeichert wird, statt den Server damit hochfahren zu
+# lassen und auf das Beste zu hoffen.
 
 # Rechnername oder IP. Absichtlich eng: hier kommt nichts durch, was spaeter in
 # einer Option etwas anderes bedeuten koennte.
@@ -98,6 +105,12 @@ def pruefen(rumpf: dict) -> dict:
         raise AblageFehler(f"Unbekannte Art: {art!r}")
     if art == "lokal":
         return {"art": "lokal"}
+    if art == "ordner":
+        pfad = _pruefe(MUSTER_PFAD, rumpf.get("pfad"), "Der Ordner")
+        gut, text = ordner_pruefen(pfad)
+        if not gut:
+            raise AblageFehler(text)
+        return {"art": "ordner", "pfad": pfad}
 
     neu = {
         "art": art,
@@ -111,6 +124,38 @@ def pruefen(rumpf: dict) -> dict:
     else:
         neu["pfad"] = _pruefe(MUSTER_PFAD, rumpf.get("pfad"), "Der Pfad auf der NAS")
     return neu
+
+
+def ordner_pruefen(pfad: str) -> tuple[bool, str]:
+    """Taugt dieser Ordner als Ablage - aus Sicht des Containers?
+
+    Der haeufigste Irrtum dabei ist kein Tippfehler: der Pfad existiert auf dem
+    Wirt, aber nicht hier drin. Dann ist er schlicht nicht da, und die Meldung
+    muss das sagen, statt "nicht gefunden" zu raunen.
+    """
+    p = Path(pfad)
+    if p == ZIEL:
+        return True, f"{pfad} ist der Ordner, in dem der Server ohnehin schreibt."
+    if not p.exists():
+        return False, (f"{pfad} gibt es im Container nicht. Ein Ordner des Wirts muss "
+                       "in der docker-compose.yml als Volume eingehängt sein, sonst "
+                       "ist er hier drinnen nicht vorhanden.")
+    if not p.is_dir():
+        return False, f"{pfad} ist kein Ordner."
+    probe = p / ".schreibprobe"
+    try:
+        fd = os.open(probe, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        os.close(fd)
+        rechte = probe.stat().st_mode & 0o777
+        probe.unlink()
+    except OSError as f:
+        return False, (f"In {pfad} lässt sich nicht schreiben ({f.strerror}). "
+                       f"Der Server läuft als {os.getuid()}:{os.getgid()}.")
+    if rechte != 0o600:
+        return True, (f"{pfad} nimmt Schreibrechte entgegen, setzt 0600 aber als "
+                      f"{rechte:04o} um - dort greifen die Rechte nicht (typisch für "
+                      "SMB). benutzer.json und der Sitzungsschlüssel lägen offen.")
+    return True, f"{pfad} ist da und beschreibbar."
 
 
 def schreiben(neu: dict, passwort: str = "") -> None:
@@ -132,6 +177,40 @@ def schreiben(neu: dict, passwort: str = "") -> None:
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         json.dump(neu, f, ensure_ascii=False, indent=1)
     os.replace(vorlaeufig, p)
+
+
+def mitnehmen(alt: str, neu: str) -> str:
+    """Die vorhandenen Zugaenge und Notizen in den neuen Ordner holen.
+
+    Nur wenn der neue leer ist und im alten wirklich etwas liegt. Sonst wuerde
+    ein Umstellen auf einen Ordner, in dem schon Notizen sind, die dortigen
+    ueberschreiben - und das waere genau einmal verzeihlich.
+
+    Kopiert wird, nicht verschoben: geht beim naechsten Start etwas schief,
+    liegt der alte Stand noch da. Aufgeraeumt wird von Hand, mit Absicht.
+    """
+    aus, hin = Path(alt), Path(neu)
+    if aus == hin or not aus.is_dir() or not hin.is_dir():
+        return ""
+    if any(hin.iterdir()):
+        return ""
+    mitgenommen = []
+    for name in ("benutzer.json", ".sitzungsschluessel", "notizen", "konfig"):
+        quelle = aus / name
+        if not quelle.exists():
+            continue
+        try:
+            if quelle.is_dir():
+                shutil.copytree(quelle, hin / name)
+            else:
+                shutil.copy2(quelle, hin / name)
+            mitgenommen.append(name)
+        except OSError as f:
+            return f"Konnte {name} nicht mitnehmen: {f.strerror}"
+    if not mitgenommen:
+        return ""
+    return (f"Aus {alt} mitgenommen: {', '.join(mitgenommen)}. "
+            f"Der alte Stand bleibt dort liegen.")
 
 
 def darf_einhaengen() -> bool:
@@ -183,6 +262,12 @@ def einhaengen(stand: dict, uid: int, gid: int) -> tuple[bool, str]:
     """Wird von start.py gerufen, solange der noch root ist."""
     if stand.get("art") == "lokal":
         return True, "Die Notizen liegen im Volume."
+    if stand.get("art") == "ordner":
+        # Hier wird nichts eingehaengt - start.py startet den Server einfach
+        # mit diesem Ordner als Datenordner. Deshalb braucht dieser Weg auch
+        # kein SYS_ADMIN.
+        gut, text = ordner_pruefen(stand.get("pfad", ""))
+        return gut, text
     if not darf_einhaengen():
         return False, ("Dem Container fehlt die Fähigkeit SYS_ADMIN - ohne die darf "
                        "er nichts einhängen. In die docker-compose.yml gehört dafür "
@@ -212,9 +297,18 @@ def eingehaengt() -> bool:
     return False
 
 
+def datenordner_jetzt() -> str:
+    """Der Ordner, in dem dieser Prozess gerade wirklich schreibt."""
+    return os.environ.get("NOTIZMAPPE_DATEN", str(ZIEL))
+
+
 def stand() -> dict:
     """Was die Oberflaeche anzeigt."""
     jetzt = lesen()
+    if jetzt.get("art") == "ordner":
+        benutzt = datenordner_jetzt() == jetzt.get("pfad")
+        return {**jetzt, "eingehaengt": benutzt, "darf": True,
+                "ziel": datenordner_jetzt(), "meldung": _letzte_meldung()}
     return {
         **jetzt,
         "eingehaengt": eingehaengt(),

@@ -541,6 +541,39 @@ def leer() -> bool:
     return not _lesen()["benutzer"]
 
 
+def _marke() -> Path:
+    """Die Marke "hier war schon eingerichtet".
+
+    Sie liegt im Einrichtungsordner, nicht bei den Notizen - und genau darum
+    geht es: wird die Ablage umgestellt und zeigt auf einen leeren Ordner, ist
+    benutzer.json weg, aber diese Marke bleibt. Ohne sie boete der Server
+    freundlich die Ersteinrichtung an, und wer in dem Moment vorbeikommt, legt
+    sich einen Verwalter an und hat alles.
+
+    Dasselbe gilt fuer einen Mount, der nicht gegriffen hat, oder einen
+    vertippten Pfad. Ein leerer Datenordner ist auf einem Server, der schon
+    lief, nie eine gute Nachricht.
+    """
+    return Path(os.environ.get("NOTIZMAPPE_EINRICHTUNG", "/einrichtung")) / "eingerichtet"
+
+
+def einrichtung_merken() -> None:
+    try:
+        p = _marke()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        if not p.exists():
+            p.write_text("ja\n", encoding="utf-8")
+    except OSError:
+        pass            # Kein Einrichtungsordner: dann eben ohne Marke
+
+
+def war_schon_eingerichtet() -> bool:
+    try:
+        return _marke().is_file()
+    except OSError:
+        return False
+
+
 def liste() -> list[dict]:
     aus = []
     for name, b in sorted(_lesen()["benutzer"].items()):

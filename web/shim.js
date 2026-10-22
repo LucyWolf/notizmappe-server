@@ -681,6 +681,7 @@
 
     const art = el('select', { id: 'ablage-art' });
     for (const [wert, text] of [['lokal', 'Im Docker-Volume (Standard)'],
+                                ['ordner', 'Ordner auf diesem Rechner'],
                                 ['smb', 'SMB-Freigabe (NAS, Windows)'],
                                 ['nfs', 'NFS-Freigabe']]) {
       art.append(el('option', { value: wert, textContent: text }));
@@ -700,11 +701,27 @@
                         [freigabe, benutzer, passwort]);
     const zeileNfs = el('p', { className: 'ordnerzeile', id: 'ablage-nfs' }, [pfad]);
 
+    // Eigener Weg, weil er ohne Sonderrechte auskommt: hier wird nichts
+    // eingehängt, der Server schreibt beim nächsten Start einfach dorthin.
+    const ordner = el('input', { type: 'text', id: 'ablage-ordner',
+                                 placeholder: '/platten/notizen' });
+    const ordnerPruefen = el('button', { type: 'button', textContent: 'Ordner prüfen' });
+    ordnerPruefen.addEventListener('click', async () => {
+      hinweis.textContent = 'wird geprüft …';
+      try {
+        const d = await hol('/ablage/pruefen', { pfad: ordner.value });
+        hinweis.textContent = d.text;
+      } catch (f) { hinweis.textContent = f.message; }
+    });
+    const zeileOrdner = el('p', { className: 'ordnerzeile', id: 'ablage-ordnerzeile' },
+                           [ordner, ordnerPruefen]);
+
     function zeigen() {
       const a = art.value;
-      wirt.hidden = a === 'lokal';
+      wirt.hidden = a === 'lokal' || a === 'ordner';
       zeileSmb.hidden = a !== 'smb';
       zeileNfs.hidden = a !== 'nfs';
+      zeileOrdner.hidden = a !== 'ordner';
     }
     art.addEventListener('change', zeigen);
 
@@ -713,7 +730,8 @@
       try {
         const d = await hol('/ablage', {
           art: art.value, wirt: wirt.value, freigabe: freigabe.value,
-          pfad: pfad.value, benutzer: benutzer.value, passwort: passwort.value,
+          pfad: art.value === 'ordner' ? ordner.value : pfad.value,
+          benutzer: benutzer.value, passwort: passwort.value,
         });
         passwort.value = '';
         hinweis.textContent = d.hinweis || '';
@@ -725,7 +743,7 @@
       el('h3', { textContent: 'Wo die Notizen liegen' }),
       stand,
       el('p', { className: 'ordnerzeile' }, [art, wirt]),
-      zeileSmb, zeileNfs,
+      zeileSmb, zeileNfs, zeileOrdner,
       el('p', { className: 'knoepfe' }, [sichern]),
       hinweis,
       el('p', { className: 'hinweis', textContent:
@@ -744,6 +762,8 @@
     stand.textContent = '';
     let text;
     if (d.art === 'lokal') text = 'im Volume ' + d.ziel;
+    else if (d.art === 'ordner') text = d.eingehaengt ? d.pfad
+                                                      : `${d.pfad} eingestellt, noch nicht aktiv`;
     else if (d.eingehaengt) text = `${d.wirt} ist eingehängt auf ${d.ziel}`;
     else text = `${d.wirt} eingestellt, aber nicht eingehängt`;
     stand.append(el('span', { textContent: 'Gerade' }),
@@ -759,7 +779,9 @@
     if (!art) return;
     art.value = d.art || 'lokal';
     for (const [id, wert] of [['ablage-wirt', d.wirt], ['ablage-freigabe', d.freigabe],
-                              ['ablage-pfad', d.pfad], ['ablage-benutzer', d.benutzer]]) {
+                              ['ablage-pfad', d.art === 'nfs' ? d.pfad : ''],
+                              ['ablage-ordner', d.art === 'ordner' ? d.pfad : ''],
+                              ['ablage-benutzer', d.benutzer]]) {
       const k = document.getElementById(id);
       if (k && wert) k.value = wert;
     }

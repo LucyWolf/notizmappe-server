@@ -38,6 +38,27 @@ def zahl(name: str) -> int | None:
     return int(wert) if wert.isdigit() else None
 
 
+def datenordner_waehlen() -> str:
+    """Welcher Ordner die Ablage ist - vor allem anderen.
+
+    Bei der Art "ordner" wird nichts eingehaengt: der Server schreibt einfach
+    woanders hin. Das ist der einzige Weg zu einem anderen Speicherort, der
+    ohne SYS_ADMIN auskommt - und deshalb der, den man zuerst anbieten sollte.
+    """
+    eingestellt = ablage.lesen()
+    if eingestellt.get("art") != "ordner":
+        return DATEN
+    pfad = eingestellt.get("pfad") or ""
+    gut, text = ablage.ordner_pruefen(pfad)
+    if not gut:
+        print(f"[start] {text}", flush=True)
+        print(f"[start] Es bleibt bei {DATEN}.", flush=True)
+        ablage.meldung_merken(text)
+        return DATEN
+    print(f"[start] Ablage: {pfad}", flush=True)
+    return pfad
+
+
 def ablage_einhaengen(uid: int, gid: int) -> None:
     """Eine eingestellte Freigabe einhaengen - noch als root, vor dem Ablegen.
 
@@ -144,8 +165,23 @@ def programm_waehlen() -> tuple[str, str]:
 
 
 if __name__ == "__main__":
+    # Zuerst entscheiden, wohin ueberhaupt geschrieben wird - alles danach
+    # (Rechte, Einhaengen, nachgeladene Fassungen) bezieht sich darauf.
+    VORHER = DATEN
+    DATEN = datenordner_waehlen()
+    os.environ["NOTIZMAPPE_DATEN"] = DATEN
     if os.geteuid() == 0:
         rechte_richten()
+
+    # Erst JETZT die Notizen mitnehmen, nach dem Ablegen der Rechte. Vorher
+    # waere das Kopieren als root gelaufen, und die Dateien haetten root
+    # gehoert - der Server kommt dann hoch, kann benutzer.json aber nicht
+    # lesen und meldet 503. Genau so ist es beim ersten Probelauf passiert.
+    if DATEN != VORHER:
+        gesagt = ablage.mitnehmen(VORHER, DATEN)
+        if gesagt:
+            print(f"[start] {gesagt}", flush=True)
+            ablage.meldung_merken(f"Die Notizen liegen in {DATEN}. {gesagt}")
     web, desktop = programm_waehlen()
     os.environ["NOTIZMAPPE_DESKTOP"] = desktop
     os.execvp("uvicorn", [

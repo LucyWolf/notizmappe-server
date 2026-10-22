@@ -25,6 +25,14 @@ import ablage                                                      # noqa: E402
 fehler = []
 
 
+def _prallt_ab(rumpf) -> bool:
+    try:
+        ablage.pruefen(rumpf)
+        return False
+    except ablage.AblageFehler:
+        return True
+
+
 def pruefe(was, bedingung, zusatz=""):
     print(("  ok    " if bedingung else "  FEHLER ") + was
           + ("" if bedingung else f"  [{zusatz}]"))
@@ -83,6 +91,44 @@ konnte, text = ablage.einhaengen({"art": "smb", "wirt": "x", "freigabe": "y",
 pruefe("ohne SYS_ADMIN sagt es, was fehlt", (not konnte) and "SYS_ADMIN" in text, text)
 pruefe("lokal braucht gar nichts", ablage.einhaengen({"art": "lokal"}, 1000, 1000)[0])
 pruefe("und der Stand laesst sich immer lesen", ablage.stand()["art"] == "smb")
+
+from pathlib import Path as _P                                   # noqa: E402
+TMPP = _P(TMP)
+
+print()
+print("Ein Ordner als Ablage - der Weg ohne Sonderrechte")
+echt = TMPP / "woanders"
+echt.mkdir()
+gut, text = ablage.ordner_pruefen(str(echt))
+pruefe("ein vorhandener Ordner geht", gut, text)
+gut, text = ablage.ordner_pruefen("/gibtsnicht-" + os.urandom(4).hex())
+pruefe("ein fehlender sagt, dass er im Container fehlt",
+       (not gut) and "Container" in text, text)
+pruefe("und ein Pfadwechsel prallt ab",
+       _prallt_ab({"art": "ordner", "pfad": "../etc"}))
+fertig = ablage.pruefen({"art": "ordner", "pfad": str(echt)})
+pruefe("die Einstellung merkt sich den Pfad", fertig == {"art": "ordner", "pfad": str(echt)})
+
+print()
+print("Umziehen, ohne alles zu verlieren")
+alt_ordner, neu_ordner = TMPP / "alt", TMPP / "neu"
+(alt_ordner / "notizen").mkdir(parents=True)
+(alt_ordner / "benutzer.json").write_text('{"benutzer": {}}')
+(alt_ordner / ".sitzungsschluessel").write_bytes(b"x" * 32)
+neu_ordner.mkdir()
+gesagt = ablage.mitnehmen(str(alt_ordner), str(neu_ordner))
+pruefe("die Zugaenge kommen mit", (neu_ordner / "benutzer.json").is_file(), gesagt)
+pruefe("der Sitzungsschluessel auch - sonst ist jeder abgemeldet",
+       (neu_ordner / ".sitzungsschluessel").is_file())
+pruefe("die Notizen auch", (neu_ordner / "notizen").is_dir())
+pruefe("der alte Stand bleibt liegen", (alt_ordner / "benutzer.json").is_file())
+
+voll = TMPP / "voll"
+voll.mkdir()
+(voll / "schon_da.json").write_text("{}")
+ablage.mitnehmen(str(alt_ordner), str(voll))
+pruefe("ein belegter Ordner wird nicht ueberschrieben",
+       not (voll / "benutzer.json").exists() and (voll / "schon_da.json").is_file())
 
 print()
 print("Die Ablage ist in Ordnung" if not fehler
