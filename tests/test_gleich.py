@@ -137,6 +137,30 @@ benutzt = set(re.findall(r"var\((--[a-z-]+)\)", shim))
 fehlend = sorted(v for v in benutzt if f"{v}:" not in stil)
 pruefe("shim.js benutzt nur Farben, die es gibt", not fehlend, str(fehlend))
 
+# --- Jedes Design muss die ganze Oberflaeche abdecken ---------------------
+#
+# Ein Design setzt die Farbnamen am <html> neu. Vergisst eines davon einen
+# Namen, bleibt dort die Farbe des vorigen stehen - und das sieht man nicht beim
+# Lesen des Codes, sondern erst als heller Fleck in einer dunklen Oberflaeche.
+# Genau so ist --flaeche schon einmal durchgerutscht.
+wurzel = set(re.findall(r"(--[a-z-]+):", re.search(r":root \{(.*?)\}", stil, re.S).group(1)))
+block = re.search(r"const DESIGNS = \{(.*?)\n  \};", shim, re.S)
+pruefe("shim.js hat eine Design-Liste", bool(block))
+if block:
+    for name, inhalt in re.findall(r"(\w+): \{\s*name: '[^']*',\s*farben: (\{.*?\}|null),",
+                                   block.group(1), re.S):
+        if inhalt.strip() == "null":
+            continue            # "system" setzt mit Absicht nichts
+        gesetzt = set(re.findall(r"'(--[a-z-]+)':", inhalt))
+        fehlend = sorted(wurzel - gesetzt)
+        pruefe(f"Design {name} setzt alle Farben", not fehlend, str(fehlend))
+
+# Und umgekehrt: eine Farbe, die benutzt, aber nie definiert wird, faellt nur
+# auf, wenn sie keinen Rueckfall hat (var(--x, irgendwas) ist in Ordnung).
+ohne_rueckfall = set(re.findall(r"var\((--[a-z-]+)\)", stil + shim))
+pruefe("keine Farbe ohne Definition und ohne Rückfall",
+       not (ohne_rueckfall - wurzel), str(sorted(ohne_rueckfall - wurzel)))
+
 print()
 print("Desktop und Server sind dieselbe Oberflaeche" if not fehler
       else f"{len(fehler)} FEHLER:\n - " + "\n - ".join(fehler))

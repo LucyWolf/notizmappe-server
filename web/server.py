@@ -644,6 +644,52 @@ def ablage_lesen(bitte: Request):
     return ablage.stand()
 
 
+# Die Designs stehen in shim.js - hier wird nur gemerkt, welches einer gewaehlt
+# hat. Die Liste ist trotzdem hier, damit der Server nichts annimmt, was die
+# Oberflaeche gar nicht kennt.
+AUSSEHEN = ("system", "hell", "dunkel", "mitternacht", "sepia", "wald", "kontrast")
+
+
+@app.get("/aussehen")
+def aussehen_lesen(bitte: Request):
+    """Welches Design dieser Benutzer gewaehlt hat.
+
+    Pro Benutzer, nicht pro Browser: wer sich an einem anderen Rechner
+    anmeldet, soll seine Oberflaeche wiedererkennen.
+    """
+    wer = angemeldet(bitte)
+    if not wer:
+        return JSONResponse({"fehler": "Nicht angemeldet"}, status_code=401)
+    try:
+        roh = json.loads((nutzer.konfigordner(wer) / "aussehen.json")
+                         .read_text(encoding="utf-8"))
+        gewaehlt = roh.get("thema")
+    except (OSError, ValueError, AttributeError):
+        gewaehlt = None
+    return {"thema": gewaehlt if gewaehlt in AUSSEHEN else "system",
+            "moeglich": list(AUSSEHEN)}
+
+
+@app.post("/aussehen")
+async def aussehen_setzen(bitte: Request):
+    wer = angemeldet(bitte)
+    if not wer:
+        return JSONResponse({"fehler": "Nicht angemeldet"}, status_code=401)
+    gewaehlt = (_rumpf(await bitte.json()).get("thema") or "").strip()
+    if gewaehlt not in AUSSEHEN:
+        return JSONResponse({"fehler": f"Unbekanntes Design: {gewaehlt!r}"},
+                            status_code=400)
+    ziel = nutzer.konfigordner(wer) / "aussehen.json"
+    vorlaeufig = ziel.with_name(".aussehen.neu")
+    try:
+        vorlaeufig.write_text(json.dumps({"thema": gewaehlt}), encoding="utf-8")
+        os.replace(vorlaeufig, ziel)
+    except OSError as f:
+        return JSONResponse({"fehler": f"Ließ sich nicht merken: {f.strerror}"},
+                            status_code=500)
+    return {"thema": gewaehlt}
+
+
 @app.get("/profil")
 def profil_lesen(bitte: Request):
     """Das eigene Konto - und nur das.

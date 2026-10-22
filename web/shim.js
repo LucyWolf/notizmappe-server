@@ -636,6 +636,101 @@
      Serverprozess hat die Rechte dafuer abgelegt. Diese Seite stellt nur ein
      und sagt, was beim letzten Start dabei herauskam. */
 
+  /* ---------------------------------------------------------------- Designs
+
+     Die Oberflaeche haengt an neun Farbnamen - mehr braucht ein Design nicht.
+     "system" setzt nichts und laesst damit hell/dunkel beim Betriebssystem,
+     so wie es vorher war; alle anderen ueberschreiben die Namen am <html>.
+
+     Gemerkt wird die Wahl beim Benutzer, nicht im Browser: wer sich woanders
+     anmeldet, soll seine Oberflaeche wiedererkennen. Zusaetzlich liegt sie in
+     localStorage, aber nur, damit beim naechsten Laden nicht erst das alte
+     Design aufblitzt, bevor die Antwort des Servers da ist. */
+
+  const DESIGNS = {
+    system: { name: 'Wie das Betriebssystem', farben: null },
+    hell: {
+      name: 'Hell',
+      farben: {
+        '--papier': '#fffefb', '--linie': '#e3e0d8', '--schrift': '#1f1d1a',
+        '--matt': '#78736a', '--leiste': '#f4f1ea', '--flaeche': '#f7f5f0',
+        '--akzent': '#7a5cff', '--warnung': '#b23b2e', '--kasten-rand': '#d8d4ca',
+      },
+    },
+    dunkel: {
+      name: 'Dunkel',
+      farben: {
+        '--papier': '#1b1a18', '--linie': '#332f2a', '--schrift': '#e8e4dc',
+        '--matt': '#938d83', '--leiste': '#121110', '--flaeche': '#232220',
+        '--akzent': '#9d86ff', '--warnung': '#ff8d7e', '--kasten-rand': '#3a3631',
+      },
+    },
+    mitternacht: {
+      name: 'Mitternacht',
+      farben: {
+        '--papier': '#0f1420', '--linie': '#243049', '--schrift': '#dce6f5',
+        '--matt': '#7e8da8', '--leiste': '#080c14', '--flaeche': '#172033',
+        '--akzent': '#4f9dff', '--warnung': '#ff7b6b', '--kasten-rand': '#2b3a56',
+      },
+    },
+    sepia: {
+      name: 'Sepia',
+      farben: {
+        '--papier': '#f6ecd9', '--linie': '#ddcdaf', '--schrift': '#3b2f21',
+        '--matt': '#8a7557', '--leiste': '#efe2c9', '--flaeche': '#f1e5cd',
+        '--akzent': '#a4601f', '--warnung': '#9c3320', '--kasten-rand': '#d3c0a0',
+      },
+    },
+    wald: {
+      name: 'Wald',
+      farben: {
+        '--papier': '#121a16', '--linie': '#27362d', '--schrift': '#dfeae2',
+        '--matt': '#82998b', '--leiste': '#0c120f', '--flaeche': '#1a2520',
+        '--akzent': '#5fd39a', '--warnung': '#ff9178', '--kasten-rand': '#2e4036',
+      },
+    },
+    kontrast: {
+      name: 'Starker Kontrast',
+      farben: {
+        '--papier': '#000000', '--linie': '#6f6f6f', '--schrift': '#ffffff',
+        '--matt': '#cfcfcf', '--leiste': '#000000', '--flaeche': '#161616',
+        '--akzent': '#ffd400', '--warnung': '#ff6a5a', '--kasten-rand': '#8a8a8a',
+      },
+    },
+  };
+
+  function themaAnwenden(welches) {
+    const wurzel = document.documentElement;
+    const design = DESIGNS[welches] || DESIGNS.system;
+    // Erst die Namen einer vorigen Wahl wegnehmen, sonst bleibt bei "system"
+    // die letzte Farbe stehen.
+    for (const schluessel of Object.keys(DESIGNS.hell.farben)) {
+      wurzel.style.removeProperty(schluessel);
+    }
+    if (design.farben) {
+      for (const [schluessel, wert] of Object.entries(design.farben)) {
+        wurzel.style.setProperty(schluessel, wert);
+      }
+    }
+    wurzel.dataset.thema = welches;
+    try { localStorage.setItem('notizmappe-thema', welches); } catch (f) { /* egal */ }
+  }
+
+  // So frueh wie moeglich, damit beim Laden nicht erst das alte Design
+  // aufblitzt. Der Server bestaetigt gleich darauf - oder korrigiert.
+  try {
+    const gemerkt = localStorage.getItem('notizmappe-thema');
+    if (gemerkt && DESIGNS[gemerkt]) themaAnwenden(gemerkt);
+  } catch (f) { /* ohne localStorage eben nicht */ }
+
+  async function themaLaden() {
+    let d;
+    try { d = await hol('/aussehen'); } catch (f) { return; }
+    if (d.thema) themaAnwenden(d.thema);
+    const wahl = document.getElementById('p-thema');
+    if (wahl) wahl.value = d.thema;
+  }
+
   function profilseite() {
     const vorhanden = document.querySelector('.dateiseite[data-punkt="profil"]');
     if (vorhanden) return vorhanden;
@@ -704,8 +799,24 @@
     const abmelden = el('button', { type: 'button', textContent: 'Abmelden' });
     abmelden.addEventListener('click', function () { location.href = '/abmelden'; });
 
+    const thema = el('select', { id: 'p-thema' });
+    for (const [wert, d] of Object.entries(DESIGNS)) {
+      thema.append(el('option', { value: wert, textContent: d.name }));
+    }
+    thema.addEventListener('change', async () => {
+      themaAnwenden(thema.value);          // sofort sichtbar, nicht erst nach der Antwort
+      try { await hol('/aussehen', { thema: thema.value }); } catch (f) {
+        document.getElementById('p-hinweis').textContent = f.message;
+      }
+    });
+
     seite.append(el('section', { id: 'profilteil' }, [
       wer, rolle, zwei,
+      el('h3', { textContent: 'Aussehen', style: 'margin-top:14px' }),
+      el('p', { className: 'hinweis', textContent:
+        'Gilt für deinen Zugang, nicht für den Server - andere behalten ihr '
+        + 'eigenes Design.' }),
+      el('p', { className: 'ordnerzeile' }, [thema]),
       el('h3', { textContent: 'Passwort ändern', style: 'margin-top:14px' }),
       el('p', { className: 'hinweis', textContent:
         'Das bisherige Passwort wird abgefragt - sonst könnte jemand an einem '
@@ -731,6 +842,7 @@
     setz('p-ich', d.ich);
     setz('p-rolle', d.rolle);
     setz('p-zwei', d.zwei ? 'eingeschaltet' : 'aus');
+    themaLaden();
   }
 
   function speicherseite() {
@@ -1156,6 +1268,13 @@
       }
       #profilteil button:hover { border-color: var(--akzent); }
       #profilteil .hinweis { color: var(--matt); font-size: 12px; margin: 8px 0 0; }
+      #profilteil select {
+        padding: 4px 8px; min-width: 220px;
+        border: 1px solid var(--linie); border-radius: 6px;
+        background: var(--papier); color: var(--schrift);
+        font: inherit; font-size: 13px; cursor: pointer;
+      }
+      #profilteil select option { background: var(--papier); color: var(--schrift); }
       #profil-verwalten { margin: 0; }
       #ablage-stand code { color: var(--schrift); }
       #serververwaltung h3 {
