@@ -124,6 +124,7 @@ except Exception as f:                                              # noqa: BLE0
 # vor dem Bildschirm auf.
 html = (DESKTOP / "app/oberflaeche/index.html").read_text(encoding="utf-8")
 for anker in ('id="zahnrad"', 'class="fussrechts"',
+              'id="dateileiste"', 'class="dateipunkt"', 'class="dateiseite"',
               'data-punkt="konto"', 'data-punkt="optionen"',
               'id="e-version"', 'id="e-verfuegbar"', 'id="e-updatehinweis"'):
     pruefe(f"die Oberflaeche hat noch {anker}", anker in html)

@@ -55,6 +55,13 @@ import speicher                                                    # noqa: E402
 BRUECKE = bruecke_modul.Bruecke()
 DESKTOP_FASSUNG = bruecke_modul.VERSION
 
+# Die eigene Fassung der Serverschicht. Bis hierher trug der Server die Nummer
+# des Desktop-Programms, das in ihm steckt - und damit war eine Aenderung, die
+# nur web/ betrifft, fuer den Update-Knopf unsichtbar: DESKTOP_VERSION blieb
+# gleich, also galt "ist die neueste", obwohl neuer Servercode bereitlag.
+FASSUNG = (Path(__file__).resolve().parent.parent / "VERSION").read_text(
+    encoding="utf-8").strip()
+
 # Ueber HTTPS gehoert "Secure" an den Keks. Im eigenen Netz ohne Zertifikat
 # wuerde der Browser ihn damit wegwerfen und niemand kaeme hinein.
 HTTPS = os.environ.get("NOTIZMAPPE_HTTPS", "").strip() not in ("", "0", "nein", "no", "false")
@@ -579,7 +586,7 @@ async def aktualisieren(bitte: Request):
     hier = Path(__file__).resolve().parent.parent / "requirements.txt"
     try:
         ergebnis = await run_in_threadpool(selbst.vorbereiten, DATEN,
-                                           DESKTOP_FASSUNG, hier)
+                                           FASSUNG, hier)
     except selbst.SelbstFehler as f:
         return JSONResponse({"fehler": str(f)}, status_code=400)
     except Exception as f:                                      # noqa: BLE001
@@ -656,15 +663,16 @@ def fassung(bitte: Request):
     if jetzt - _fassung_geholt[0] < 3600 and _fassung_geholt[1]:
         return _fassung_geholt[1]
 
-    stand = {"laeuft": DESKTOP_FASSUNG, "neueste": "", "neuer": False, "fehler": ""}
+    stand = {"laeuft": FASSUNG, "oberflaeche": DESKTOP_FASSUNG,
+             "neueste": "", "neuer": False, "fehler": ""}
     try:
+        # Die eigene VERSION aus dem Repo - nicht das Desktop-Release. Sonst
+        # bliebe eine Aenderung, die nur den Server betrifft, unsichtbar.
         with urllib.request.urlopen(
-                "https://api.github.com/repos/LucyWolf/notizmappe/releases/latest",
-                timeout=8) as antwort:
-            tag = json.loads(antwort.read(1 << 20)).get("tag_name") or ""
-        stand["neueste"] = tag.lstrip("v")
-        teile = lambda v: [int(t) for t in v.split(".") if t.isdigit()]       # noqa: E731
-        stand["neuer"] = teile(stand["neueste"]) > teile(DESKTOP_FASSUNG)
+                "https://raw.githubusercontent.com/LucyWolf/notizmappe-server"
+                "/master/VERSION", timeout=8) as antwort:
+            stand["neueste"] = antwort.read(64).decode("utf-8").strip()
+        stand["neuer"] = selbst.neuer_als(stand["neueste"], FASSUNG)
     except Exception as f:                                  # noqa: BLE001
         stand["fehler"] = f"GitHub nicht erreichbar: {f}"
     _fassung_geholt[0], _fassung_geholt[1] = jetzt, stand

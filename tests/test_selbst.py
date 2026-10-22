@@ -138,6 +138,18 @@ except selbst.SelbstFehler as f:
     pruefe("kaputtes Python faellt auf", "server.py" in str(f))
 
 print()
+print("Die Fassung kommt aus VERSION, nicht aus DESKTOP_VERSION")
+quelle = TMP / "repo"
+(quelle / "web").mkdir(parents=True)
+(quelle / "VERSION").write_text("1.3.0")
+(quelle / "DESKTOP_VERSION").write_text("1.1.84")
+pruefe("der Server zaehlt eigenstaendig",
+       selbst.neuer_als((quelle / "VERSION").read_text().strip(), "1.2.0"))
+pruefe("die Oberflaeche darf dabei stehenbleiben",
+       not selbst.neuer_als((quelle / "DESKTOP_VERSION").read_text().strip(), "1.1.84"))
+pruefe("VERSION gehoert zu den Pflichtdateien", "VERSION" in selbst.PFLICHT)
+
+print()
 print("Das Selbst-Update ist in Ordnung" if not fehler
       else f"{len(fehler)} FEHLER:\n - " + "\n - ".join(fehler))
 import shutil                                                      # noqa: E402

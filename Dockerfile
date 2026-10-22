@@ -21,7 +21,7 @@ WORKDIR /srv
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY DESKTOP_VERSION .
+COPY DESKTOP_VERSION VERSION ./
 COPY tools/desktop_holen.sh tools/
 RUN tools/desktop_holen.sh && mv /srv/desktop /desktop
 

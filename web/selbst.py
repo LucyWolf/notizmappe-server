@@ -51,7 +51,7 @@ DESKTOP_ARCHIV = "https://codeload.github.com/LucyWolf/notizmappe/tar.gz/refs/ta
 # erwartet wird - lieber abbrechen als einen Container volllaufen lassen.
 MAX_ARCHIV = 40 << 20
 
-PFLICHT = ("web/server.py", "web/benutzer.py", "web/start.py", "web/ablage.py",
+PFLICHT = ("VERSION", "web/server.py", "web/benutzer.py", "web/start.py", "web/ablage.py",
            "web/shim.js", "web/anmelden.html",
            "desktop/app/VERSION", "desktop/app/bruecke.py", "desktop/app/speicher.py",
            "desktop/app/oberflaeche/index.html", "desktop/app/oberflaeche/mappe.js",
@@ -155,28 +155,40 @@ def vorbereiten(daten, image_fassung: str, hier_requirements: Path) -> dict:
     shutil.rmtree(tmp, ignore_errors=True)
     try:
         quelle = _entpacken(_holen(SERVER_ARCHIV), tmp, "web")
+        # Massgeblich ist die Fassung des Servers. Die Oberflaeche dazu steht
+        # in DESKTOP_VERSION und kann derselben Fassung ueber mehrere
+        # Server-Stufen hinweg gleich bleiben - das ist kein Widerspruch,
+        # sondern der Normalfall: nicht jede Aenderung hier betrifft sie.
         try:
-            fassung = (quelle / "DESKTOP_VERSION").read_text(encoding="utf-8").strip()
+            fassung = (quelle / "VERSION").read_text(encoding="utf-8").strip()
+            oberflaeche = (quelle / "DESKTOP_VERSION").read_text(encoding="utf-8").strip()
         except OSError:
-            raise SelbstFehler("Im Archiv steht keine DESKTOP_VERSION.")
+            raise SelbstFehler("Im Archiv fehlt VERSION oder DESKTOP_VERSION.")
         if not _zahlen(fassung):
-            raise SelbstFehler(f"DESKTOP_VERSION ergibt keine Fassung: {fassung!r}")
+            raise SelbstFehler(f"VERSION ergibt keine Fassung: {fassung!r}")
         if not neuer_als(fassung, image_fassung):
             return {"getan": False, "fassung": fassung,
                     "hinweis": f"Hier läuft {image_fassung}, das ist die neueste."}
 
         _pakete_vergleichen(quelle, Path(hier_requirements))
 
-        dquelle = _entpacken(_holen(DESKTOP_ARCHIV.format(f=fassung)), tmp / ".d", "app")
+        dquelle = _entpacken(_holen(DESKTOP_ARCHIV.format(f=oberflaeche)), tmp / ".d", "app")
         drin = (dquelle / "app" / "VERSION").read_text(encoding="utf-8").strip()
-        if drin != fassung:
-            raise SelbstFehler(f"Das Desktop-Archiv sagt {drin}, erwartet war {fassung}.")
+        if drin != oberflaeche:
+            raise SelbstFehler(f"Das Desktop-Archiv sagt {drin}, erwartet war {oberflaeche}.")
 
         bau = ordner / f".bau-{fassung}"
         shutil.rmtree(bau, ignore_errors=True)
         (bau / "desktop").mkdir(parents=True)
         shutil.copytree(quelle / "web", bau / "web")
         shutil.copytree(dquelle / "app", bau / "desktop" / "app")
+        # server.py liest seine Fassung aus ../VERSION - die muss also neben
+        # web/ liegen, sonst startet die nachgeladene Fassung ins Leere.
+        # requirements.txt kommt mit, damit der naechste Vergleich gegen das
+        # laeuft, was hier wirklich installiert ist.
+        for beiwerk in ("VERSION", "DESKTOP_VERSION", "requirements.txt"):
+            if (quelle / beiwerk).is_file():
+                shutil.copy2(quelle / beiwerk, bau / beiwerk)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

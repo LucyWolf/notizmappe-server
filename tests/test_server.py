@@ -348,7 +348,9 @@ pruefe("lucy ist noch Verwalter", "benutzer" in server.nutzer.rechte_von("lucy")
 print("\nFassung")
 pruefe("Ohne Anmeldung keine Auskunft", anonym.get("/fassung").status_code == 401)
 f = k.get("/fassung").json()
-pruefe("Sagt, was läuft", f.get("laeuft") == server.DESKTOP_FASSUNG, f)
+pruefe("Sagt, welche Serverfassung läuft", f.get("laeuft") == server.FASSUNG, f)
+pruefe("Und welche Oberfläche darin steckt",
+       f.get("oberflaeche") == server.DESKTOP_FASSUNG, f)
 pruefe("Und kommt ohne GitHub nicht ins Stolpern",
        "neuer" in f and isinstance(f["neuer"], bool), f)
 pruefe("Die Antwort wird wiederverwendet (kein Anklopfen je Aufruf)",

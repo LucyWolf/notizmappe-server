@@ -549,7 +549,13 @@
           const f = await hol('/fassung');
           document.getElementById('e-verfuegbar').textContent = f.neueste || '—';
           const dort = document.getElementById('e-version');
-          if (dort && f.laeuft) dort.textContent = f.laeuft;
+          // Zwei Nummern, und beide gehen jemanden etwas an: die Serverschicht
+          // und die Oberflaeche darin. Sie laufen absichtlich getrennt - nicht
+          // jede Aenderung hier betrifft die Oberflaeche.
+          if (dort && f.laeuft) {
+            dort.textContent = f.oberflaeche ? `${f.laeuft} (Oberfläche ${f.oberflaeche})`
+                                             : f.laeuft;
+          }
           befehl.hidden = !f.neuer;
           kopieren.hidden = !f.neuer;
           jetzt.hidden = !f.neuer;
@@ -633,9 +639,33 @@
      Serverprozess hat die Rechte dafuer abgelegt. Diese Seite stellt nur ein
      und sagt, was beim letzten Start dabei herauskam. */
 
-  function ablageBauen() {
+  function speicherseite() {
+    /* Einen eigenen Reiter in der Datei-Ebene anlegen. Die Umschaltung drueben
+       arbeitet ueber die Klassen und data-punkt, nicht ueber eine feste Liste -
+       ein zusaetzlicher Reiter fuegt sich damit von allein ein. */
+    const vorhanden = document.querySelector('.dateiseite[data-punkt="speicher"]');
+    if (vorhanden) return vorhanden;
+    const leiste = document.getElementById('dateileiste');
     const konto = kontoseite();
-    if (!konto || document.getElementById('ablageteil')) return;
+    if (!leiste || !konto) return null;
+
+    const reiter = el('button', { type: 'button', className: 'dateipunkt',
+                                  textContent: 'Speicher' });
+    reiter.dataset.punkt = 'speicher';
+    const optionen = leiste.querySelector('.dateipunkt[data-punkt="optionen"]');
+    leiste.insertBefore(reiter, optionen || null);
+
+    const seite = el('section', { className: 'dateiseite', hidden: true }, [
+      el('h2', { textContent: 'Speicher' }),
+    ]);
+    seite.dataset.punkt = 'speicher';
+    konto.parentElement.insertBefore(seite, konto.nextSibling);
+    return seite;
+  }
+
+  function ablageBauen() {
+    const seite = speicherseite();
+    if (!seite || document.getElementById('ablageteil')) return;
 
     const art = el('select', { id: 'ablage-art' });
     for (const [wert, text] of [['lokal', 'Im Docker-Volume (Standard)'],
@@ -691,7 +721,7 @@
         + 'Server hat die Rechte dafür abgelegt. Nach dem Speichern also '
         + 'docker compose restart notizmappe.' }),
     ]);
-    konto.append(teil);
+    seite.append(teil);
     zeigen();
     ablageLaden();
   }
@@ -1030,13 +1060,23 @@
 
   // Beim Öffnen der Einstellungen neu laden - Rollen können sich geändert haben.
   window.addEventListener('DOMContentLoaded', function () {
-    einstellungenAnpassen();
-    abschnittBauen();
-    bereichBauen();
-    profilBauen();
-    ablageBauen();
-    bereicheLaden();
-    verwaltungLaden();
+    // Jeder Schritt fuer sich. Vorher lief das als eine Kette: ein Fehler im
+    // ersten liess alle folgenden ausfallen - lautlos, und der letzte war
+    // ausgerechnet der Speicher-Reiter. Jetzt faellt hoechstens einer aus, und
+    // man sieht welcher.
+    for (const [name, tun] of [['Einstellungen', einstellungenAnpassen],
+                               ['Verwaltung', abschnittBauen],
+                               ['Bereichswahl', bereichBauen],
+                               ['Profil', profilBauen],
+                               ['Speicher', ablageBauen],
+                               ['Bereiche laden', bereicheLaden],
+                               ['Verwaltung laden', verwaltungLaden]]) {
+      try {
+        tun();
+      } catch (f) {
+        console.error('[notizmappe] ' + name + ' ließ sich nicht aufbauen:', f);
+      }
+    }
     const zahnrad = document.getElementById('zahnrad');
     if (zahnrad) zahnrad.addEventListener('click', function () { setTimeout(verwaltungLaden, 50); });
   });
