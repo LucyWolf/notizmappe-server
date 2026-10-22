@@ -996,6 +996,36 @@
         color: var(--schrift); cursor: pointer; font-size: 13px;
       }
       .profilpunkt:hover { background: var(--flaeche); }
+
+      /* Der Speicher-Reiter ist eine eigene Seite, kein #einstellungen - die
+         Regeln von drueben greifen dort also nicht, und ein nacktes <select>
+         nimmt die Browserfarben. Auf dunklem Grund steht dann ein weisser
+         Kasten mitten in der Seite. Also dieselben Farben wie die Felder in
+         den Einstellungen, ueber dieselben Namen. */
+      #ablageteil .ordnerzeile { display: flex; gap: 8px; margin: 10px 0 4px; flex-wrap: wrap; }
+      #ablageteil input[type="text"],
+      #ablageteil input[type="password"],
+      #ablageteil select {
+        flex: 1; min-width: 0; padding: 4px 8px;
+        border: 1px solid var(--linie); border-radius: 6px;
+        background: var(--papier); color: var(--schrift);
+        font: inherit; font-size: 13px;
+      }
+      #ablageteil select { flex: 0 0 auto; min-width: 220px; cursor: pointer; }
+      /* Die Liste, die aufklappt, faerbt das Betriebssystem - ohne das steht
+         sie wieder weiss da. */
+      #ablageteil select option { background: var(--papier); color: var(--schrift); }
+      #ablageteil input:focus, #ablageteil select:focus {
+        outline: none; border-color: var(--akzent);
+      }
+      #ablageteil button {
+        border: 1px solid var(--linie); background: var(--leiste); color: var(--schrift);
+        border-radius: 6px; padding: 5px 10px; cursor: pointer; font-size: 13px;
+      }
+      #ablageteil button:hover { border-color: var(--akzent); }
+      #ablageteil .hinweis { color: var(--matt); font-size: 12px; margin: 8px 0 0; }
+      #ablageteil h3 { margin: 0 0 10px; }
+      #ablage-stand code { color: var(--schrift); }
       #serverkopf h3, #serververwaltung h3 {
         margin: 22px 0 8px; font-size: 13px; text-transform: uppercase;
         letter-spacing: .04em; color: var(--matt); font-weight: 600;
