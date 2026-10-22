@@ -587,8 +587,15 @@
         }
       });
 
-      // Nach dem Neustart ist der Server ein paar Sekunden weg. Statt einer
-      // toten Seite: nachfassen, bis er wieder antwortet, dann neu laden.
+      // Nach dem Neustart ist der Server ein paar Sekunden weg.
+      //
+      // Hier auf "antwortet wieder" zu warten, waere falsch - und zwar auf eine
+      // Art, die wie ein fehlgeschlagenes Update aussieht: der alte Prozess
+      // lebt noch gut eine Sekunde weiter und antwortet brav. Die Seite laedt
+      // dann neu, waehrend noch die alte Fassung laeuft, und man sieht
+      // unveraendert die alte Nummer.
+      //
+      // Deshalb wird auf die FASSUNG gewartet, nicht auf ein Lebenszeichen.
       function warten(fassung) {
         const hinweis = document.getElementById('e-updatehinweis');
         let versuche = 0;
@@ -596,13 +603,17 @@
         const uhr = setInterval(async () => {
           versuche += 1;
           try {
-            const antwort = await fetch('/anmelden', { cache: 'no-store' });
-            if (antwort.ok) { clearInterval(uhr); location.reload(); return; }
-          } catch (f) { /* noch unterwegs */ }
+            const antwort = await fetch('/fassung', { cache: 'no-store' });
+            if (antwort.ok) {
+              const d = await antwort.json();
+              if (d.laeuft === fassung) { clearInterval(uhr); location.reload(); return; }
+            }
+          } catch (f) { /* noch unterwegs, das ist der Normalfall */ }
           if (versuche > 40) {
             clearInterval(uhr);
-            hinweis.textContent = 'Der Server ist nicht zurückgekommen. '
-              + 'Im Protokoll nachsehen: docker compose logs --tail 40 notizmappe';
+            hinweis.textContent = 'Der Server ist nicht mit der neuen Fassung '
+              + 'zurückgekommen. Im Protokoll nachsehen: '
+              + 'docker compose logs --tail 40 notizmappe';
           }
         }, 1500);
       }
