@@ -38,43 +38,50 @@ def zahl(name: str) -> int | None:
     return int(wert) if wert.isdigit() else None
 
 
-def datenordner_waehlen() -> str:
-    """Welcher Ordner die Ablage ist - vor allem anderen.
+def ablage_vorbereiten(uid: int, gid: int) -> str:
+    """Die eingestellte Ablage herrichten und sagen, wo geschrieben wird.
 
-    Bei der Art "ordner" wird nichts eingehaengt: der Server schreibt einfach
-    woanders hin. Das ist der einzige Weg zu einem anderen Speicherort, der
-    ohne SYS_ADMIN auskommt - und deshalb der, den man zuerst anbieten sollte.
+    Drei Faelle, und nur einer braucht Rechte:
+
+      lokal   - der Ordner im Volume, nichts zu tun
+      ordner  - ein anderer Ordner; es wird nichts eingehaengt, der Server
+                schreibt schlicht woanders hin. Deshalb ohne SYS_ADMIN.
+      smb/nfs - die Freigabe wird eingehaengt, und zwar NICHT auf den
+                Datenordner, sondern auf einen eigenen Punkt. Erst darin liegt
+                der Datenordner, womoeglich in einem Unterordner.
+
+    Geht etwas schief, laeuft der Server trotzdem weiter - mit dem Volume. Ein
+    Server, der wegen einer stummen NAS gar nicht mehr hochkommt, waere
+    schlimmer als einer, der die alten Notizen zeigt und dazusagt, warum.
     """
     eingestellt = ablage.lesen()
-    if eingestellt.get("art") != "ordner":
+    art = eingestellt.get("art", "lokal")
+    if art == "lokal":
         return DATEN
-    pfad = eingestellt.get("pfad") or ""
-    gut, text = ablage.ordner_pruefen(pfad)
-    if not gut:
-        print(f"[start] {text}", flush=True)
-        print(f"[start] Es bleibt bei {DATEN}.", flush=True)
-        ablage.meldung_merken(text)
-        return DATEN
-    print(f"[start] Ablage: {pfad}", flush=True)
-    return pfad
 
+    if art == "ordner":
+        gut, text = ablage.ordner_pruefen(eingestellt.get("pfad") or "")
+        if not gut:
+            print(f"[start] {text}", flush=True)
+            print(f"[start] Es bleibt bei {DATEN}.", flush=True)
+            ablage.meldung_merken(text)
+            return DATEN
+        ziel = ablage.datenordner_fuer(eingestellt)
+        try:
+            ziel.mkdir(parents=True, exist_ok=True)
+        except OSError as f:
+            print(f"[start] {ziel} ließ sich nicht anlegen ({f.strerror}).", flush=True)
+            return DATEN
+        print(f"[start] Ablage: {ziel}", flush=True)
+        return str(ziel)
 
-def ablage_einhaengen(uid: int, gid: int) -> None:
-    """Eine eingestellte Freigabe einhaengen - noch als root, vor dem Ablegen.
-
-    Geht es schief, laeuft der Server trotzdem weiter: dann eben mit dem
-    Ordner im Volume. Ein Server, der wegen einer stummen NAS gar nicht mehr
-    hochkommt, waere schlimmer als einer, der die alten Notizen zeigt und
-    dazusagt, warum.
-    """
-    eingestellt = ablage.lesen()
-    if eingestellt.get("art") == "lokal":
-        return
     gut, text = ablage.einhaengen(eingestellt, uid, gid)
     print(f"[start] {text}", flush=True)
     ablage.meldung_merken(text)
     if not gut:
         print("[start] Die Notizen kommen bis auf Weiteres aus dem Volume.", flush=True)
+        return DATEN
+    return str(ablage.datenordner_fuer(eingestellt))
 
 
 def rechte_richten() -> None:
@@ -83,10 +90,6 @@ def rechte_richten() -> None:
     uid = zahl("PUID") or (stand.st_uid or EINGEBAUT)
     gid = zahl("PGID") or (stand.st_gid or EINGEBAUT)
 
-    # Erst einhaengen, dann die Rechte richten: sonst gelten sie dem leeren
-    # Ordner darunter statt dem, was gleich darauf liegt.
-    ablage_einhaengen(uid, gid)
-    stand = os.stat(DATEN)
 
     if stand.st_uid != uid or stand.st_gid != gid:
         print(f"[start] {DATEN} gehört {stand.st_uid}:{stand.st_gid}, "
@@ -168,7 +171,10 @@ if __name__ == "__main__":
     # Zuerst entscheiden, wohin ueberhaupt geschrieben wird - alles danach
     # (Rechte, Einhaengen, nachgeladene Fassungen) bezieht sich darauf.
     VORHER = DATEN
-    DATEN = datenordner_waehlen()
+    # Einhaengen muss als root passieren, das Herrichten der Rechte danach.
+    uid0 = zahl("PUID") or (os.stat(DATEN).st_uid or EINGEBAUT)
+    gid0 = zahl("PGID") or (os.stat(DATEN).st_gid or EINGEBAUT)
+    DATEN = ablage_vorbereiten(uid0, gid0)
     os.environ["NOTIZMAPPE_DATEN"] = DATEN
     if os.geteuid() == 0:
         rechte_richten()

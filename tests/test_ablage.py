@@ -131,6 +131,38 @@ pruefe("ein belegter Ordner wird nicht ueberschrieben",
        not (voll / "benutzer.json").exists() and (voll / "schon_da.json").is_file())
 
 print()
+print("Unterordner in der Freigabe")
+mit = ablage.pruefen({"art": "smb", "wirt": "nas", "freigabe": "platte",
+                      "benutzer": "b", "unterordner": "notizmappe/daten"})
+pruefe("wird uebernommen", mit.get("unterordner") == "notizmappe/daten", mit)
+ziel = ablage.datenordner_fuer(mit)
+pruefe("und landet unter dem Einhaengepunkt",
+       str(ziel) == str(ablage.EINHAENGEPUNKT / "notizmappe/daten"), str(ziel))
+pruefe("die Freigabe wird NICHT auf den Datenordner gehaengt",
+       str(ablage.EINHAENGEPUNKT) != str(ablage.ZIEL))
+b = ablage.befehl({**mit, "uid": 1000, "gid": 1000})
+pruefe("der mount zielt auf den Einhaengepunkt", b[-1] == str(ablage.EINHAENGEPUNKT), b)
+
+for fies in ("../../etc", "a/../../b", "a/../b"):
+    pruefe(f"fuehrt nicht heraus: {fies!r}",
+           _prallt_ab({"art": "smb", "wirt": "nas", "freigabe": "f",
+                       "benutzer": "b", "unterordner": fies}))
+
+# Ein fuehrender Schraegstrich wird entschaerft, nicht abgelehnt: ohne das
+# wuerde Path("/mnt/ablage") / "/weg" zu "/weg" - der Unterordner waere also
+# plotzlich ein absoluter Pfad irgendwo anders.
+mit_slash = ablage.pruefen({"art": "smb", "wirt": "nas", "freigabe": "f",
+                            "benutzer": "b", "unterordner": "/weg"})
+pruefe("ein fuehrender Schraegstrich wird entschaerft",
+       mit_slash.get("unterordner") == "weg", mit_slash)
+pruefe("und bleibt damit innerhalb der Freigabe",
+       str(ablage.datenordner_fuer(mit_slash)).startswith(str(ablage.EINHAENGEPUNKT)))
+
+pruefe("auch ein Ordner darf einen Unterordner haben",
+       ablage.pruefen({"art": "ordner", "pfad": str(echt),
+                       "unterordner": "x/y"}).get("unterordner") == "x/y")
+
+print()
 print("Die Ablage ist in Ordnung" if not fehler
       else f"{len(fehler)} FEHLER:\n - " + "\n - ".join(fehler))
 import shutil                                                      # noqa: E402

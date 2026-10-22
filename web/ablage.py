@@ -45,6 +45,12 @@ from pathlib import Path
 EINRICHTUNG = Path(os.environ.get("NOTIZMAPPE_EINRICHTUNG", "/einrichtung"))
 ZIEL = Path(os.environ.get("NOTIZMAPPE_DATEN", "/daten"))
 
+# Eine Freigabe wird NICHT direkt auf den Datenordner gehaengt, sondern hierher.
+# Der Grund ist der Unterordner: wer eine Freigabe "platte" hat, auf der schon
+# anderes liegt, will seine Notizen in "platte/notizmappe" und nicht mitten
+# hinein. Also: Freigabe einhaengen, und der Datenordner ist ein Ort darin.
+EINHAENGEPUNKT = Path(os.environ.get("NOTIZMAPPE_FREIGABE", "/mnt/ablage"))
+
 ARTEN = ("lokal", "ordner", "smb", "nfs")
 
 # "ordner" ist der Sonderfall, der ohne jedes Recht auskommt: statt etwas
@@ -61,6 +67,9 @@ MUSTER_FREIGABE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._$-]{0,80}$")
 MUSTER_BENUTZER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._@\\-]{0,80}$")
 MUSTER_PFAD = re.compile(r"^/[A-Za-z0-9/._-]{0,200}$")
 MUSTER_FASSUNG = re.compile(r"^[123](\.[0-9])?$")
+# Relativ, ohne fuehrenden Schraegstrich und ohne "..": der Unterordner soll
+# innerhalb der Freigabe bleiben und nicht wieder heraus.
+MUSTER_UNTER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._/-]{0,120}$")
 
 
 class AblageFehler(Exception):
@@ -105,12 +114,27 @@ def pruefen(rumpf: dict) -> dict:
         raise AblageFehler(f"Unbekannte Art: {art!r}")
     if art == "lokal":
         return {"art": "lokal"}
+
+    # Der Unterordner gilt fuer jede Art ausser "lokal" - und er wird hier
+    # oben geprueft, nicht unten. Beim ersten Versuch stand er am Ende der
+    # Funktion, waehrend "ordner" schon vorher zurueckkehrte: der Wert kam nie
+    # an, und "../../etc" lief anstandslos durch, weil die Pruefung gar nicht
+    # erst stattfand.
+    unter = (rumpf.get("unterordner") or "").strip().strip("/")
+    if unter:
+        if ".." in unter.split("/"):
+            raise AblageFehler("Der Unterordner darf nicht aus der Freigabe herausführen.")
+        unter = _pruefe(MUSTER_UNTER, unter, "Der Unterordner")
+
     if art == "ordner":
         pfad = _pruefe(MUSTER_PFAD, rumpf.get("pfad"), "Der Ordner")
         gut, text = ordner_pruefen(pfad)
         if not gut:
             raise AblageFehler(text)
-        return {"art": "ordner", "pfad": pfad}
+        fertig = {"art": "ordner", "pfad": pfad}
+        if unter:
+            fertig["unterordner"] = unter
+        return fertig
 
     neu = {
         "art": art,
@@ -123,6 +147,9 @@ def pruefen(rumpf: dict) -> dict:
                                  "Die SMB-Fassung", pflicht=False) or "3.0"
     else:
         neu["pfad"] = _pruefe(MUSTER_PFAD, rumpf.get("pfad"), "Der Pfad auf der NAS")
+
+    if unter:
+        neu["unterordner"] = unter
     return neu
 
 
@@ -213,6 +240,23 @@ def mitnehmen(alt: str, neu: str) -> str:
             f"Der alte Stand bleibt dort liegen.")
 
 
+def datenordner_fuer(eingestellt: dict) -> Path:
+    """Wo die Notizen bei dieser Einstellung liegen.
+
+    Bei einer Freigabe ist das der Einhaengepunkt plus Unterordner - deshalb
+    wird die Freigabe auch nicht direkt auf den Datenordner gehaengt.
+    """
+    art = eingestellt.get("art")
+    unter = (eingestellt.get("unterordner") or "").strip("/")
+    if art == "ordner":
+        grund = Path(eingestellt.get("pfad") or ZIEL)
+    elif art in ("smb", "nfs"):
+        grund = EINHAENGEPUNKT
+    else:
+        grund = ZIEL
+    return grund / unter if unter else grund
+
+
 def darf_einhaengen() -> bool:
     """Hat dieser Container ueberhaupt das Recht zu mounten?
 
@@ -250,11 +294,13 @@ def befehl(stand: dict) -> list[str]:
             "nobrl", "noserverino",
         ]
         quelle = f"//{stand['wirt']}/{stand['freigabe']}"
-        return ["mount", "-t", "cifs", "-o", ",".join(optionen), quelle, str(ZIEL)]
+        return ["mount", "-t", "cifs", "-o", ",".join(optionen), quelle,
+                str(EINHAENGEPUNKT)]
     if art == "nfs":
         optionen = ["hard", "noatime", f"nfsvers={stand.get('nfsvers', '4')}"]
         quelle = f"{stand['wirt']}:{stand['pfad']}"
-        return ["mount", "-t", "nfs", "-o", ",".join(optionen), quelle, str(ZIEL)]
+        return ["mount", "-t", "nfs", "-o", ",".join(optionen), quelle,
+                str(EINHAENGEPUNKT)]
     raise AblageFehler(f"Für {art!r} gibt es nichts einzuhängen.")
 
 
@@ -274,11 +320,22 @@ def einhaengen(stand: dict, uid: int, gid: int) -> tuple[bool, str]:
                        "cap_add: [SYS_ADMIN].")
     stand = {**stand, "uid": uid, "gid": gid}
     try:
+        EINHAENGEPUNKT.mkdir(parents=True, exist_ok=True)
+    except OSError as f:
+        return False, f"{EINHAENGEPUNKT} ließ sich nicht anlegen: {f.strerror}"
+    try:
         fertig = subprocess.run(befehl(stand), capture_output=True, text=True, timeout=45)
     except (OSError, subprocess.SubprocessError) as f:
         return False, f"Das Einhängen ließ sich nicht starten: {f}"
     if fertig.returncode == 0:
-        return True, f"{stand['wirt']} ist eingehängt."
+        ordner = datenordner_fuer(stand)
+        if ordner != EINHAENGEPUNKT:
+            try:
+                ordner.mkdir(parents=True, exist_ok=True)
+            except OSError as f:
+                return False, (f"{stand['wirt']} ist eingehängt, aber {ordner} ließ sich "
+                               f"nicht anlegen ({f.strerror}).")
+        return True, f"{stand['wirt']} ist eingehängt, die Notizen liegen in {ordner}."
     meldung = (fertig.stderr or fertig.stdout or "").strip().splitlines()
     return False, "Einhängen fehlgeschlagen: " + (meldung[-1] if meldung else
                                                   f"Rückgabewert {fertig.returncode}")
@@ -290,7 +347,8 @@ def eingehaengt() -> bool:
         with open("/proc/mounts", encoding="utf-8") as f:
             for zeile in f:
                 teile = zeile.split()
-                if len(teile) > 2 and teile[1] == str(ZIEL) and teile[2] in ("cifs", "smb3", "nfs", "nfs4"):
+                if len(teile) > 2 and teile[1] == str(EINHAENGEPUNKT) \
+                        and teile[2] in ("cifs", "smb3", "nfs", "nfs4"):
                     return True
     except OSError:
         pass
@@ -313,7 +371,7 @@ def stand() -> dict:
         **jetzt,
         "eingehaengt": eingehaengt(),
         "darf": darf_einhaengen(),
-        "ziel": str(ZIEL),
+        "ziel": str(datenordner_fuer(jetzt)),
         "meldung": _letzte_meldung(),
     }
 

@@ -644,6 +644,53 @@ def ablage_lesen(bitte: Request):
     return ablage.stand()
 
 
+@app.get("/profil")
+def profil_lesen(bitte: Request):
+    """Das eigene Konto - und nur das.
+
+    Bewusst getrennt von /verwaltung: dort geht es um andere Leute, hier um
+    einen selbst. Wer kein Verwalter ist, hatte bisher ueberhaupt keine
+    Stelle, an der er sein eigenes Passwort aendern konnte.
+    """
+    wer = angemeldet(bitte)
+    if not wer:
+        return JSONResponse({"fehler": "Nicht angemeldet"}, status_code=401)
+    rechte = sorted(nutzer.rechte_von(wer))
+    return {"ich": wer, "rechte": rechte,
+            "rolle": ("Verwalter" if "benutzer" in rechte
+                      else ("Benutzer" if "schreiben" in rechte else "Gast")),
+            "zwei": nutzer.zwei_schritte_stand(wer)["an"],
+            "darf_verwalten": "benutzer" in rechte}
+
+
+@app.post("/profil/passwort")
+async def profil_passwort(bitte: Request):
+    """Sein eigenes Passwort aendern - mit dem alten als Nachweis.
+
+    Das alte Passwort ist hier kein Formalismus: wer an einem offen stehenden
+    Rechner vorbeikommt, soll nicht in zwei Klicks den Zugang uebernehmen
+    koennen. Und weil passwort_setzen die Sitzungsmarke mitaendert, fliegen
+    danach ohnehin alle anderen Sitzungen heraus.
+    """
+    wer = angemeldet(bitte)
+    if not wer:
+        return JSONResponse({"fehler": "Nicht angemeldet"}, status_code=401)
+    rumpf = _rumpf(await bitte.json())
+    alt = rumpf.get("alt") or ""
+    neu = rumpf.get("neu") or ""
+    if not nutzer.pruefen(wer, alt):
+        return JSONResponse({"fehler": "Das bisherige Passwort stimmt nicht."},
+                            status_code=400)
+    try:
+        nutzer.passwort_setzen(wer, neu)
+    except nutzer.BenutzerFehler as f:
+        return JSONResponse({"fehler": str(f)}, status_code=400)
+    antwort = JSONResponse({"hinweis": "Passwort geändert. Andere Sitzungen sind "
+                                       "damit abgemeldet."})
+    keks_setzen(antwort, wer)
+    return antwort
+
+
 @app.post("/ablage/pruefen")
 async def ablage_pruefen(bitte: Request):
     """Taugt dieser Ordner? Antwort, bevor etwas gespeichert wird."""

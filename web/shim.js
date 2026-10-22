@@ -651,6 +651,103 @@
      Serverprozess hat die Rechte dafuer abgelegt. Diese Seite stellt nur ein
      und sagt, was beim letzten Start dabei herauskam. */
 
+  function profilseite() {
+    const vorhanden = document.querySelector('.dateiseite[data-punkt="profil"]');
+    if (vorhanden) return vorhanden;
+    const leiste = document.getElementById('dateileiste');
+    const konto = kontoseite();
+    if (!leiste || !konto) return null;
+
+    const reiter = el('button', { type: 'button', className: 'dateipunkt',
+                                  textContent: 'Mein Profil' });
+    reiter.dataset.punkt = 'profil';
+    leiste.insertBefore(reiter, leiste.querySelector('.dateipunkt[data-punkt="konto"]'));
+
+    const seite = el('section', { className: 'dateiseite', hidden: true }, [
+      el('h2', { textContent: 'Mein Profil' }),
+    ]);
+    seite.dataset.punkt = 'profil';
+    konto.parentElement.insertBefore(seite, konto);
+    return seite;
+  }
+
+  /* -------------------------------------------------------------- Mein Profil
+
+     Getrennt von der Verwaltung, weil es zwei verschiedene Dinge sind: dort
+     geht es um andere Leute, hier um einen selbst. Wer kein Verwalter ist,
+     hatte bisher ueberhaupt keine Stelle, an der er sein eigenes Passwort
+     aendern konnte. */
+
+  function profilBearbeitenBauen() {
+    const seite = profilseite();
+    if (!seite || document.getElementById('profilteil')) return;
+
+    const wer = el('p', { className: 'zeile2' }, [
+      el('span', { textContent: 'Angemeldet als' }),
+      el('code', { id: 'p-ich', textContent: '…' }),
+    ]);
+    const rolle = el('p', { className: 'zeile2' }, [
+      el('span', { textContent: 'Rolle' }),
+      el('span', { id: 'p-rolle', textContent: '…' }),
+    ]);
+    const zwei = el('p', { className: 'zeile2' }, [
+      el('span', { textContent: 'Zwei Schritte beim Anmelden' }),
+      el('span', { id: 'p-zwei', textContent: '…' }),
+    ]);
+
+    const alt = el('input', { type: 'password', id: 'p-alt',
+                              placeholder: 'Bisheriges Passwort' });
+    const neu1 = el('input', { type: 'password', id: 'p-neu',
+                               placeholder: 'Neues Passwort (mind. 8 Zeichen)' });
+    const neu2 = el('input', { type: 'password', id: 'p-neu2',
+                               placeholder: 'Noch einmal' });
+    const hinweis = el('p', { className: 'hinweis', id: 'p-hinweis' });
+    const aendern = el('button', { type: 'button', textContent: 'Passwort ändern' });
+    aendern.addEventListener('click', async () => {
+      if (neu1.value !== neu2.value) {
+        hinweis.textContent = 'Die beiden neuen Passwörter sind nicht gleich.';
+        return;
+      }
+      hinweis.textContent = 'wird geändert …';
+      try {
+        const d = await hol('/profil/passwort', { alt: alt.value, neu: neu1.value });
+        hinweis.textContent = d.hinweis || 'Geändert.';
+        alt.value = neu1.value = neu2.value = '';
+      } catch (f) { hinweis.textContent = f.message; }
+    });
+
+    const abmelden = el('button', { type: 'button', textContent: 'Abmelden' });
+    abmelden.addEventListener('click', function () { location.href = '/abmelden'; });
+
+    seite.append(el('section', { id: 'profilteil' }, [
+      wer, rolle, zwei,
+      el('h3', { textContent: 'Passwort ändern', style: 'margin-top:14px' }),
+      el('p', { className: 'hinweis', textContent:
+        'Das bisherige Passwort wird abgefragt - sonst könnte jemand an einem '
+        + 'offen stehenden Rechner in zwei Klicks den Zugang übernehmen. Danach '
+        + 'sind alle anderen Sitzungen abgemeldet.' }),
+      el('p', { className: 'ordnerzeile' }, [alt]),
+      el('p', { className: 'ordnerzeile' }, [neu1, neu2]),
+      el('p', { className: 'knoepfe' }, [aendern]),
+      hinweis,
+      el('h3', { textContent: 'Sitzung', style: 'margin-top:14px' }),
+      el('p', { className: 'knoepfe' }, [abmelden]),
+    ]));
+    profilDatenLaden();
+  }
+
+  async function profilDatenLaden() {
+    let d;
+    try { d = await hol('/profil'); } catch (f) { return; }
+    const setz = (id, wert) => {
+      const k = document.getElementById(id);
+      if (k) k.textContent = wert;
+    };
+    setz('p-ich', d.ich);
+    setz('p-rolle', d.rolle);
+    setz('p-zwei', d.zwei ? 'eingeschaltet' : 'aus');
+  }
+
   function speicherseite() {
     /* Einen eigenen Reiter in der Datei-Ebene anlegen. Die Umschaltung drueben
        arbeitet ueber die Klassen und data-punkt, nicht ueber eine feste Liste -
@@ -699,6 +796,11 @@
 
     const zeileSmb = el('p', { className: 'ordnerzeile', id: 'ablage-smb' },
                         [freigabe, benutzer, passwort]);
+    // Wer eine Freigabe hat, auf der schon anderes liegt, will seine Notizen
+    // in einem Unterordner und nicht mitten hinein.
+    const unter = el('input', { type: 'text', id: 'ablage-unter',
+                                placeholder: 'Unterordner (optional), z. B. notizmappe' });
+    const zeileUnter = el('p', { className: 'ordnerzeile', id: 'ablage-unterzeile' }, [unter]);
     const zeileNfs = el('p', { className: 'ordnerzeile', id: 'ablage-nfs' }, [pfad]);
 
     // Eigener Weg, weil er ohne Sonderrechte auskommt: hier wird nichts
@@ -722,6 +824,7 @@
       zeileSmb.hidden = a !== 'smb';
       zeileNfs.hidden = a !== 'nfs';
       zeileOrdner.hidden = a !== 'ordner';
+      zeileUnter.hidden = a === 'lokal';
     }
     art.addEventListener('change', zeigen);
 
@@ -731,6 +834,7 @@
         const d = await hol('/ablage', {
           art: art.value, wirt: wirt.value, freigabe: freigabe.value,
           pfad: art.value === 'ordner' ? ordner.value : pfad.value,
+          unterordner: unter.value,
           benutzer: benutzer.value, passwort: passwort.value,
         });
         passwort.value = '';
@@ -743,7 +847,7 @@
       el('h3', { textContent: 'Wo die Notizen liegen' }),
       stand,
       el('p', { className: 'ordnerzeile' }, [art, wirt]),
-      zeileSmb, zeileNfs, zeileOrdner,
+      zeileSmb, zeileNfs, zeileOrdner, zeileUnter,
       el('p', { className: 'knoepfe' }, [sichern]),
       hinweis,
       el('p', { className: 'hinweis', textContent:
@@ -781,6 +885,7 @@
     for (const [id, wert] of [['ablage-wirt', d.wirt], ['ablage-freigabe', d.freigabe],
                               ['ablage-pfad', d.art === 'nfs' ? d.pfad : ''],
                               ['ablage-ordner', d.art === 'ordner' ? d.pfad : ''],
+                              ['ablage-unter', d.unterordner],
                               ['ablage-benutzer', d.benutzer]]) {
       const k = document.getElementById(id);
       if (k && wert) k.value = wert;
@@ -815,13 +920,16 @@
       if (ziel) ziel.click();
     }
 
+    // Nur das Eigene. Benutzerverwaltung, Projekte und Einladungen sind
+    // etwas anderes - die stehen unter "Konto" und gehen Gaeste nichts an.
     menue.append(
       el('p', { id: 'profilkopf' }, [
         el('strong', { id: 'profilwer', textContent: '…' }),
         el('span', { id: 'profilrolle', className: 'hinweis' }),
       ]),
-      punkt('Konto', function () { dateiPunktOeffnen('konto'); }),
-      punkt('Einstellungen', function () { dateiPunktOeffnen('optionen'); }),
+      punkt('Mein Profil', function () { dateiPunktOeffnen('profil'); }),
+      el('p', { id: 'profil-verwalten', hidden: true },
+         [punkt('Benutzer verwalten', function () { dateiPunktOeffnen('konto'); })]),
       punkt('Abmelden', function () { location.href = '/abmelden'; }),
     );
 
@@ -853,6 +961,8 @@
     document.getElementById('profilrolle').textContent =
       rechte.indexOf('benutzer') >= 0 ? 'Verwalter'
         : (rechte.indexOf('schreiben') >= 0 ? 'Benutzer' : 'Gast');
+    const verwalten = document.getElementById('profil-verwalten');
+    if (verwalten) verwalten.hidden = rechte.indexOf('benutzer') < 0;
   }
 
   function abschnittBauen() {
@@ -1047,6 +1157,21 @@
       #ablageteil button:hover { border-color: var(--akzent); }
       #ablageteil .hinweis { color: var(--matt); font-size: 12px; margin: 8px 0 0; }
       #ablageteil h3 { margin: 0 0 10px; }
+      #profilteil .ordnerzeile { display: flex; gap: 8px; margin: 10px 0 4px; flex-wrap: wrap; }
+      #profilteil input[type="password"] {
+        flex: 1; min-width: 0; padding: 4px 8px;
+        border: 1px solid var(--linie); border-radius: 6px;
+        background: var(--papier); color: var(--schrift);
+        font: inherit; font-size: 13px;
+      }
+      #profilteil input:focus { outline: none; border-color: var(--akzent); }
+      #profilteil button {
+        border: 1px solid var(--linie); background: var(--leiste); color: var(--schrift);
+        border-radius: 6px; padding: 5px 10px; cursor: pointer; font-size: 13px;
+      }
+      #profilteil button:hover { border-color: var(--akzent); }
+      #profilteil .hinweis { color: var(--matt); font-size: 12px; margin: 8px 0 0; }
+      #profil-verwalten { margin: 0; }
       #ablage-stand code { color: var(--schrift); }
       #serverkopf h3, #serververwaltung h3 {
         margin: 22px 0 8px; font-size: 13px; text-transform: uppercase;
@@ -1132,6 +1257,7 @@
                                ['Verwaltung', abschnittBauen],
                                ['Bereichswahl', bereichBauen],
                                ['Profil', profilBauen],
+                               ['Mein Profil', profilBearbeitenBauen],
                                ['Speicher', ablageBauen],
                                ['Bereiche laden', bereicheLaden],
                                ['Verwaltung laden', verwaltungLaden]]) {
