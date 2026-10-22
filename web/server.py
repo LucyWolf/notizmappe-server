@@ -679,9 +679,18 @@ def fassung(bitte: Request):
     try:
         # Die eigene VERSION aus dem Repo - nicht das Desktop-Release. Sonst
         # bliebe eine Aenderung, die nur den Server betrifft, unsichtbar.
-        with urllib.request.urlopen(
-                "https://raw.githubusercontent.com/LucyWolf/notizmappe-server"
-                "/master/VERSION", timeout=8) as antwort:
+        #
+        # Und ueber die API, nicht ueber raw.githubusercontent: raw haengt
+        # hinter einem eigenen Zwischenspeicher von einigen Minuten. Direkt
+        # nach einem Push meldet es noch die vorige Nummer - und der Knopf
+        # saehe wieder "das ist die neueste", obwohl es das nicht ist.
+        # phobos-bot fragt aus demselben Grund die API.
+        bitte_api = urllib.request.Request(
+            "https://api.github.com/repos/LucyWolf/notizmappe-server"
+            "/contents/VERSION?ref=master",
+            headers={"Accept": "application/vnd.github.raw",
+                     "User-Agent": "notizmappe-server"})
+        with urllib.request.urlopen(bitte_api, timeout=8) as antwort:
             stand["neueste"] = antwort.read(64).decode("utf-8").strip()
         stand["neuer"] = selbst.neuer_als(stand["neueste"], FASSUNG)
     except Exception as f:                                  # noqa: BLE001
