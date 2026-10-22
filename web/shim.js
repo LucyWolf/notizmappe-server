@@ -134,11 +134,6 @@
     let d;
     try { d = await hol('/verwaltung'); } catch (f) { sagen(f.message); return; }
     verwaltungStand = d;
-    const wer = document.getElementById('serverwer');
-    if (wer && d.ich) {
-      wer.textContent = 'Angemeldet als ' + d.ich
-        + (d.meine_rechte ? ' · darf: ' + d.meine_rechte.join(', ') : '');
-    }
     abschnitt.hidden = false;           // "Zwei Schritte" geht jeden etwas an
     for (const id of ['v-benutzer', 'v-rollen', 'v-einladungen']) {
       const k = document.getElementById(id);
@@ -467,30 +462,20 @@
   }
 
   function einstellungenAnpassen() {
-    if (document.getElementById('serverkopf')) return;
-
     // "Konto" ist am Server die Benutzerseite. Was dort für den eigenen
     // Rechner steht - "Verbindung einrichten", "hier gibt es kein Konto" -
     // ist hier sinnlos; es verschwindet, bleibt aber im Gerüst stehen, damit
     // die gemeinsame Oberfläche weiter darauf zeigen darf.
     const konto = kontoseite();
-    if (!konto) return;
+    // Die Sperre gegen ein zweites Durchlaufen hing vorher an einem Abschnitt
+    // "Angemeldet", der hier stand. Der ist weg - wer angemeldet ist und was
+    // er darf, steht unten im Profil, und zweimal braucht das niemand. Also
+    // eine eigene Marke, statt die Sperre an etwas Sichtbares zu haengen.
+    if (!konto || konto.dataset.angepasst === 'ja') return;
+    konto.dataset.angepasst = 'ja';
     for (const kind of Array.from(konto.children)) {
       if (kind.tagName !== 'H2') kind.hidden = true;
     }
-    const abmelden = el('button', { type: 'button', textContent: 'Abmelden' });
-    abmelden.addEventListener('click', function () { location.href = '/abmelden'; });
-    const kopf = el('section', { id: 'serverkopf' }, [
-      el('h3', { textContent: 'Angemeldet' }),
-      el('p', { className: 'zeile2' }, [
-        el('span', { id: 'serverwer', textContent: 'angemeldet' }),
-        el('span', {}, [abmelden]),
-      ]),
-      el('p', { className: 'hinweis', textContent:
-        'Diese Notizmappe läuft auf einem Server. Jeder Zugang hat seinen eigenen '
-        + 'Notizordner und sieht nur die eigenen Seiten.' }),
-    ]);
-    konto.append(kopf);
 
     stattdessen(abschnittSuchen('Aus OneNote übernehmen'),
       'Geht nur am eigenen Rechner: zum Einlesen muss die Datei über einen '
@@ -1086,7 +1071,7 @@
     // dunklen Oberflaeche, und das sieht aus wie hineingefallen.
     const stil = document.createElement('style');
     stil.textContent = `
-      #serverkopf, #serververwaltung { max-width: 760px; }
+      #serververwaltung { max-width: 760px; }
 
       /* Profil unten in der Leiste. Alles ueber die Farbnamen der Oberflaeche -
          eigene Farben hier waeren genau der weisse Fleck, der vorher auffiel. */
@@ -1173,30 +1158,29 @@
       #profilteil .hinweis { color: var(--matt); font-size: 12px; margin: 8px 0 0; }
       #profil-verwalten { margin: 0; }
       #ablage-stand code { color: var(--schrift); }
-      #serverkopf h3, #serververwaltung h3 {
+      #serververwaltung h3 {
         margin: 22px 0 8px; font-size: 13px; text-transform: uppercase;
         letter-spacing: .04em; color: var(--matt); font-weight: 600;
       }
-      #serverkopf .zeile2, #serververwaltung .zeile2 {
+      #serververwaltung .zeile2 {
         display: flex; align-items: center; justify-content: space-between;
         gap: 12px; margin: 6px 0; padding-bottom: 6px;
         border-bottom: 1px solid var(--linie);
       }
-      #serverkopf .zeile2 span:last-child,
       #serververwaltung .zeile2 span:last-child { display: flex; gap: 6px; flex: 0 0 auto; }
-      #serverkopf .hinweis, #serververwaltung .hinweis {
+      #serververwaltung .hinweis {
         color: var(--matt); font-size: 12px; margin: 8px 0 0; max-width: 640px;
       }
-      #serverkopf button, #serververwaltung button {
+      #serververwaltung button {
         border: 1px solid var(--linie); background: var(--leiste); color: var(--schrift);
         border-radius: 6px; padding: 5px 10px; cursor: pointer; font: inherit; font-size: 13px;
       }
-      #serverkopf button:hover, #serververwaltung button:hover { border-color: var(--akzent); }
-      #serverkopf button:disabled, #serververwaltung button:disabled {
+      #serververwaltung button:hover { border-color: var(--akzent); }
+      #serververwaltung button:disabled {
         opacity: .45; cursor: default; border-color: var(--linie);
       }
       #serververwaltung input[type="text"], #serververwaltung input[type="password"],
-      #serververwaltung select, #serverkopf select {
+      #serververwaltung select {
         padding: 5px 8px; height: 28px; border: 1px solid var(--linie); border-radius: 6px;
         background: var(--papier); color: var(--schrift); font: inherit; font-size: 13px;
       }
