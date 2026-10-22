@@ -353,6 +353,23 @@ pruefe("Und welche Oberfläche darin steckt",
        f.get("oberflaeche") == server.DESKTOP_FASSUNG, f)
 pruefe("Und kommt ohne GitHub nicht ins Stolpern",
        "neuer" in f and isinstance(f["neuer"], bool), f)
+# Der Knopf heisst "Nach Updates sehen" - also muss er nachsehen. Einmal hat er
+# eine Stunde lang "das ist die neueste" gemeldet, waehrend die naechste Fassung
+# schon bereitlag: der Zwischenspeicher galt auch fuer den ausdruecklichen Klick.
+server._fassung_geholt[0] = time.time() - 30
+server._fassung_geholt[1] = {"laeuft": "0.0.1", "neueste": "0.0.1", "neuer": False,
+                             "fehler": "", "oberflaeche": "0.0.1"}
+frisch = k.get("/fassung?frisch=1").json()
+pruefe("frisch=1 geht am Zwischenspeicher vorbei", frisch.get("laeuft") == server.FASSUNG,
+       frisch)
+server._fassung_geholt[0] = time.time()
+server._fassung_geholt[1] = {"laeuft": "0.0.2", "neueste": "0.0.2", "neuer": False,
+                             "fehler": "", "oberflaeche": "0.0.2"}
+pruefe("aber nicht oefter als alle 10 Sekunden",
+       k.get("/fassung?frisch=1").json().get("laeuft") == "0.0.2")
+server._fassung_geholt[0], server._fassung_geholt[1] = 0.0, {}
+k.get("/fassung")
+
 pruefe("Die Antwort wird wiederverwendet (kein Anklopfen je Aufruf)",
        k.get("/fassung").json() == f)
 pruefe("Der Stellvertreter zeigt die Befehle zum Aktualisieren",

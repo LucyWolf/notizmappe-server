@@ -653,15 +653,26 @@ _fassung_geholt = [0.0, {}]
 def fassung(bitte: Request):
     """Welche Fassung laeuft, und gibt es eine neuere?
 
-    Aktualisiert wird hier mit docker pull - aber *dass* es etwas zu holen
-    gibt, soll man sehen, ohne es zu wissen. Die Antwort wird eine Stunde lang
-    wiederverwendet, damit nicht jeder Seitenaufruf bei GitHub anklopft.
+    Die Antwort wird eine Stunde wiederverwendet, damit nicht jeder
+    Seitenaufruf bei GitHub anklopft.
+
+    Wer aber ausdruecklich auf "Nach Updates sehen" drueckt, will nachgesehen
+    haben - nicht eine Stunde alte Auskunft. Genau das ist passiert: der Knopf
+    meldete "das ist die neueste", waehrend die naechste Fassung laengst
+    bereitlag, und das eine Stunde lang. Ein Knopf, der nicht tut, was
+    draufsteht, ist schlimmer als keiner.
+
+    Deshalb umgeht "frisch" den Zwischenspeicher - mit einer kleinen Bremse,
+    damit daraus kein Hammer auf GitHub wird.
     """
     if not angemeldet(bitte):
         return JSONResponse({"fehler": "Nicht angemeldet"}, status_code=401)
     jetzt = time.time()
-    if jetzt - _fassung_geholt[0] < 3600 and _fassung_geholt[1]:
-        return _fassung_geholt[1]
+    frisch = bitte.query_params.get("frisch") == "1"
+    alt_genug = jetzt - _fassung_geholt[0] >= 10
+    if _fassung_geholt[1] and not (frisch and alt_genug):
+        if jetzt - _fassung_geholt[0] < 3600:
+            return _fassung_geholt[1]
 
     stand = {"laeuft": FASSUNG, "oberflaeche": DESKTOP_FASSUNG,
              "neueste": "", "neuer": False, "fehler": ""}

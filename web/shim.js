@@ -546,7 +546,8 @@
         const hinweis = document.getElementById('e-updatehinweis');
         hinweis.textContent = 'wird nachgesehen …';
         try {
-          const f = await hol('/fassung');
+          // Auf Knopfdruck wirklich nachsehen, nicht den Zwischenspeicher zeigen.
+          const f = await hol('/fassung?frisch=1');
           document.getElementById('e-verfuegbar').textContent = f.neueste || '—';
           const dort = document.getElementById('e-version');
           // Zwei Nummern, und beide gehen jemanden etwas an: die Serverschicht
