@@ -689,6 +689,14 @@
         '--akzent': '#5fd39a', '--warnung': '#ff9178', '--kasten-rand': '#2e4036',
       },
     },
+    flieder: {
+      name: 'Flieder',
+      farben: {
+        '--papier': '#1a1626', '--linie': '#342b4d', '--schrift': '#e9e2f7',
+        '--matt': '#9b8fba', '--leiste': '#120f1b', '--flaeche': '#231d33',
+        '--akzent': '#b388ff', '--warnung': '#ff8da8', '--kasten-rand': '#3c3157',
+      },
+    },
     kontrast: {
       name: 'Starker Kontrast',
       farben: {
@@ -699,9 +707,16 @@
     },
   };
 
-  function themaAnwenden(welches) {
+  // Eigene Farben: was zuletzt eingestellt war. Steht getrennt von DESIGNS,
+  // weil es nicht fest ist, sondern vom Benutzer kommt.
+  let eigeneFarben = {};
+
+  function themaAnwenden(welches, farben) {
     const wurzel = document.documentElement;
-    const design = DESIGNS[welches] || DESIGNS.system;
+    if (farben) eigeneFarben = Object.assign({}, eigeneFarben, farben);
+    const design = welches === 'eigene'
+      ? { name: 'Eigene Farben', farben: eigeneFarben }
+      : (DESIGNS[welches] || DESIGNS.system);
     // Erst die Namen einer vorigen Wahl wegnehmen, sonst bleibt bei "system"
     // die letzte Farbe stehen.
     for (const schluessel of Object.keys(DESIGNS.hell.farben)) {
@@ -712,6 +727,8 @@
         wurzel.style.setProperty(schluessel, wert);
       }
     }
+    const kasten = document.getElementById('p-eigene');
+    if (kasten) kasten.hidden = welches !== 'eigene';
     wurzel.dataset.thema = welches;
     try { localStorage.setItem('notizmappe-thema', welches); } catch (f) { /* egal */ }
   }
@@ -726,9 +743,47 @@
   async function themaLaden() {
     let d;
     try { d = await hol('/aussehen'); } catch (f) { return; }
+    if (d.farben && Object.keys(d.farben).length) eigeneFarben = d.farben;
     if (d.thema) themaAnwenden(d.thema);
     const wahl = document.getElementById('p-thema');
     if (wahl) wahl.value = d.thema;
+    farbfelderFuellen();
+  }
+
+  // Die neun Namen mit Klartext - "--kasten-rand" sagt niemandem etwas.
+  const FARBNAMEN = [
+    ['--papier', 'Hintergrund'], ['--schrift', 'Schrift'],
+    ['--leiste', 'Leisten'], ['--flaeche', 'Eingabefelder'],
+    ['--linie', 'Linien'], ['--matt', 'Nebentext'],
+    ['--akzent', 'Akzent'], ['--warnung', 'Warnung'],
+    ['--kasten-rand', 'Kastenrand'],
+  ];
+
+  function farbfelderFuellen() {
+    for (const [schluessel] of FARBNAMEN) {
+      const feld = document.getElementById('f' + schluessel);
+      if (feld) feld.value = eigeneFarben[schluessel] || '#888888';
+    }
+  }
+
+  // Was gerade zu sehen ist, als Ausgangspunkt nehmen - sonst fängt man bei
+  // neun grauen Feldern an und muss alles von Hand suchen.
+  function farbenVomAktuellen() {
+    const gelesen = getComputedStyle(document.documentElement);
+    const aus = {};
+    for (const [schluessel] of FARBNAMEN) {
+      aus[schluessel] = nachHex(gelesen.getPropertyValue(schluessel).trim());
+    }
+    return aus;
+  }
+
+  function nachHex(wert) {
+    if (/^#[0-9a-fA-F]{6}$/.test(wert)) return wert.toLowerCase();
+    const treffer = wert.match(/rgba?\(([^)]+)\)/);
+    if (!treffer) return '#888888';
+    const teile = treffer[1].split(',').map((t) => parseInt(t, 10));
+    return '#' + teile.slice(0, 3)
+      .map((z) => Math.max(0, Math.min(255, z || 0)).toString(16).padStart(2, '0')).join('');
   }
 
   function profilseite() {
@@ -803,9 +858,42 @@
     for (const [wert, d] of Object.entries(DESIGNS)) {
       thema.append(el('option', { value: wert, textContent: d.name }));
     }
+    thema.append(el('option', { value: 'eigene', textContent: 'Eigene Farben' }));
+
+    // Neun Farbwähler. Sie erscheinen nur bei "Eigene Farben" - vorher wären
+    // sie nur Beiwerk, das von der Wahl ablenkt.
+    const felder = [];
+    for (const [schluessel, klartext] of FARBNAMEN) {
+      const feld = el('input', { type: 'color', id: 'f' + schluessel });
+      feld.addEventListener('input', function () {
+        eigeneFarben[schluessel] = feld.value;
+        themaAnwenden('eigene');            // sofort sehen, was man tut
+      });
+      feld.addEventListener('change', eigeneSichern);
+      felder.push(el('label', { className: 'farbwahl' },
+                     [feld, el('span', { textContent: klartext })]));
+    }
+    const kasten = el('div', { id: 'p-eigene', hidden: true }, [
+      el('p', { className: 'hinweis', textContent:
+        'Die Farben starten bei dem Design, das gerade an war - von dort aus '
+        + 'ändern ist einfacher, als bei neun grauen Feldern anzufangen.' }),
+      el('div', { className: 'farbgitter' }, felder),
+    ]);
+
+    async function eigeneSichern() {
+      try {
+        await hol('/aussehen', { thema: 'eigene', farben: eigeneFarben });
+      } catch (f) { document.getElementById('p-hinweis').textContent = f.message; }
+    }
+
     thema.addEventListener('change', async () => {
+      if (thema.value === 'eigene' && !Object.keys(eigeneFarben).length) {
+        eigeneFarben = farbenVomAktuellen();
+        farbfelderFuellen();
+      }
       themaAnwenden(thema.value);          // sofort sichtbar, nicht erst nach der Antwort
-      try { await hol('/aussehen', { thema: thema.value }); } catch (f) {
+      if (thema.value === 'eigene') { eigeneSichern(); return; }
+      try { await hol('/aussehen', { thema: thema.value, farben: eigeneFarben }); } catch (f) {
         document.getElementById('p-hinweis').textContent = f.message;
       }
     });
@@ -817,6 +905,7 @@
         'Gilt für deinen Zugang, nicht für den Server - andere behalten ihr '
         + 'eigenes Design.' }),
       el('p', { className: 'ordnerzeile' }, [thema]),
+      kasten,
       el('h3', { textContent: 'Passwort ändern', style: 'margin-top:14px' }),
       el('p', { className: 'hinweis', textContent:
         'Das bisherige Passwort wird abgefragt - sonst könnte jemand an einem '
@@ -1275,6 +1364,19 @@
         font: inherit; font-size: 13px; cursor: pointer;
       }
       #profilteil select option { background: var(--papier); color: var(--schrift); }
+      .farbgitter {
+        display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+        gap: 8px; margin: 10px 0 0;
+      }
+      .farbwahl {
+        display: flex; align-items: center; gap: 8px;
+        padding: 5px 8px; border: 1px solid var(--linie); border-radius: 6px;
+        background: var(--flaeche); font-size: 12px; cursor: pointer;
+      }
+      .farbwahl input[type="color"] {
+        width: 30px; height: 24px; padding: 0; border: 1px solid var(--linie);
+        border-radius: 4px; background: none; cursor: pointer;
+      }
       #profil-verwalten { margin: 0; }
       #ablage-stand code { color: var(--schrift); }
       #serververwaltung h3 {

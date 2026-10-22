@@ -344,6 +344,35 @@ pruefe("Und nicht entfernen",
        verwalte(k, "/verwaltung/benutzer", {"was": "entfernen", "name": "lucy"}).status_code == 400)
 pruefe("lucy ist noch Verwalter", "benutzer" in server.nutzer.rechte_von("lucy"))
 
+# --- Aussehen: Designs und eigene Farben -------------------------------------
+#
+# Eigene Farben landen als CSS-Eigenschaft am <html>. Was hier durchkaeme,
+# stuende also im Stil der Seite - deshalb Positivliste fuer die Namen und ein
+# festes Muster fuer die Werte, nicht "irgendwie bereinigen".
+print("\nAussehen")
+pruefe("Ohne Anmeldung keine Auskunft", anonym.get("/aussehen").status_code == 401)
+pruefe("Standard ist 'wie das Betriebssystem'",
+       k.get("/aussehen").json().get("thema") == "system")
+pruefe("ein Design laesst sich waehlen",
+       verwalte(k, "/aussehen", {"thema": "flieder"}).json().get("thema") == "flieder")
+pruefe("und wird gemerkt", k.get("/aussehen").json().get("thema") == "flieder")
+pruefe("ein erfundenes Design nicht",
+       verwalte(k, "/aussehen", {"thema": "neonpink"}).status_code == 400)
+
+VOLL = {n: "#102030" for n in server.FARBNAMEN}
+pruefe("eigene Farben gehen, wenn alle da sind",
+       verwalte(k, "/aussehen", {"thema": "eigene", "farben": VOLL}).status_code == 200)
+pruefe("unvollstaendig nicht",
+       verwalte(k, "/aussehen", {"thema": "eigene",
+                             "farben": {"--papier": "#102030"}}).status_code == 400)
+pruefe("ein erfundener Farbname prallt ab",
+       verwalte(k, "/aussehen", {"thema": "hell",
+                             "farben": {"--boese": "#102030"}}).status_code == 400)
+for boese in ("red; background:url(http://x)", "#fff", "url(x)", "var(--a)", ""):
+    schlecht = dict(VOLL, **{"--papier": boese})
+    pruefe(f"kein Stil ueber den Farbwert: {boese[:24]!r}",
+           verwalte(k, "/aussehen", {"thema": "eigene", "farben": schlecht}).status_code == 400)
+
 # --- Fassung: was läuft, und gibt es Neueres ---------------------------------
 print("\nFassung")
 pruefe("Ohne Anmeldung keine Auskunft", anonym.get("/fassung").status_code == 401)

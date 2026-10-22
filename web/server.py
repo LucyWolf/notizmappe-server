@@ -24,6 +24,7 @@ import urllib.request
 import segno
 import json
 import os
+import re
 import sys
 import threading
 import time
@@ -647,7 +648,16 @@ def ablage_lesen(bitte: Request):
 # Die Designs stehen in shim.js - hier wird nur gemerkt, welches einer gewaehlt
 # hat. Die Liste ist trotzdem hier, damit der Server nichts annimmt, was die
 # Oberflaeche gar nicht kennt.
-AUSSEHEN = ("system", "hell", "dunkel", "mitternacht", "sepia", "wald", "kontrast")
+AUSSEHEN = ("system", "hell", "dunkel", "mitternacht", "sepia", "wald",
+            "flieder", "kontrast", "eigene")
+
+# Die Namen, aus denen die Oberflaeche besteht. Mehr wird nicht angenommen:
+# was hier hereinkommt, landet als CSS-Eigenschaft am <html>, und eine Liste
+# dessen, was erlaubt ist, ist dort besser als eine Liste dessen, was es nicht
+# sein darf.
+FARBNAMEN = ("--papier", "--linie", "--schrift", "--matt", "--leiste",
+             "--flaeche", "--akzent", "--warnung", "--kasten-rand")
+FARBWERT = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 
 @app.get("/aussehen")
@@ -664,9 +674,11 @@ def aussehen_lesen(bitte: Request):
         roh = json.loads((nutzer.konfigordner(wer) / "aussehen.json")
                          .read_text(encoding="utf-8"))
         gewaehlt = roh.get("thema")
+        eigene = roh.get("farben") if isinstance(roh.get("farben"), dict) else {}
     except (OSError, ValueError, AttributeError):
-        gewaehlt = None
+        gewaehlt, eigene = None, {}
     return {"thema": gewaehlt if gewaehlt in AUSSEHEN else "system",
+            "farben": {k: v for k, v in eigene.items() if k in FARBNAMEN},
             "moeglich": list(AUSSEHEN)}
 
 
@@ -675,19 +687,40 @@ async def aussehen_setzen(bitte: Request):
     wer = angemeldet(bitte)
     if not wer:
         return JSONResponse({"fehler": "Nicht angemeldet"}, status_code=401)
-    gewaehlt = (_rumpf(await bitte.json()).get("thema") or "").strip()
+    rumpf = _rumpf(await bitte.json())
+    gewaehlt = (rumpf.get("thema") or "").strip()
     if gewaehlt not in AUSSEHEN:
         return JSONResponse({"fehler": f"Unbekanntes Design: {gewaehlt!r}"},
                             status_code=400)
+
+    # Eigene Farben: nur die bekannten Namen, nur #rrggbb. Was hier
+    # durchkaeme, stuende spaeter als CSS-Eigenschaft am <html>.
+    eigene = {}
+    roh = rumpf.get("farben")
+    if isinstance(roh, dict):
+        for name, wert in roh.items():
+            if name not in FARBNAMEN:
+                return JSONResponse({"fehler": f"Unbekannte Farbe: {name!r}"},
+                                    status_code=400)
+            if not isinstance(wert, str) or not FARBWERT.match(wert):
+                return JSONResponse(
+                    {"fehler": f"{name} muss eine Farbe wie #336699 sein, nicht {wert!r}"},
+                    status_code=400)
+            eigene[name] = wert.lower()
+    if gewaehlt == "eigene" and len(eigene) != len(FARBNAMEN):
+        return JSONResponse({"fehler": "Für eigene Farben müssen alle neun gesetzt sein."},
+                            status_code=400)
+
     ziel = nutzer.konfigordner(wer) / "aussehen.json"
     vorlaeufig = ziel.with_name(".aussehen.neu")
     try:
-        vorlaeufig.write_text(json.dumps({"thema": gewaehlt}), encoding="utf-8")
+        vorlaeufig.write_text(json.dumps({"thema": gewaehlt, "farben": eigene}),
+                              encoding="utf-8")
         os.replace(vorlaeufig, ziel)
     except OSError as f:
         return JSONResponse({"fehler": f"Ließ sich nicht merken: {f.strerror}"},
                             status_code=500)
-    return {"thema": gewaehlt}
+    return {"thema": gewaehlt, "farben": eigene}
 
 
 @app.get("/profil")
