@@ -41,9 +41,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Fassung lesen
+      # Zwei Nummern, zwei Zwecke: die Serverfassung taggt das Image, die
+      # Desktop-Fassung sagt nur, welche Oberflaeche darin steckt. Vorher
+      # trugen die Images die Desktop-Nummer - damit gab es ghcr-Tags wie
+      # :1.1.84 fuer voellig verschiedene Serverstaende, und ein "zurueck auf
+      # die vorige Fassung" war gar nicht moeglich.
+      - name: Fassungen lesen
         id: f
-        run: echo "desktop=$(tr -d ' \n' < DESKTOP_VERSION)" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "server=$(tr -d ' \n' < VERSION)" >> "$GITHUB_OUTPUT"
+          echo "desktop=$(tr -d ' \n' < DESKTOP_VERSION)" >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
@@ -62,7 +69,7 @@ jobs:
         with:
           context: .
           load: true
-          tags: ghcr.io/lucywolf/notizmappe-server:${{ steps.f.outputs.desktop }}
+          tags: ghcr.io/lucywolf/notizmappe-server:${{ steps.f.outputs.server }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -71,7 +78,7 @@ jobs:
       - name: Probe am fertigen Image
         run: |
           docker run -d --name probe -p 8112:8000 \
-            ghcr.io/lucywolf/notizmappe-server:${{ steps.f.outputs.desktop }}
+            ghcr.io/lucywolf/notizmappe-server:${{ steps.f.outputs.server }}
           for i in $(seq 1 30); do
             code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8112/anmelden || true)
             [ "$code" = "200" ] && break
@@ -92,7 +99,7 @@ jobs:
         run: |
           mkdir -p /tmp/daten
           docker run -d --name probe2 -p 8112:8000 -v /tmp/daten:/daten \
-            ghcr.io/lucywolf/notizmappe-server:${{ steps.f.outputs.desktop }}
+            ghcr.io/lucywolf/notizmappe-server:${{ steps.f.outputs.server }}
           for i in $(seq 1 30); do
             code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8112/anmelden || true)
             [ "$code" = "200" ] && break
@@ -131,5 +138,5 @@ jobs:
           push: true
           tags: |
             ghcr.io/lucywolf/notizmappe-server:latest
-            ghcr.io/lucywolf/notizmappe-server:${{ steps.f.outputs.desktop }}
+            ghcr.io/lucywolf/notizmappe-server:${{ steps.f.outputs.server }}
           cache-from: type=gha
