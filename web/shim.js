@@ -824,10 +824,23 @@
                                     title: 'Markierte Striche löschen (Entf)',
                                     textContent: '🗑' });
     loeschen.addEventListener('click', function () {
+      // Stumm nichts zu tun ist das Schlimmste, was ein Knopf kann - also
+      // sagen, woran es liegt.
+      const wahl = malWahl();
+      if (!wahl) {
+        malsagen('Die Auswahl ist von hier aus nicht erreichbar.');
+        return;
+      }
+      if (!wahl.length) {
+        malsagen('Nichts markiert - mit ◌ einen Strich antippen oder umkreisen.');
+        return;
+      }
+      const vorher = wahl.length;
       // Den vorhandenen Weg nehmen statt die Striche selbst anzufassen: so
       // bleibt alles an einer Stelle - Rueckgaengig, Speichern, Neuzeichnen.
       document.dispatchEvent(new KeyboardEvent('keydown',
         { key: 'Delete', bubbles: true }));
+      malsagen(`${vorher} ${vorher === 1 ? 'Strich' : 'Striche'} gelöscht.`);
       rahmenZeichnen();
     });
     const trenner = el('span', { className: 'trenner' });
@@ -845,17 +858,24 @@
 
   /* Antippen: ein kurzer Tipp im Lasso-Modus wird zu einer winzigen Schlinge
      um den Punkt. Damit waehlt die vorhandene Lasso-Logik den Strich darunter,
-     und zwar mit allem, was daran haengt - Verschieben, Entf, Rueckgaengig. */
+     und zwar mit allem, was daran haengt - Verschieben, Entf, Rueckgaengig.
+
+     Der Horcher haengt an document, nicht am Blatt. Beim ersten Versuch hing
+     er am Blatt, und zwar beim Laden der Seite - da gibt es das Blatt aber
+     noch gar nicht: malblattBauen() laeuft erst, wenn eine Seite geoeffnet
+     wird. Und es baut jedes Mal ein NEUES Canvas, der Horcher waere also beim
+     naechsten Seitenwechsel ohnehin wieder weg gewesen. An document haengt er
+     einmal und ueberlebt alles. */
   function antippenAnschalten() {
-    const blatt = document.getElementById('malblatt');
-    if (!blatt || blatt.dataset.antippen === 'ja') return;
-    blatt.dataset.antippen = 'ja';
+    if (document.body.dataset.antippen === 'ja') return;
+    document.body.dataset.antippen = 'ja';
 
     let start = null;
-    blatt.addEventListener('pointerdown', function (ev) {
+    document.addEventListener('pointerdown', function (ev) {
+      if (!ev.target || ev.target.id !== 'malblatt') { start = null; return; }
       start = { x: ev.clientX, y: ev.clientY, zeit: Date.now() };
     }, true);
-    blatt.addEventListener('pointerup', function (ev) {
+    document.addEventListener('pointerup', function (ev) {
       if (!start) return;
       const weit = Math.hypot(ev.clientX - start.x, ev.clientY - start.y);
       const kurz = Date.now() - start.zeit < 400;
@@ -863,8 +883,17 @@
       // Nur ein echter Tipp, kein gezogenes Lasso.
       if (weit > 6 || !kurz) return;
       if (!imLassoModus()) return;
+      if (!ev.target || ev.target.id !== 'malblatt') return;
       setTimeout(() => schlingeUm(ev), 0);
     }, true);
+  }
+
+  function malsagen(text) {
+    // hinweis() drueben schreibt in dieselbe Zeile; es von hier aus zu rufen
+    // waere ein Name mehr, auf den ich mich verlasse. Das Element genuegt.
+    const zeile = document.getElementById('m-hinweis') || document.getElementById('hinweis');
+    if (zeile) { zeile.textContent = text; return; }
+    console.log('[notizmappe] ' + text);
   }
 
   function imLassoModus() {
@@ -890,15 +919,28 @@
     }
     const art = { bubbles: true, cancelable: true, pointerId: 9901,
                   pointerType: 'mouse', buttons: 1, isPrimary: true };
-    blatt.dispatchEvent(new PointerEvent('pointerdown',
-      Object.assign({}, art, { clientX: punkte[0][0], clientY: punkte[0][1] })));
-    for (const [x, y] of punkte.slice(1)) {
-      blatt.dispatchEvent(new PointerEvent('pointermove',
-        Object.assign({}, art, { clientX: x, clientY: y })));
+
+    // setPointerCapture wirft bei einer erfundenen Zeiger-Nummer, und es steht
+    // als erste Zeile im pointerdown drueben - der Handler waere also
+    // abgebrochen, bevor das Lasso ueberhaupt anfaengt. Fuer die paar
+    // Millisekunden der Vorfuehrung wird es deshalb stillgelegt.
+    const echt = blatt.setPointerCapture;
+    blatt.setPointerCapture = function () {};
+    try {
+      blatt.dispatchEvent(new PointerEvent('pointerdown',
+        Object.assign({}, art, { clientX: punkte[0][0], clientY: punkte[0][1] })));
+      for (const [x, y] of punkte.slice(1)) {
+        blatt.dispatchEvent(new PointerEvent('pointermove',
+          Object.assign({}, art, { clientX: x, clientY: y })));
+      }
+      blatt.dispatchEvent(new PointerEvent('pointerup',
+        Object.assign({}, art, { buttons: 0,
+                                 clientX: punkte[0][0], clientY: punkte[0][1] })));
+    } finally {
+      blatt.setPointerCapture = echt;
     }
-    blatt.dispatchEvent(new PointerEvent('pointerup',
-      Object.assign({}, art, { buttons: 0,
-                               clientX: punkte[0][0], clientY: punkte[0][1] })));
+    const wahl = malWahl();
+    if (wahl && !wahl.length) malsagen('Dort ist kein Strich - näher antippen.');
     rahmenZeichnen();
   }
 
@@ -916,10 +958,14 @@
   }
 
   function rahmenZeichnen() {
-    const blatt = document.getElementById('malblatt');
+    // An #flaeche, nicht ans Blatt: strichGrenzen() liefert Koordinaten in
+    // genau diesem Bezugssystem (stelle() rechnet gegen #flaeche und teilt
+    // durch den Zoom). Als Kind von #flaeche skaliert der Rahmen mit, statt
+    // beim Hineinzoomen danebenzuliegen.
+    const grund = document.getElementById('flaeche');
     const wahl = malWahl();
     const grenzenVon = malGrenzen();
-    if (!blatt || !wahl || !grenzenVon) { if (rahmen) rahmen.hidden = true; return; }
+    if (!grund || !wahl || !grenzenVon) { if (rahmen) rahmen.hidden = true; return; }
     let grenzen = null;
     try {
       if (!wahl.length) { if (rahmen) rahmen.hidden = true; return; }
@@ -932,14 +978,14 @@
     } catch (f) { if (rahmen) rahmen.hidden = true; return; }
     if (!grenzen) { if (rahmen) rahmen.hidden = true; return; }
 
-    if (!rahmen) {
+    if (!rahmen || rahmen.parentElement !== grund) {
       rahmen = el('div', { id: 'malrahmen' });
-      (blatt.parentElement || document.body).append(rahmen);
+      grund.append(rahmen);
     }
     const luft = 6;
     rahmen.hidden = false;
-    rahmen.style.left = (blatt.offsetLeft + grenzen.x1 - luft) + 'px';
-    rahmen.style.top = (blatt.offsetTop + grenzen.y1 - luft) + 'px';
+    rahmen.style.left = (grenzen.x1 - luft) + 'px';
+    rahmen.style.top = (grenzen.y1 - luft) + 'px';
     rahmen.style.width = (grenzen.x2 - grenzen.x1 + luft * 2) + 'px';
     rahmen.style.height = (grenzen.y2 - grenzen.y1 + luft * 2) + 'px';
   }

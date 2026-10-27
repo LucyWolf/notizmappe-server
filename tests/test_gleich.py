@@ -159,6 +159,16 @@ for name, muster in (("gewaehlt", r"^let gewaehlt\b"),
 pruefe("Delete loescht drueben die Auswahl",
        bool(re.search(r"ev\.key === 'Delete'", js)))
 
+# Die drei Annahmen, an denen das Antippen beim ersten Versuch gescheitert ist:
+pruefe("das Blatt entsteht erst beim Oeffnen einer Seite (Horcher gehoert an document)",
+       bool(re.search(r"function malblattBauen", js)))
+pruefe("der pointerdown drueben faengt den Zeiger (muss kurz stillgelegt werden)",
+       bool(re.search(r"malblatt\.setPointerCapture", js)))
+pruefe("stelle() rechnet gegen #flaeche und den Zoom (Rahmen gehoert dorthin)",
+       bool(re.search(r"flaeche\.getBoundingClientRect\(\)", js))
+       and bool(re.search(r"id=\"flaeche\"", html)))
+pruefe("die Meldezeile m-hinweis gibt es noch", 'id="m-hinweis"' in html)
+
 # --- Jedes Design muss die ganze Oberflaeche abdecken ---------------------
 #
 # Ein Design setzt die Farbnamen am <html> neu. Vergisst eines davon einen
