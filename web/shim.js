@@ -786,6 +786,164 @@
       .map((z) => Math.max(0, Math.min(255, z || 0)).toString(16).padStart(2, '0')).join('');
   }
 
+  /* ------------------------------------------------------- Striche markieren
+
+     Markieren und Loeschen gibt es im Zeichnen-Reiter laengst: umkreisen mit
+     dem Lasso, dann Entf. Nur kommt man am Tablett an keine Entf-Taste, und
+     einen einzelnen Strich umkreisen zu muessen, um ihn wegzubekommen, ist
+     umstaendlich.
+
+     Hier kommen deshalb drei Dinge dazu, ohne die Zeichenlogik anzufassen:
+     Antippen waehlt den Strich darunter, ein Rahmen zeigt die Auswahl, und ein
+     Knopf loescht sie.
+
+     Wichtig dabei: mappe.js laeuft im globalen Scope, seine Namen sind also von
+     hier aus erreichbar. Das ist praktisch und zugleich der wunde Punkt -
+     benennt jemand drueben etwas um, faellt das hier aus. Deshalb wird jeder
+     Zugriff geprueft, und tests/test_gleich.py haelt die Namensliste fest. */
+
+  // Kein eval: shim.js laeuft im selben globalen Skript-Kontext wie mappe.js,
+  // die Scope-Kette fuehrt also direkt zu dessen Namen. Beim Laden von shim.js
+  // gibt es sie noch nicht - deshalb erst im Aufruf nachsehen, und mit
+  // Rueckfall, falls drueben etwas umbenannt wird.
+  function malWahl() {
+    try { return typeof gewaehlt === 'undefined' ? null : gewaehlt; }
+    catch (f) { return null; }
+  }
+
+  function malGrenzen() {
+    try { return typeof strichGrenzen === 'function' ? strichGrenzen : null; }
+    catch (f) { return null; }
+  }
+
+  function strichMarkierenBauen() {
+    const zeug = document.getElementById('malzeug');
+    if (!zeug || document.getElementById('m-loeschen')) return;
+
+    const loeschen = el('button', { type: 'button', id: 'm-loeschen',
+                                    title: 'Markierte Striche löschen (Entf)',
+                                    textContent: '🗑' });
+    loeschen.addEventListener('click', function () {
+      // Den vorhandenen Weg nehmen statt die Striche selbst anzufassen: so
+      // bleibt alles an einer Stelle - Rueckgaengig, Speichern, Neuzeichnen.
+      document.dispatchEvent(new KeyboardEvent('keydown',
+        { key: 'Delete', bubbles: true }));
+      rahmenZeichnen();
+    });
+    const trenner = el('span', { className: 'trenner' });
+    const lasso = zeug.querySelector('.malwerkzeug[data-werkzeug="lasso"]');
+    if (lasso && lasso.nextSibling) {
+      zeug.insertBefore(trenner, lasso.nextSibling);
+      zeug.insertBefore(loeschen, trenner.nextSibling);
+    } else {
+      zeug.append(trenner, loeschen);
+    }
+
+    antippenAnschalten();
+    rahmenAnschalten();
+  }
+
+  /* Antippen: ein kurzer Tipp im Lasso-Modus wird zu einer winzigen Schlinge
+     um den Punkt. Damit waehlt die vorhandene Lasso-Logik den Strich darunter,
+     und zwar mit allem, was daran haengt - Verschieben, Entf, Rueckgaengig. */
+  function antippenAnschalten() {
+    const blatt = document.getElementById('malblatt');
+    if (!blatt || blatt.dataset.antippen === 'ja') return;
+    blatt.dataset.antippen = 'ja';
+
+    let start = null;
+    blatt.addEventListener('pointerdown', function (ev) {
+      start = { x: ev.clientX, y: ev.clientY, zeit: Date.now() };
+    }, true);
+    blatt.addEventListener('pointerup', function (ev) {
+      if (!start) return;
+      const weit = Math.hypot(ev.clientX - start.x, ev.clientY - start.y);
+      const kurz = Date.now() - start.zeit < 400;
+      start = null;
+      // Nur ein echter Tipp, kein gezogenes Lasso.
+      if (weit > 6 || !kurz) return;
+      if (!imLassoModus()) return;
+      setTimeout(() => schlingeUm(ev), 0);
+    }, true);
+  }
+
+  function imLassoModus() {
+    // Zuerst die Variable drueben - die ist die Wahrheit. Die Klasse "an" am
+    // Knopf ist nur ihre Anzeige und der Rueckfall, falls der Name sich aendert.
+    try {
+      if (typeof werkzeug !== 'undefined') return werkzeug === 'lasso';
+    } catch (f) { /* dann eben am Knopf nachsehen */ }
+    const k = document.querySelector('#malzeug .malwerkzeug[data-werkzeug="lasso"]');
+    return !!(k && k.classList.contains('an'));
+  }
+
+  function schlingeUm(ev) {
+    const blatt = document.getElementById('malblatt');
+    if (!blatt) return;
+    // Ein kleiner Kreis um den Tipp. Gross genug, dass ein Strich hineinfaellt,
+    // klein genug, dass nicht die halbe Seite mitkommt.
+    const r = 14;
+    const punkte = [];
+    for (let i = 0; i <= 12; i++) {
+      const w = (i / 12) * Math.PI * 2;
+      punkte.push([ev.clientX + Math.cos(w) * r, ev.clientY + Math.sin(w) * r]);
+    }
+    const art = { bubbles: true, cancelable: true, pointerId: 9901,
+                  pointerType: 'mouse', buttons: 1, isPrimary: true };
+    blatt.dispatchEvent(new PointerEvent('pointerdown',
+      Object.assign({}, art, { clientX: punkte[0][0], clientY: punkte[0][1] })));
+    for (const [x, y] of punkte.slice(1)) {
+      blatt.dispatchEvent(new PointerEvent('pointermove',
+        Object.assign({}, art, { clientX: x, clientY: y })));
+    }
+    blatt.dispatchEvent(new PointerEvent('pointerup',
+      Object.assign({}, art, { buttons: 0,
+                               clientX: punkte[0][0], clientY: punkte[0][1] })));
+    rahmenZeichnen();
+  }
+
+  /* Der Rahmen. Er liegt als eigenes Element ueber dem Blatt, nicht im Canvas -
+     sonst muesste er bei jedem Strich mitgemalt werden. */
+  let rahmen = null;
+  let rahmenUhr = null;
+
+  function rahmenAnschalten() {
+    if (rahmenUhr) return;
+    // Nachsehen statt mitgeteilt bekommen: die Auswahl aendert sich an vielen
+    // Stellen drueben, und an jeder einzelne Haken zu setzen waere mehr
+    // Eingriff als dieser eine Blick alle 150 ms.
+    rahmenUhr = setInterval(rahmenZeichnen, 150);
+  }
+
+  function rahmenZeichnen() {
+    const blatt = document.getElementById('malblatt');
+    const wahl = malWahl();
+    const grenzenVon = malGrenzen();
+    if (!blatt || !wahl || !grenzenVon) { if (rahmen) rahmen.hidden = true; return; }
+    let grenzen = null;
+    try {
+      if (!wahl.length) { if (rahmen) rahmen.hidden = true; return; }
+      for (const st of wahl) {
+        const g = grenzenVon(st);
+        grenzen = grenzen ? { x1: Math.min(grenzen.x1, g.x1), y1: Math.min(grenzen.y1, g.y1),
+                              x2: Math.max(grenzen.x2, g.x2), y2: Math.max(grenzen.y2, g.y2) }
+                          : { x1: g.x1, y1: g.y1, x2: g.x2, y2: g.y2 };
+      }
+    } catch (f) { if (rahmen) rahmen.hidden = true; return; }
+    if (!grenzen) { if (rahmen) rahmen.hidden = true; return; }
+
+    if (!rahmen) {
+      rahmen = el('div', { id: 'malrahmen' });
+      (blatt.parentElement || document.body).append(rahmen);
+    }
+    const luft = 6;
+    rahmen.hidden = false;
+    rahmen.style.left = (blatt.offsetLeft + grenzen.x1 - luft) + 'px';
+    rahmen.style.top = (blatt.offsetTop + grenzen.y1 - luft) + 'px';
+    rahmen.style.width = (grenzen.x2 - grenzen.x1 + luft * 2) + 'px';
+    rahmen.style.height = (grenzen.y2 - grenzen.y1 + luft * 2) + 'px';
+  }
+
   function profilseite() {
     const vorhanden = document.querySelector('.dateiseite[data-punkt="profil"]');
     if (vorhanden) return vorhanden;
@@ -1377,6 +1535,12 @@
         width: 30px; height: 24px; padding: 0; border: 1px solid var(--linie);
         border-radius: 4px; background: none; cursor: pointer;
       }
+      #malrahmen {
+        position: absolute; pointer-events: none; z-index: 5;
+        border: 1px dashed var(--akzent); border-radius: 3px;
+        background: color-mix(in srgb, var(--akzent) 8%, transparent);
+      }
+      #m-loeschen { font-size: 14px; }
       #profil-verwalten { margin: 0; }
       #ablage-stand code { color: var(--schrift); }
       #serververwaltung h3 {
@@ -1464,6 +1628,7 @@
                                ['Profil', profilBauen],
                                ['Mein Profil', profilBearbeitenBauen],
                                ['Speicher', ablageBauen],
+                               ['Striche markieren', strichMarkierenBauen],
                                ['Bereiche laden', bereicheLaden],
                                ['Verwaltung laden', verwaltungLaden]]) {
       try {

@@ -137,6 +137,28 @@ benutzt = set(re.findall(r"var\((--[a-z-]+)\)", shim))
 fehlend = sorted(v for v in benutzt if f"{v}:" not in stil)
 pruefe("shim.js benutzt nur Farben, die es gibt", not fehlend, str(fehlend))
 
+# --- Woran das Markieren von Strichen haengt ------------------------------
+#
+# shim.js greift fuer den Auswahlrahmen auf Namen aus mappe.js zu - das geht,
+# weil beide im selben globalen Skript-Kontext laufen. Praktisch, aber der wunde
+# Punkt: benennt drueben jemand "gewaehlt" oder "strichGrenzen" um, faellt der
+# Rahmen lautlos aus. Kein Fehler, keine Meldung, nur ein fehlender Kasten.
+for name, muster in (("gewaehlt", r"^let gewaehlt\b"),
+                     ("werkzeug", r"^let werkzeug\b"),
+                     ("Klasse 'an' am Werkzeug", r"classList\.toggle\('an'"),
+                     ("strichGrenzen", r"^function strichGrenzen\b"),
+                     ("malblatt.id", r"malblatt\.id = 'malblatt'"),
+                     ("Lasso-Knopf", r'data-werkzeug="lasso"'),
+                     ("malzeug-Leiste", r'id="malzeug"')):
+    wo = html if name in ("Lasso-Knopf", "malzeug-Leiste") else js
+    pruefe(f"mappe.js hat noch {name}", bool(re.search(muster, wo, re.M)))
+
+# Und der Tastenweg, den der Loeschen-Knopf benutzt: er schickt Delete, statt
+# die Striche selbst anzufassen - damit Rueckgaengig und Speichern weiter
+# ueber dieselbe Stelle laufen.
+pruefe("Delete loescht drueben die Auswahl",
+       bool(re.search(r"ev\.key === 'Delete'", js)))
+
 # --- Jedes Design muss die ganze Oberflaeche abdecken ---------------------
 #
 # Ein Design setzt die Farbnamen am <html> neu. Vergisst eines davon einen
