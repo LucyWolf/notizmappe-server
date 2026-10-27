@@ -159,25 +159,21 @@ for name, muster in (("gewaehlt", r"^let gewaehlt\b"),
 pruefe("Delete loescht drueben die Auswahl",
        bool(re.search(r"ev\.key === 'Delete'", js)))
 
-# Die drei Annahmen, an denen das Antippen beim ersten Versuch gescheitert ist:
-pruefe("das Blatt entsteht erst beim Oeffnen einer Seite (Horcher gehoert an document)",
-       bool(re.search(r"function malblattBauen", js)))
-pruefe("der pointerdown drueben faengt den Zeiger (muss kurz stillgelegt werden)",
-       bool(re.search(r"malblatt\.setPointerCapture", js)))
-pruefe("stelle() rechnet gegen #flaeche und den Zoom (Rahmen gehoert dorthin)",
+# Das Markieren rechnet den getroffenen Strich selbst aus, statt Ereignisse
+# nachzustellen. Es haengt damit an drei Dingen drueben - fallen die weg, passiert
+# wieder lautlos nichts.
+pruefe("ein Strich haelt seine Punkte flach in p (x, y, Druck)",
+       bool(re.search(r"i < st\.p\.length; i \+= 3", js)))
+pruefe("strichGrenzen rechnet mit der Strichstaerke",
+       bool(re.search(r"const rand = st\.d", js)))
+pruefe("stelle() rechnet gegen #flaeche und den Zoom",
        bool(re.search(r"flaeche\.getBoundingClientRect\(\)", js))
-       and bool(re.search(r"id=\"flaeche\"", html)))
+       and bool(re.search(r'id="flaeche"', html)))
 pruefe("die Meldezeile m-hinweis gibt es noch", 'id="m-hinweis"' in html)
 
-# Im Auswahl-Modus laesst das Blatt Zeiger durch - deshalb darf das Antippen
-# nicht an ev.target haengen, sondern muss die Stelle ausrechnen.
-pruefe("das Blatt faengt Zeiger nur mit einer Klasse",
-       bool(re.search(r"#malblatt \{[^}]*pointer-events: none", stil, re.S)))
-
-# Und ein Fehler drueben, der hier geradegerueckt wird: die Klasse fuers
-# Schieben heisst im Stil .schiebt, gesetzt wird .zieht. Ohne den Ausgleich tut
-# die Hand gar nichts. Faellt das hier um, war es drueben behoben - dann kann
-# der Ausgleich raus.
+# Ein Fehler drueben, der hier geradegerueckt wird: die Klasse fuers Schieben
+# heisst im Stil .schiebt, gesetzt wird .zieht. Faellt das hier um, war es
+# drueben behoben - dann kann der Ausgleich raus.
 stil_kennt = set(re.findall(r"#malblatt\.([a-z]+)", stil))
 js_setzt = set(re.findall(r"malblatt\.classList\.toggle\('([a-z]+)'", js))
 pruefe("der Klassenfehler .zieht/.schiebt besteht drueben noch",

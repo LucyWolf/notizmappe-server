@@ -786,26 +786,21 @@
       .map((z) => Math.max(0, Math.min(255, z || 0)).toString(16).padStart(2, '0')).join('');
   }
 
-  /* ------------------------------------------------------- Striche markieren
+  /* Doppelklick auf einen Strich: markieren, verschieben, loeschen.
 
-     Markieren und Loeschen gibt es im Zeichnen-Reiter laengst: umkreisen mit
-     dem Lasso, dann Entf. Nur kommt man am Tablett an keine Entf-Taste, und
-     einen einzelnen Strich umkreisen zu muessen, um ihn wegzubekommen, ist
-     umstaendlich.
+     Der erste Versuch hat Zeiger-Ereignisse nachgestellt, um die vorhandene
+     Lasso-Logik zu benutzen. Das ist an drei Annahmen gescheitert - und selbst
+     repariert blieb es auf den Zeichnen-Reiter beschraenkt, weil das Blatt nur
+     dort Zeiger faengt.
 
-     Hier kommen deshalb drei Dinge dazu, ohne die Zeichenlogik anzufassen:
-     Antippen waehlt den Strich darunter, ein Rahmen zeigt die Auswahl, und ein
-     Knopf loescht sie.
+     Deshalb jetzt geradeheraus: den getroffenen Strich selbst ausrechnen,
+     gewaehlt setzen, neu malen. Das geht im Start-Reiter genauso, braucht
+     keinen Moduswechsel und keine nachgestellten Ereignisse. */
 
-     Wichtig dabei: mappe.js laeuft im globalen Scope, seine Namen sind also von
-     hier aus erreichbar. Das ist praktisch und zugleich der wunde Punkt -
-     benennt jemand drueben etwas um, faellt das hier aus. Deshalb wird jeder
-     Zugriff geprueft, und tests/test_gleich.py haelt die Namensliste fest. */
+  const GRIFFE = ['no', 'n', 'nw', 'o', 'w', 'so', 's', 'sw'];
+  let rahmen = null;
+  let rahmenUhr = null;
 
-  // Kein eval: shim.js laeuft im selben globalen Skript-Kontext wie mappe.js,
-  // die Scope-Kette fuehrt also direkt zu dessen Namen. Beim Laden von shim.js
-  // gibt es sie noch nicht - deshalb erst im Aufruf nachsehen, und mit
-  // Rueckfall, falls drueben etwas umbenannt wird.
   function malWahl() {
     try { return typeof gewaehlt === 'undefined' ? null : gewaehlt; }
     catch (f) { return null; }
@@ -816,210 +811,246 @@
     catch (f) { return null; }
   }
 
-  function strichMarkierenBauen() {
-    const zeug = document.getElementById('malzeug');
-    if (!zeug || document.getElementById('m-loeschen')) return;
+  function malZeichnung() {
+    try { return typeof zeichnung === 'undefined' ? null : zeichnung; }
+    catch (f) { return null; }
+  }
 
-    const loeschen = el('button', { type: 'button', id: 'm-loeschen',
-                                    title: 'Markierte Striche löschen (Entf)',
-                                    textContent: '🗑' });
-    loeschen.addEventListener('click', function () {
-      // Stumm nichts zu tun ist das Schlimmste, was ein Knopf kann - also
-      // sagen, woran es liegt.
+  function malZoom() {
+    try { return typeof zoom === 'undefined' ? 1 : (zoom || 1); }
+    catch (f) { return 1; }
+  }
+
+  function neuMalen() {
+    try { if (typeof allesMalen === 'function') allesMalen(); } catch (f) { /* egal */ }
+  }
+
+  function gemerkt() {
+    try { if (typeof angefasst === 'function') angefasst(); } catch (f) { /* egal */ }
+  }
+
+  function malsagen(text) {
+    const zeile = document.getElementById('m-hinweis');
+    if (zeile) {
+      zeile.textContent = text;
+      if (text) setTimeout(() => { if (zeile.textContent === text) zeile.textContent = ''; }, 5000);
+      return;
+    }
+    console.log('[notizmappe] ' + text);
+  }
+
+  // Dieselbe Rechnung wie stelle() drueben: gegen #flaeche, geteilt durch den
+  // Zoom. Ohne das liegt alles daneben, sobald jemand hineinzoomt.
+  function stelleHier(ev) {
+    const flaeche = document.getElementById('flaeche');
+    if (!flaeche) return null;
+    const r = flaeche.getBoundingClientRect();
+    const z = malZoom();
+    return { x: (ev.clientX - r.left) / z, y: (ev.clientY - r.top) / z };
+  }
+
+  function strichTrifft(st, x, y, nah) {
+    // Punkte liegen flach als x, y, Druck - deshalb in Dreierschritten.
+    const reichweite = nah + (st.d || 2);
+    for (let i = 0; i < st.p.length; i += 3) {
+      if (Math.abs(st.p[i] - x) <= reichweite && Math.abs(st.p[i + 1] - y) <= reichweite) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function strichBei(x, y) {
+    const z = malZeichnung();
+    if (!z || !z.striche) return null;
+    // Von hinten: was zuletzt gemalt wurde, liegt oben.
+    for (let i = z.striche.length - 1; i >= 0; i--) {
+      if (strichTrifft(z.striche[i], x, y, 10)) return z.striche[i];
+    }
+    return null;
+  }
+
+  function zusammenhaengend(ersterStrich) {
+    // Was sich beruehrt, gehoert zusammen - sonst muesste man jeden Strich
+    // einer Zeichnung einzeln anfassen.
+    const z = malZeichnung();
+    const grenzenVon = malGrenzen();
+    if (!z || !grenzenVon) return [ersterStrich];
+    const drin = [ersterStrich];
+    let gewachsen = true;
+    while (gewachsen) {
+      gewachsen = false;
+      for (const st of z.striche) {
+        if (drin.includes(st)) continue;
+        const a = grenzenVon(st);
+        if (drin.some((b) => ueberlappt(a, grenzenVon(b)))) { drin.push(st); gewachsen = true; }
+      }
+    }
+    return drin;
+  }
+
+  function ueberlappt(a, b) {
+    const luft = 4;
+    return a.x1 - luft <= b.x2 && a.x2 + luft >= b.x1
+        && a.y1 - luft <= b.y2 && a.y2 + luft >= b.y1;
+  }
+
+  function markierenAnschalten() {
+    if (document.body.dataset.markieren === 'ja') return;
+    document.body.dataset.markieren = 'ja';
+
+    document.addEventListener('dblclick', function (ev) {
+      // Nicht in Text hineinfunken: ein Doppelklick dort waehlt ein Wort aus.
+      if (ev.target && ev.target.closest
+          && ev.target.closest('.text, input, select, textarea, button, #band, #dateischirm')) {
+        return;
+      }
       const wahl = malWahl();
-      if (!wahl) {
-        malsagen('Die Auswahl ist von hier aus nicht erreichbar.');
-        return;
+      if (!wahl) return;
+      const p = stelleHier(ev);
+      if (!p) return;
+      const treffer = strichBei(p.x, p.y);
+      if (!treffer) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      wahl.length = 0;
+      for (const st of zusammenhaengend(treffer)) wahl.push(st);
+      neuMalen();
+      rahmenZeichnen();
+      malsagen(`${wahl.length} ${wahl.length === 1 ? 'Strich' : 'Striche'} markiert - `
+               + 'ziehen verschiebt, ✕ löscht.');
+    }, true);
+
+    // Ein Klick daneben hebt die Markierung auf - sonst bleibt der Rahmen
+    // stehen und man weiss nicht, warum Entf noch etwas loescht.
+    document.addEventListener('pointerdown', function (ev) {
+      const wahl = malWahl();
+      if (!wahl || !wahl.length) return;
+      if (ev.target && ev.target.closest && ev.target.closest('#malrahmen')) return;
+      const p = stelleHier(ev);
+      if (p && strichBei(p.x, p.y)) return;
+      wahl.length = 0;
+      neuMalen();
+      rahmenZeichnen();
+    }, true);
+  }
+
+  function auswahlLoeschen() {
+    const wahl = malWahl();
+    const z = malZeichnung();
+    if (!wahl || !z) { malsagen('Die Auswahl ist von hier aus nicht erreichbar.'); return; }
+    if (!wahl.length) { malsagen('Nichts markiert - auf einen Strich doppelklicken.'); return; }
+    const anzahl = wahl.length;
+    z.striche = z.striche.filter((st) => !wahl.includes(st));
+    wahl.length = 0;
+    gemerkt();
+    neuMalen();
+    rahmenZeichnen();
+    malsagen(`${anzahl} ${anzahl === 1 ? 'Strich' : 'Striche'} gelöscht.`);
+  }
+
+  /* Der Rahmen. Er haengt an #flaeche, weil strichGrenzen() in genau diesem
+     Bezugssystem rechnet - als Kind skaliert er beim Zoomen mit. */
+  function rahmenAnschalten() {
+    if (rahmenUhr) return;
+    rahmenUhr = setInterval(rahmenZeichnen, 150);
+  }
+
+  function rahmenBauen(grund) {
+    const kasten = el('div', { id: 'malrahmen' });
+    for (const ecke of GRIFFE) {
+      kasten.append(el('span', { className: 'malgriff malgriff-' + ecke }));
+    }
+    const weg = el('button', { type: 'button', className: 'malweg', title: 'Löschen',
+                               textContent: '✕' });
+    weg.addEventListener('pointerdown', (ev) => ev.stopPropagation());
+    weg.addEventListener('click', function (ev) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      auswahlLoeschen();
+    });
+    kasten.append(weg);
+
+    // Ziehen verschiebt die markierten Striche - im Start-Reiter genauso wie
+    // im Zeichnen-Reiter, weil hier nichts vom Werkzeug abhaengt.
+    let zieht = null;
+    kasten.addEventListener('pointerdown', function (ev) {
+      const wahl = malWahl();
+      if (!wahl || !wahl.length) return;
+      const p = stelleHier(ev);
+      if (!p) return;
+      zieht = { x: p.x, y: p.y };
+      kasten.setPointerCapture(ev.pointerId);
+      ev.preventDefault();
+      ev.stopPropagation();
+    });
+    kasten.addEventListener('pointermove', function (ev) {
+      if (!zieht) return;
+      const wahl = malWahl();
+      const p = stelleHier(ev);
+      if (!wahl || !p) return;
+      const dx = p.x - zieht.x, dy = p.y - zieht.y;
+      zieht.x = p.x; zieht.y = p.y;
+      for (const st of wahl) {
+        for (let i = 0; i < st.p.length; i += 3) { st.p[i] += dx; st.p[i + 1] += dy; }
       }
-      if (!wahl.length) {
-        const modus = malModus();
-        malsagen(modus === 'stift' || modus === 'radierer'
-          ? 'Im Stiftmodus wird gemalt. Zum Markieren erst ⬉ oder ◌ wählen, '
-            + 'dann den Strich antippen.'
-          : 'Nichts markiert - einen Strich antippen oder mit ◌ umkreisen.');
-        return;
-      }
-      const vorher = wahl.length;
-      // Den vorhandenen Weg nehmen statt die Striche selbst anzufassen: so
-      // bleibt alles an einer Stelle - Rueckgaengig, Speichern, Neuzeichnen.
-      document.dispatchEvent(new KeyboardEvent('keydown',
-        { key: 'Delete', bubbles: true }));
-      malsagen(`${vorher} ${vorher === 1 ? 'Strich' : 'Striche'} gelöscht.`);
+      neuMalen();
       rahmenZeichnen();
     });
-    const trenner = el('span', { className: 'trenner' });
+    kasten.addEventListener('pointerup', function () {
+      if (!zieht) return;
+      zieht = null;
+      gemerkt();
+    });
+    grund.append(kasten);
+    return kasten;
+  }
+
+  function rahmenZeichnen() {
+    const grund = document.getElementById('flaeche');
+    const wahl = malWahl();
+    const grenzenVon = malGrenzen();
+    if (!grund || !wahl || !grenzenVon || !wahl.length) {
+      if (rahmen) rahmen.hidden = true;
+      return;
+    }
+    let g = null;
+    try {
+      for (const st of wahl) {
+        const e = grenzenVon(st);
+        g = g ? { x1: Math.min(g.x1, e.x1), y1: Math.min(g.y1, e.y1),
+                  x2: Math.max(g.x2, e.x2), y2: Math.max(g.y2, e.y2) }
+              : { x1: e.x1, y1: e.y1, x2: e.x2, y2: e.y2 };
+      }
+    } catch (f) { if (rahmen) rahmen.hidden = true; return; }
+    if (!g) { if (rahmen) rahmen.hidden = true; return; }
+
+    if (!rahmen || rahmen.parentElement !== grund) rahmen = rahmenBauen(grund);
+    const luft = 8;
+    rahmen.hidden = false;
+    rahmen.style.left = (g.x1 - luft) + 'px';
+    rahmen.style.top = (g.y1 - luft) + 'px';
+    rahmen.style.width = (g.x2 - g.x1 + luft * 2) + 'px';
+    rahmen.style.height = (g.y2 - g.y1 + luft * 2) + 'px';
+  }
+
+  function strichMarkierenBauen() {
+    markierenAnschalten();
+    rahmenAnschalten();
+
+    const zeug = document.getElementById('malzeug');
+    if (!zeug || document.getElementById('m-loeschen')) return;
+    const loeschen = el('button', { type: 'button', id: 'm-loeschen',
+                                    title: 'Markierte Striche löschen', textContent: '🗑' });
+    loeschen.addEventListener('click', auswahlLoeschen);
     const lasso = zeug.querySelector('.malwerkzeug[data-werkzeug="lasso"]');
+    const trenner = el('span', { className: 'trenner' });
     if (lasso && lasso.nextSibling) {
       zeug.insertBefore(trenner, lasso.nextSibling);
       zeug.insertBefore(loeschen, trenner.nextSibling);
     } else {
       zeug.append(trenner, loeschen);
     }
-
-    antippenAnschalten();
-    rahmenAnschalten();
-  }
-
-  /* Antippen: ein kurzer Tipp im Lasso-Modus wird zu einer winzigen Schlinge
-     um den Punkt. Damit waehlt die vorhandene Lasso-Logik den Strich darunter,
-     und zwar mit allem, was daran haengt - Verschieben, Entf, Rueckgaengig.
-
-     Der Horcher haengt an document, nicht am Blatt. Beim ersten Versuch hing
-     er am Blatt, und zwar beim Laden der Seite - da gibt es das Blatt aber
-     noch gar nicht: malblattBauen() laeuft erst, wenn eine Seite geoeffnet
-     wird. Und es baut jedes Mal ein NEUES Canvas, der Horcher waere also beim
-     naechsten Seitenwechsel ohnehin wieder weg gewesen. An document haengt er
-     einmal und ueberlebt alles. */
-  function antippenAnschalten() {
-    if (document.body.dataset.antippen === 'ja') return;
-    document.body.dataset.antippen = 'ja';
-
-    let start = null;
-    document.addEventListener('pointerdown', function (ev) {
-      start = ueberDemBlatt(ev) ? { x: ev.clientX, y: ev.clientY, zeit: Date.now() } : null;
-    }, true);
-    document.addEventListener('pointerup', function (ev) {
-      if (!start) return;
-      const weit = Math.hypot(ev.clientX - start.x, ev.clientY - start.y);
-      const kurz = Date.now() - start.zeit < 400;
-      start = null;
-      // Nur ein echter Tipp, kein gezogenes Lasso und kein gemalter Strich.
-      if (weit > 6 || !kurz || !ueberDemBlatt(ev)) return;
-      if (malModus() === 'stift' || malModus() === 'radierer'
-          || malModus() === 'hand') return;
-      setTimeout(() => schlingeUm(ev), 0);
-    }, true);
-  }
-
-  /* Liegt der Tipp ueber der Zeichenflaeche?
-     Nicht ev.target fragen: im Auswahl-Modus hat das Blatt
-     pointer-events: none, der Tipp landet also irgendwo darunter und das Ziel
-     ist nie das Canvas. Genau daran ist der erste Versuch gescheitert -
-     markieren ging nur im Lasso-Modus, und wer im Stift-Modus steht, malt
-     stattdessen eine Schlinge aufs Blatt. */
-  function ueberDemBlatt(ev) {
-    const blatt = document.getElementById('malblatt');
-    if (!blatt || blatt.offsetWidth === 0) return false;
-    const zeug = document.getElementById('malzeug');
-    if (!zeug || zeug.hidden) return false;        // nur im Zeichnen-Reiter
-    const r = blatt.getBoundingClientRect();
-    return ev.clientX >= r.left && ev.clientX <= r.right
-        && ev.clientY >= r.top && ev.clientY <= r.bottom;
-  }
-
-  function malModus() {
-    try { if (typeof werkzeug !== 'undefined') return werkzeug; } catch (f) { /* gleich */ }
-    const k = document.querySelector('#malzeug .malwerkzeug.an');
-    return k ? k.dataset.werkzeug : null;
-  }
-
-  function malsagen(text) {
-    // hinweis() drueben schreibt in dieselbe Zeile; es von hier aus zu rufen
-    // waere ein Name mehr, auf den ich mich verlasse. Das Element genuegt.
-    const zeile = document.getElementById('m-hinweis') || document.getElementById('hinweis');
-    if (zeile) { zeile.textContent = text; return; }
-    console.log('[notizmappe] ' + text);
-  }
-
-
-
-  function schlingeUm(ev) {
-    const blatt = document.getElementById('malblatt');
-    if (!blatt) return;
-
-    // In den Lasso-Modus schalten, falls noetig: dort faengt das Blatt die
-    // Zeiger, und dort funktioniert Verschieben und Entf. Danach bleibt man
-    // auch darin - sonst waere die Markierung beim naechsten Handgriff weg
-    // (werkzeugSetzen leert die Auswahl bei jedem anderen Werkzeug).
-    try {
-      if (typeof werkzeugSetzen === 'function' && malModus() !== 'lasso') {
-        werkzeugSetzen('lasso');
-      }
-    } catch (f) { /* dann eben im jetzigen Modus versuchen */ }
-    // Ein kleiner Kreis um den Tipp. Gross genug, dass ein Strich hineinfaellt,
-    // klein genug, dass nicht die halbe Seite mitkommt.
-    const r = 14;
-    const punkte = [];
-    for (let i = 0; i <= 12; i++) {
-      const w = (i / 12) * Math.PI * 2;
-      punkte.push([ev.clientX + Math.cos(w) * r, ev.clientY + Math.sin(w) * r]);
-    }
-    const art = { bubbles: true, cancelable: true, pointerId: 9901,
-                  pointerType: 'mouse', buttons: 1, isPrimary: true };
-
-    // setPointerCapture wirft bei einer erfundenen Zeiger-Nummer, und es steht
-    // als erste Zeile im pointerdown drueben - der Handler waere also
-    // abgebrochen, bevor das Lasso ueberhaupt anfaengt. Fuer die paar
-    // Millisekunden der Vorfuehrung wird es deshalb stillgelegt.
-    const echt = blatt.setPointerCapture;
-    blatt.setPointerCapture = function () {};
-    try {
-      blatt.dispatchEvent(new PointerEvent('pointerdown',
-        Object.assign({}, art, { clientX: punkte[0][0], clientY: punkte[0][1] })));
-      for (const [x, y] of punkte.slice(1)) {
-        blatt.dispatchEvent(new PointerEvent('pointermove',
-          Object.assign({}, art, { clientX: x, clientY: y })));
-      }
-      blatt.dispatchEvent(new PointerEvent('pointerup',
-        Object.assign({}, art, { buttons: 0,
-                                 clientX: punkte[0][0], clientY: punkte[0][1] })));
-    } finally {
-      blatt.setPointerCapture = echt;
-    }
-    const wahl = malWahl();
-    if (wahl && wahl.length) {
-      malsagen(`${wahl.length} ${wahl.length === 1 ? 'Strich' : 'Striche'} markiert - `
-               + 'ziehen verschiebt, 🗑 löscht.');
-    } else if (wahl) {
-      malsagen('Dort ist kein Strich - näher antippen.');
-    }
-    rahmenZeichnen();
-  }
-
-  /* Der Rahmen. Er liegt als eigenes Element ueber dem Blatt, nicht im Canvas -
-     sonst muesste er bei jedem Strich mitgemalt werden. */
-  let rahmen = null;
-  let rahmenUhr = null;
-
-  function rahmenAnschalten() {
-    if (rahmenUhr) return;
-    // Nachsehen statt mitgeteilt bekommen: die Auswahl aendert sich an vielen
-    // Stellen drueben, und an jeder einzelne Haken zu setzen waere mehr
-    // Eingriff als dieser eine Blick alle 150 ms.
-    rahmenUhr = setInterval(rahmenZeichnen, 150);
-  }
-
-  function rahmenZeichnen() {
-    // An #flaeche, nicht ans Blatt: strichGrenzen() liefert Koordinaten in
-    // genau diesem Bezugssystem (stelle() rechnet gegen #flaeche und teilt
-    // durch den Zoom). Als Kind von #flaeche skaliert der Rahmen mit, statt
-    // beim Hineinzoomen danebenzuliegen.
-    const grund = document.getElementById('flaeche');
-    const wahl = malWahl();
-    const grenzenVon = malGrenzen();
-    if (!grund || !wahl || !grenzenVon) { if (rahmen) rahmen.hidden = true; return; }
-    let grenzen = null;
-    try {
-      if (!wahl.length) { if (rahmen) rahmen.hidden = true; return; }
-      for (const st of wahl) {
-        const g = grenzenVon(st);
-        grenzen = grenzen ? { x1: Math.min(grenzen.x1, g.x1), y1: Math.min(grenzen.y1, g.y1),
-                              x2: Math.max(grenzen.x2, g.x2), y2: Math.max(grenzen.y2, g.y2) }
-                          : { x1: g.x1, y1: g.y1, x2: g.x2, y2: g.y2 };
-      }
-    } catch (f) { if (rahmen) rahmen.hidden = true; return; }
-    if (!grenzen) { if (rahmen) rahmen.hidden = true; return; }
-
-    if (!rahmen || rahmen.parentElement !== grund) {
-      rahmen = el('div', { id: 'malrahmen' });
-      grund.append(rahmen);
-    }
-    const luft = 6;
-    rahmen.hidden = false;
-    rahmen.style.left = (grenzen.x1 - luft) + 'px';
-    rahmen.style.top = (grenzen.y1 - luft) + 'px';
-    rahmen.style.width = (grenzen.x2 - grenzen.x1 + luft * 2) + 'px';
-    rahmen.style.height = (grenzen.y2 - grenzen.y1 + luft * 2) + 'px';
   }
 
   function profilseite() {
@@ -1613,11 +1644,36 @@
         width: 30px; height: 24px; padding: 0; border: 1px solid var(--linie);
         border-radius: 4px; background: none; cursor: pointer;
       }
+      /* Rahmen mit Griffen - wie man es aus Textverarbeitungen kennt. Die
+         Griffe zeigen nur an, dass hier etwas gefasst ist; Groesse aendern und
+         drehen koennen sie (noch) nicht. */
       #malrahmen {
-        position: absolute; pointer-events: none; z-index: 5;
-        border: 1px dashed var(--akzent); border-radius: 3px;
-        background: color-mix(in srgb, var(--akzent) 8%, transparent);
+        position: absolute; z-index: 20; cursor: move;
+        border: 1px dashed var(--schrift);
+        background: color-mix(in srgb, var(--akzent) 6%, transparent);
+        touch-action: none;
       }
+      .malgriff {
+        position: absolute; width: 7px; height: 7px;
+        background: var(--papier); border: 1px solid var(--schrift);
+        pointer-events: none;
+      }
+      .malgriff-nw { left: -4px; top: -4px; }
+      .malgriff-n  { left: calc(50% - 4px); top: -4px; }
+      .malgriff-no { right: -4px; top: -4px; }
+      .malgriff-w  { left: -4px; top: calc(50% - 4px); }
+      .malgriff-o  { right: -4px; top: calc(50% - 4px); }
+      .malgriff-sw { left: -4px; bottom: -4px; }
+      .malgriff-s  { left: calc(50% - 4px); bottom: -4px; }
+      .malgriff-so { right: -4px; bottom: -4px; }
+      .malweg {
+        position: absolute; right: -11px; top: -26px;
+        width: 22px; height: 22px; padding: 0; line-height: 1;
+        border: 1px solid var(--linie); border-radius: 50%;
+        background: var(--papier); color: var(--schrift);
+        cursor: pointer; font-size: 12px;
+      }
+      .malweg:hover { border-color: var(--warnung); color: var(--warnung); }
       #m-loeschen { font-size: 14px; }
       /* In der Oberflaeche heisst die Klasse fuers Schieben .schiebt, gesetzt
          wird aber .zieht - die Hand bekommt damit nie pointer-events und tut
