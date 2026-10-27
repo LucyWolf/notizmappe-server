@@ -832,7 +832,11 @@
         return;
       }
       if (!wahl.length) {
-        malsagen('Nichts markiert - mit ◌ einen Strich antippen oder umkreisen.');
+        const modus = malModus();
+        malsagen(modus === 'stift' || modus === 'radierer'
+          ? 'Im Stiftmodus wird gemalt. Zum Markieren erst ⬉ oder ◌ wählen, '
+            + 'dann den Strich antippen.'
+          : 'Nichts markiert - einen Strich antippen oder mit ◌ umkreisen.');
         return;
       }
       const vorher = wahl.length;
@@ -872,20 +876,41 @@
 
     let start = null;
     document.addEventListener('pointerdown', function (ev) {
-      if (!ev.target || ev.target.id !== 'malblatt') { start = null; return; }
-      start = { x: ev.clientX, y: ev.clientY, zeit: Date.now() };
+      start = ueberDemBlatt(ev) ? { x: ev.clientX, y: ev.clientY, zeit: Date.now() } : null;
     }, true);
     document.addEventListener('pointerup', function (ev) {
       if (!start) return;
       const weit = Math.hypot(ev.clientX - start.x, ev.clientY - start.y);
       const kurz = Date.now() - start.zeit < 400;
       start = null;
-      // Nur ein echter Tipp, kein gezogenes Lasso.
-      if (weit > 6 || !kurz) return;
-      if (!imLassoModus()) return;
-      if (!ev.target || ev.target.id !== 'malblatt') return;
+      // Nur ein echter Tipp, kein gezogenes Lasso und kein gemalter Strich.
+      if (weit > 6 || !kurz || !ueberDemBlatt(ev)) return;
+      if (malModus() === 'stift' || malModus() === 'radierer'
+          || malModus() === 'hand') return;
       setTimeout(() => schlingeUm(ev), 0);
     }, true);
+  }
+
+  /* Liegt der Tipp ueber der Zeichenflaeche?
+     Nicht ev.target fragen: im Auswahl-Modus hat das Blatt
+     pointer-events: none, der Tipp landet also irgendwo darunter und das Ziel
+     ist nie das Canvas. Genau daran ist der erste Versuch gescheitert -
+     markieren ging nur im Lasso-Modus, und wer im Stift-Modus steht, malt
+     stattdessen eine Schlinge aufs Blatt. */
+  function ueberDemBlatt(ev) {
+    const blatt = document.getElementById('malblatt');
+    if (!blatt || blatt.offsetWidth === 0) return false;
+    const zeug = document.getElementById('malzeug');
+    if (!zeug || zeug.hidden) return false;        // nur im Zeichnen-Reiter
+    const r = blatt.getBoundingClientRect();
+    return ev.clientX >= r.left && ev.clientX <= r.right
+        && ev.clientY >= r.top && ev.clientY <= r.bottom;
+  }
+
+  function malModus() {
+    try { if (typeof werkzeug !== 'undefined') return werkzeug; } catch (f) { /* gleich */ }
+    const k = document.querySelector('#malzeug .malwerkzeug.an');
+    return k ? k.dataset.werkzeug : null;
   }
 
   function malsagen(text) {
@@ -896,19 +921,21 @@
     console.log('[notizmappe] ' + text);
   }
 
-  function imLassoModus() {
-    // Zuerst die Variable drueben - die ist die Wahrheit. Die Klasse "an" am
-    // Knopf ist nur ihre Anzeige und der Rueckfall, falls der Name sich aendert.
-    try {
-      if (typeof werkzeug !== 'undefined') return werkzeug === 'lasso';
-    } catch (f) { /* dann eben am Knopf nachsehen */ }
-    const k = document.querySelector('#malzeug .malwerkzeug[data-werkzeug="lasso"]');
-    return !!(k && k.classList.contains('an'));
-  }
+
 
   function schlingeUm(ev) {
     const blatt = document.getElementById('malblatt');
     if (!blatt) return;
+
+    // In den Lasso-Modus schalten, falls noetig: dort faengt das Blatt die
+    // Zeiger, und dort funktioniert Verschieben und Entf. Danach bleibt man
+    // auch darin - sonst waere die Markierung beim naechsten Handgriff weg
+    // (werkzeugSetzen leert die Auswahl bei jedem anderen Werkzeug).
+    try {
+      if (typeof werkzeugSetzen === 'function' && malModus() !== 'lasso') {
+        werkzeugSetzen('lasso');
+      }
+    } catch (f) { /* dann eben im jetzigen Modus versuchen */ }
     // Ein kleiner Kreis um den Tipp. Gross genug, dass ein Strich hineinfaellt,
     // klein genug, dass nicht die halbe Seite mitkommt.
     const r = 14;
@@ -940,7 +967,12 @@
       blatt.setPointerCapture = echt;
     }
     const wahl = malWahl();
-    if (wahl && !wahl.length) malsagen('Dort ist kein Strich - näher antippen.');
+    if (wahl && wahl.length) {
+      malsagen(`${wahl.length} ${wahl.length === 1 ? 'Strich' : 'Striche'} markiert - `
+               + 'ziehen verschiebt, 🗑 löscht.');
+    } else if (wahl) {
+      malsagen('Dort ist kein Strich - näher antippen.');
+    }
     rahmenZeichnen();
   }
 
@@ -1587,6 +1619,10 @@
         background: color-mix(in srgb, var(--akzent) 8%, transparent);
       }
       #m-loeschen { font-size: 14px; }
+      /* In der Oberflaeche heisst die Klasse fuers Schieben .schiebt, gesetzt
+         wird aber .zieht - die Hand bekommt damit nie pointer-events und tut
+         gar nichts. Hier geradegerueckt, bis es drueben behoben ist. */
+      #malblatt.zieht { pointer-events: auto; cursor: grab; }
       #profil-verwalten { margin: 0; }
       #ablage-stand code { color: var(--schrift); }
       #serververwaltung h3 {

@@ -169,6 +169,21 @@ pruefe("stelle() rechnet gegen #flaeche und den Zoom (Rahmen gehoert dorthin)",
        and bool(re.search(r"id=\"flaeche\"", html)))
 pruefe("die Meldezeile m-hinweis gibt es noch", 'id="m-hinweis"' in html)
 
+# Im Auswahl-Modus laesst das Blatt Zeiger durch - deshalb darf das Antippen
+# nicht an ev.target haengen, sondern muss die Stelle ausrechnen.
+pruefe("das Blatt faengt Zeiger nur mit einer Klasse",
+       bool(re.search(r"#malblatt \{[^}]*pointer-events: none", stil, re.S)))
+
+# Und ein Fehler drueben, der hier geradegerueckt wird: die Klasse fuers
+# Schieben heisst im Stil .schiebt, gesetzt wird .zieht. Ohne den Ausgleich tut
+# die Hand gar nichts. Faellt das hier um, war es drueben behoben - dann kann
+# der Ausgleich raus.
+stil_kennt = set(re.findall(r"#malblatt\.([a-z]+)", stil))
+js_setzt = set(re.findall(r"malblatt\.classList\.toggle\('([a-z]+)'", js))
+pruefe("der Klassenfehler .zieht/.schiebt besteht drueben noch",
+       "zieht" in js_setzt and "zieht" not in stil_kennt,
+       f"Stil: {sorted(stil_kennt)}, JS: {sorted(js_setzt)}")
+
 # --- Jedes Design muss die ganze Oberflaeche abdecken ---------------------
 #
 # Ein Design setzt die Farbnamen am <html> neu. Vergisst eines davon einen
