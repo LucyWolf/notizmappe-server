@@ -798,8 +798,17 @@
      keinen Moduswechsel und keine nachgestellten Ereignisse. */
 
   const GRIFFE = ['no', 'n', 'nw', 'o', 'w', 'so', 's', 'sw'];
+  /* Welche Kante beim Ziehen stehen bleibt: am Nordwest-Griff bleibt die
+     Suedost-Ecke liegen, sonst wandert die Zeichnung beim Groesserziehen
+     mit davon. Fehlt eine Achse, wird in der Richtung nicht skaliert. */
+  const ANKER = {
+    nw: { x: 'x2', y: 'y2' }, no: { x: 'x1', y: 'y2' },
+    sw: { x: 'x2', y: 'y1' }, so: { x: 'x1', y: 'y1' },
+    n: { y: 'y2' }, s: { y: 'y1' }, w: { x: 'x2' }, o: { x: 'x1' },
+  };
   let rahmen = null;
   let rahmenUhr = null;
+  let letzteStelle = null;
 
   function malWahl() {
     try { return typeof gewaehlt === 'undefined' ? null : gewaehlt; }
@@ -860,23 +869,27 @@
     return false;
   }
 
-  function strichBei(x, y) {
+  // Alle Striche an dieser Stelle, der oberste zuerst. Mehrere, weil sich
+  // Striche ueberlagern und man auch an den darunter herankommen muss.
+  function stricheBei(x, y) {
     const z = malZeichnung();
-    if (!z || !z.striche) return null;
+    const liste = [];
+    if (!z || !z.striche) return liste;
     // Von hinten: was zuletzt gemalt wurde, liegt oben.
     for (let i = z.striche.length - 1; i >= 0; i--) {
-      if (strichTrifft(z.striche[i], x, y, 10)) return z.striche[i];
+      if (strichTrifft(z.striche[i], x, y, 10)) liste.push(z.striche[i]);
     }
-    return null;
+    return liste;
   }
 
-  function zusammenhaengend(ersterStrich) {
-    // Was sich beruehrt, gehoert zusammen - sonst muesste man jeden Strich
-    // einer Zeichnung einzeln anfassen.
+  function zusammenhaengend(saat) {
+    // Nur noch auf Knopfdruck: was sich beruehrt, dazunehmen. Von allein
+    // passiert das nicht mehr - sonst bekommt man einen einzelnen Strich
+    // einer Zeichnung nie zu fassen.
     const z = malZeichnung();
     const grenzenVon = malGrenzen();
-    if (!z || !grenzenVon) return [ersterStrich];
-    const drin = [ersterStrich];
+    if (!z || !grenzenVon) return saat.slice();
+    const drin = saat.slice();
     let gewachsen = true;
     while (gewachsen) {
       gewachsen = false;
@@ -909,16 +922,37 @@
       if (!wahl) return;
       const p = stelleHier(ev);
       if (!p) return;
-      const treffer = strichBei(p.x, p.y);
-      if (!treffer) return;
+      const treffer = stricheBei(p.x, p.y);
+      if (!treffer.length) return;
       ev.preventDefault();
       ev.stopPropagation();
-      wahl.length = 0;
-      for (const st of zusammenhaengend(treffer)) wahl.push(st);
+
+      if (ev.shiftKey || ev.ctrlKey || ev.metaKey) {
+        // Dazunehmen oder wieder abwaehlen, ohne die uebrige Wahl zu verlieren.
+        const schon = wahl.indexOf(treffer[0]);
+        if (schon >= 0) wahl.splice(schon, 1); else wahl.push(treffer[0]);
+      } else {
+        // Zweimal an dieselbe Stelle: den naechsten darunter nehmen. So kommt
+        // man an einen Strich heran, ueber dem ein anderer liegt.
+        let naechster = treffer[0];
+        const nochmal = letzteStelle && Math.abs(letzteStelle.x - p.x) < 12
+                        && Math.abs(letzteStelle.y - p.y) < 12;
+        if (nochmal && wahl.length === 1) {
+          const wo = treffer.indexOf(wahl[0]);
+          if (wo >= 0) naechster = treffer[(wo + 1) % treffer.length];
+        }
+        wahl.length = 0;
+        wahl.push(naechster);
+      }
+      letzteStelle = { x: p.x, y: p.y };
       neuMalen();
       rahmenZeichnen();
-      malsagen(`${wahl.length} ${wahl.length === 1 ? 'Strich' : 'Striche'} markiert - `
-               + 'ziehen verschiebt, ✕ löscht.');
+      if (wahl.length === 1 && treffer.length > 1) {
+        malsagen('1 Strich markiert - nochmal doppelklicken nimmt den darunter.');
+      } else {
+        malsagen(`${wahl.length} ${wahl.length === 1 ? 'Strich' : 'Striche'} markiert - `
+                 + 'ziehen verschiebt, Griffe ändern die Größe, ✕ löscht.');
+      }
     }, true);
 
     // Ein Klick daneben hebt die Markierung auf - sonst bleibt der Rahmen
@@ -928,11 +962,25 @@
       if (!wahl || !wahl.length) return;
       if (ev.target && ev.target.closest && ev.target.closest('#malrahmen')) return;
       const p = stelleHier(ev);
-      if (p && strichBei(p.x, p.y)) return;
+      if (p && stricheBei(p.x, p.y).length) return;
+      letzteStelle = null;
       wahl.length = 0;
       neuMalen();
       rahmenZeichnen();
     }, true);
+  }
+
+  function auswahlErweitern() {
+    const wahl = malWahl();
+    if (!wahl) { malsagen('Die Auswahl ist von hier aus nicht erreichbar.'); return; }
+    if (!wahl.length) { malsagen('Nichts markiert - auf einen Strich doppelklicken.'); return; }
+    const alle = zusammenhaengend(wahl);
+    wahl.length = 0;
+    for (const st of alle) wahl.push(st);
+    letzteStelle = null;
+    neuMalen();
+    rahmenZeichnen();
+    malsagen(`${wahl.length} ${wahl.length === 1 ? 'Strich' : 'Striche'} markiert.`);
   }
 
   function auswahlLoeschen() {
@@ -974,21 +1022,38 @@
     // Ziehen verschiebt die markierten Striche - im Start-Reiter genauso wie
     // im Zeichnen-Reiter, weil hier nichts vom Werkzeug abhaengt.
     let zieht = null;
+    let zerrt = null;
     kasten.addEventListener('pointerdown', function (ev) {
       const wahl = malWahl();
       if (!wahl || !wahl.length) return;
       const p = stelleHier(ev);
       if (!p) return;
-      zieht = { x: p.x, y: p.y };
+      const griff = ev.target && ev.target.classList
+                    && ev.target.classList.contains('malgriff')
+                    ? GRIFFE.find((g) => ev.target.classList.contains('malgriff-' + g))
+                    : null;
+      if (griff) {
+        const g0 = wahlGrenzen();
+        if (!g0) return;
+        // Die Urpunkte einmal wegsichern: jede Bewegung rechnet von dort aus
+        // neu. Schrittweise skalieren wuerde Rundungsfehler aufschaukeln.
+        zerrt = {
+          griff, g0,
+          vorher: wahl.map((st) => ({ st, p: st.p.slice(), d: st.d })),
+        };
+      } else {
+        zieht = { x: p.x, y: p.y };
+      }
       kasten.setPointerCapture(ev.pointerId);
-      ev.preventDefault();
       ev.stopPropagation();
     });
     kasten.addEventListener('pointermove', function (ev) {
+      const p = stelleHier(ev);
+      if (!p) return;
+      if (zerrt) { groesseZiehen(p); return; }
       if (!zieht) return;
       const wahl = malWahl();
-      const p = stelleHier(ev);
-      if (!wahl || !p) return;
+      if (!wahl) return;
       const dx = p.x - zieht.x, dy = p.y - zieht.y;
       zieht.x = p.x; zieht.y = p.y;
       for (const st of wahl) {
@@ -998,22 +1063,56 @@
       rahmenZeichnen();
     });
     kasten.addEventListener('pointerup', function () {
-      if (!zieht) return;
+      if (!zieht && !zerrt) return;
       zieht = null;
+      zerrt = null;
+      letzteStelle = null;
       gemerkt();
     });
+
+    function groesseZiehen(p) {
+      const { x: sx, y: sy } = zerrfaktor(zerrt.griff, zerrt.g0, p);
+      const dick = (sx.f + sy.f) / 2;
+      for (const alt of zerrt.vorher) {
+        const neu = alt.st.p;
+        for (let i = 0; i < neu.length; i += 3) {
+          neu[i] = sx.anker + (alt.p[i] - sx.anker) * sx.f;
+          neu[i + 1] = sy.anker + (alt.p[i + 1] - sy.anker) * sy.f;
+        }
+        if (alt.d) alt.st.d = Math.max(1, alt.d * dick);
+      }
+      neuMalen();
+      rahmenZeichnen();
+    }
     grund.append(kasten);
     return kasten;
   }
 
-  function rahmenZeichnen() {
-    const grund = document.getElementById('flaeche');
+  /* Um wie viel sich die Auswahl streckt, wenn ein Griff an die Stelle p
+     gezogen wird: je Achse der feste Punkt und der Faktor dazu. Steht hier
+     ausserhalb des Rahmens, damit die Rechnung ohne Browser pruefbar ist -
+     ein verdrehtes Vorzeichen sieht man ihr sonst nicht an. */
+  function zerrfaktor(griff, g0, p) {
+    const achse = ANKER[griff] || {};
+    const je = (welche, jetzt) => {
+      const nameAnker = achse[welche];
+      if (!nameAnker) return { anker: 0, f: 1 };
+      const anker = g0[nameAnker];
+      const kante = g0[nameAnker === welche + '1' ? welche + '2' : welche + '1'];
+      const weite = kante - anker;
+      if (Math.abs(weite) < 1) return { anker, f: 1 };
+      // Nicht umklappen und nicht auf null zusammenfallen lassen - daraus
+      // kaeme man ohne Rueckgaengig nicht mehr heraus.
+      const f = (jetzt - anker) / weite;
+      return { anker, f: Math.max(f, 6 / Math.abs(weite)) };
+    };
+    return { x: je('x', p.x), y: je('y', p.y) };
+  }
+
+  function wahlGrenzen() {
     const wahl = malWahl();
     const grenzenVon = malGrenzen();
-    if (!grund || !wahl || !grenzenVon || !wahl.length) {
-      if (rahmen) rahmen.hidden = true;
-      return;
-    }
+    if (!wahl || !grenzenVon || !wahl.length) return null;
     let g = null;
     try {
       for (const st of wahl) {
@@ -1022,8 +1121,14 @@
                   x2: Math.max(g.x2, e.x2), y2: Math.max(g.y2, e.y2) }
               : { x1: e.x1, y1: e.y1, x2: e.x2, y2: e.y2 };
       }
-    } catch (f) { if (rahmen) rahmen.hidden = true; return; }
-    if (!g) { if (rahmen) rahmen.hidden = true; return; }
+    } catch (f) { return null; }
+    return g;
+  }
+
+  function rahmenZeichnen() {
+    const grund = document.getElementById('flaeche');
+    const g = wahlGrenzen();
+    if (!grund || !g) { if (rahmen) rahmen.hidden = true; return; }
 
     if (!rahmen || rahmen.parentElement !== grund) rahmen = rahmenBauen(grund);
     const luft = 8;
@@ -1043,13 +1148,18 @@
     const loeschen = el('button', { type: 'button', id: 'm-loeschen',
                                     title: 'Markierte Striche löschen', textContent: '🗑' });
     loeschen.addEventListener('click', auswahlLoeschen);
+    const gruppe = el('button', { type: 'button', id: 'm-gruppe',
+                                  title: 'Alles Zusammenhängende dazunehmen',
+                                  textContent: '⛓' });
+    gruppe.addEventListener('click', auswahlErweitern);
     const lasso = zeug.querySelector('.malwerkzeug[data-werkzeug="lasso"]');
     const trenner = el('span', { className: 'trenner' });
     if (lasso && lasso.nextSibling) {
       zeug.insertBefore(trenner, lasso.nextSibling);
-      zeug.insertBefore(loeschen, trenner.nextSibling);
+      zeug.insertBefore(gruppe, trenner.nextSibling);
+      zeug.insertBefore(loeschen, gruppe.nextSibling);
     } else {
-      zeug.append(trenner, loeschen);
+      zeug.append(trenner, gruppe, loeschen);
     }
   }
 
@@ -1644,28 +1754,31 @@
         width: 30px; height: 24px; padding: 0; border: 1px solid var(--linie);
         border-radius: 4px; background: none; cursor: pointer;
       }
-      /* Rahmen mit Griffen - wie man es aus Textverarbeitungen kennt. Die
-         Griffe zeigen nur an, dass hier etwas gefasst ist; Groesse aendern und
-         drehen koennen sie (noch) nicht. */
+      /* Rahmen mit Griffen - wie man es aus Textverarbeitungen kennt.
+         Ziehen am Rahmen verschiebt, Ziehen am Griff aendert die Groesse;
+         drehen geht noch nicht. */
       #malrahmen {
         position: absolute; z-index: 20; cursor: move;
         border: 1px dashed var(--schrift);
         background: color-mix(in srgb, var(--akzent) 6%, transparent);
-        touch-action: none;
+        touch-action: none; user-select: none; -webkit-user-select: none;
       }
       .malgriff {
-        position: absolute; width: 7px; height: 7px;
+        position: absolute; width: 9px; height: 9px;
         background: var(--papier); border: 1px solid var(--schrift);
-        pointer-events: none;
       }
-      .malgriff-nw { left: -4px; top: -4px; }
-      .malgriff-n  { left: calc(50% - 4px); top: -4px; }
-      .malgriff-no { right: -4px; top: -4px; }
-      .malgriff-w  { left: -4px; top: calc(50% - 4px); }
-      .malgriff-o  { right: -4px; top: calc(50% - 4px); }
-      .malgriff-sw { left: -4px; bottom: -4px; }
-      .malgriff-s  { left: calc(50% - 4px); bottom: -4px; }
-      .malgriff-so { right: -4px; bottom: -4px; }
+      .malgriff-nw, .malgriff-so { cursor: nwse-resize; }
+      .malgriff-no, .malgriff-sw { cursor: nesw-resize; }
+      .malgriff-n, .malgriff-s { cursor: ns-resize; }
+      .malgriff-w, .malgriff-o { cursor: ew-resize; }
+      .malgriff-nw { left: -5px; top: -5px; }
+      .malgriff-n  { left: calc(50% - 5px); top: -5px; }
+      .malgriff-no { right: -5px; top: -5px; }
+      .malgriff-w  { left: -5px; top: calc(50% - 5px); }
+      .malgriff-o  { right: -5px; top: calc(50% - 5px); }
+      .malgriff-sw { left: -5px; bottom: -5px; }
+      .malgriff-s  { left: calc(50% - 5px); bottom: -5px; }
+      .malgriff-so { right: -5px; bottom: -5px; }
       .malweg {
         position: absolute; right: -11px; top: -26px;
         width: 22px; height: 22px; padding: 0; line-height: 1;
@@ -1674,7 +1787,7 @@
         cursor: pointer; font-size: 12px;
       }
       .malweg:hover { border-color: var(--warnung); color: var(--warnung); }
-      #m-loeschen { font-size: 14px; }
+      #m-loeschen, #m-gruppe { font-size: 14px; }
       /* In der Oberflaeche heisst die Klasse fuers Schieben .schiebt, gesetzt
          wird aber .zieht - die Hand bekommt damit nie pointer-events und tut
          gar nichts. Hier geradegerueckt, bis es drueben behoben ist. */

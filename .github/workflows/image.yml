@@ -34,6 +34,7 @@ jobs:
           tools/desktop_holen.sh
           python tests/test_gleich.py
           python tests/test_server.py
+          python tests/test_zerren.py
 
   bauen:
     needs: pruefen
