@@ -2234,8 +2234,9 @@
   function updateHinweisBauen() {
     const nachsehen = async () => {
       try {
-        // Ohne frisch=1: der Server haelt die Antwort eine Stunde. Beim Laden
-        // der Seite soll nicht jedes Mal GitHub gefragt werden.
+        // Ohne frisch=1: der Server haelt die Antwort vier Minuten. So landet
+        // nicht jede Nachfrage bei GitHub, und trotzdem ist sie nie aelter
+        // als der Takt hier.
         const f = await hol('/fassung');
         if (!f || !f.neuer) return;
         let weg = null;
@@ -2246,8 +2247,13 @@
     };
     // Nicht sofort: erst soll die Oberflaeche stehen.
     setTimeout(nachsehen, 4000);
-    // Und waehrend des Tages noch einmal, fuer offen stehende Fenster.
-    setInterval(nachsehen, 6 * 3600 * 1000);
+    /* Und dann alle fuenf Minuten. Sechs Stunden waren zu selten: wer die
+       Seite einmal geladen hat und offen laesst, erfaehrt einen halben Tag
+       lang nichts - und wer sie direkt nach einem Update laedt, bekommt die
+       Antwort "das ist die neueste" und sieht danach nie wieder nach.
+       Der Server haelt die Antwort vier Minuten, es landet also hoechstens
+       jede fuenfte Minute eine Anfrage bei GitHub. */
+    setInterval(nachsehen, 5 * 60 * 1000);
   }
 
   // Beim Öffnen der Einstellungen neu laden - Rollen können sich geändert haben.

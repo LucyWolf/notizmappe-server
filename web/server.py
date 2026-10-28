@@ -837,7 +837,12 @@ def fassung(bitte: Request):
     frisch = bitte.query_params.get("frisch") == "1"
     alt_genug = jetzt - _fassung_geholt[0] >= 10
     if _fassung_geholt[1] and not (frisch and alt_genug):
-        if jetzt - _fassung_geholt[0] < 3600:
+        # Vier Minuten. Eine Stunde war zu lang: die Oberflaeche sieht alle
+        # fuenf Minuten nach, bekaeme aber bis zu einer Stunde lang die alte
+        # Antwort - und waehrend dieser Stunde erfaehrt niemand von einer neuen
+        # Fassung. Bei GitHub sind das hoechstens 15 Anfragen je Stunde, die
+        # Grenze ohne Anmeldung liegt bei 60.
+        if jetzt - _fassung_geholt[0] < 240:
             return _fassung_geholt[1]
 
     stand = {"laeuft": FASSUNG, "oberflaeche": DESKTOP_FASSUNG,
