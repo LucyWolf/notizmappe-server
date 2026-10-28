@@ -180,6 +180,22 @@ pruefe("der Klassenfehler .zieht/.schiebt besteht drueben noch",
        "zieht" in js_setzt and "zieht" not in stil_kennt,
        f"Stil: {sorted(stil_kennt)}, JS: {sorted(js_setzt)}")
 
+# --- Rahmen aufziehen und Strg+A -----------------------------------------
+#
+# Das Lasso drueben kann nur im Zeichnen-Reiter markieren: ausserhalb faengt
+# das Blatt keine Zeiger. Deshalb ein eigener Rahmen - der aber nichts anfassen
+# darf, was auf dem Blatt liegt, sonst funkt er dem Werkzeug dazwischen.
+pruefe("der Rahmen laesst das Blatt in Ruhe",
+       bool(re.search(r"closest\('#malblatt, \.text", shim)))
+pruefe("der Rahmen nimmt Striche nach ihren Punkten, nicht nach den Grenzen",
+       "function strichImKasten" in shim)
+# Strg+A im Text gehoert dem Browser - sonst markiert es statt der Zeilen die
+# Striche, und man bekommt seinen eigenen Text nicht mehr kopiert.
+pruefe("Strg+A laesst den Text dem Browser",
+       bool(re.search(r"closest\('\[contenteditable\], input, textarea'\)\) return;", shim)))
+pruefe("Strg+A ausserhalb markiert alle Striche",
+       bool(re.search(r"toLowerCase\(\) !== 'a'\) return;", shim)))
+
 # --- Eigenes Profil im Fenster, Verwaltung nur in der Datei-Ebene --------
 #
 # Zwei verschiedene Dinge: im Profil geht es um einen selbst, in der Verwaltung

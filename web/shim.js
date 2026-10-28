@@ -955,6 +955,18 @@
     return liste;
   }
 
+  // Ein Strich gehoert dazu, sobald einer seiner Punkte im Rahmen liegt. Nach
+  // den Grenzen zu gehen waere ungenau: ein langer schraeger Strich hat einen
+  // riesigen Kasten und wuerde mitgehen, obwohl er gar nicht hineinragt.
+  function strichImKasten(st, k) {
+    for (let i = 0; i < st.p.length; i += 3) {
+      if (st.p[i] >= k.x1 && st.p[i] <= k.x2 && st.p[i + 1] >= k.y1 && st.p[i + 1] <= k.y2) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   function zusammenhaengend(saat) {
     // Nur noch auf Knopfdruck: was sich beruehrt, dazunehmen. Von allein
     // passiert das nicht mehr - sonst bekommt man einen einzelnen Strich
@@ -1058,11 +1070,103 @@
       }
     }, true);
 
+    /* Rahmen aufziehen. Das Lasso drueben kann das auch - aber nur im
+       Zeichnen-Reiter, weil das Blatt sonst keine Zeiger faengt. Hier wird
+       deshalb selbst gerechnet, wie beim Doppelklick.
+
+       Angefasst wird nur der leere Grund: liegt der Zeiger auf dem Blatt,
+       zeichnet drueben das Werkzeug, und dem wird nicht dazwischengefunkt. */
+    let band = null;
+    let bandkasten = null;
+
+    document.addEventListener('pointerdown', function (ev) {
+      if (ev.button !== 0 || ev.pointerType !== 'mouse') return;
+      if (!malZeichnung() || !malWahl()) return;
+      if (ev.target && ev.target.closest
+          && ev.target.closest('#malblatt, .text, input, select, textarea, button, '
+                               + '#band, #dateischirm, #malrahmen, #minileiste, #rechtsmenue')) {
+        return;
+      }
+      const grund = document.getElementById('flaeche');
+      if (!grund || !grund.contains(ev.target)) return;
+      const p = stelleHier(ev);
+      if (!p) return;
+      band = { x: p.x, y: p.y, auf: false, dazu: ev.shiftKey || ev.ctrlKey || ev.metaKey };
+    });
+
+    document.addEventListener('pointermove', function (ev) {
+      if (!band) return;
+      const p = stelleHier(ev);
+      if (!p) return;
+      // Erst ab ein paar Bildpunkten ein Rahmen - sonst flackert bei jedem
+      // Klick kurz einer auf.
+      if (!band.auf && Math.abs(p.x - band.x) < 4 && Math.abs(p.y - band.y) < 4) return;
+      band.auf = true;
+      const grund = document.getElementById('flaeche');
+      if (!bandkasten || bandkasten.parentElement !== grund) {
+        bandkasten = el('div', { id: 'malband' });
+        grund.append(bandkasten);
+      }
+      bandkasten.hidden = false;
+      bandkasten.style.left = Math.min(band.x, p.x) + 'px';
+      bandkasten.style.top = Math.min(band.y, p.y) + 'px';
+      bandkasten.style.width = Math.abs(p.x - band.x) + 'px';
+      bandkasten.style.height = Math.abs(p.y - band.y) + 'px';
+    });
+
+    document.addEventListener('pointerup', function (ev) {
+      if (!band) return;
+      const auf = band.auf, dazu = band.dazu, start = band;
+      band = null;
+      if (bandkasten) bandkasten.hidden = true;
+      if (!auf) return;                       // ein Klick, kein Rahmen
+      const p = stelleHier(ev);
+      const wahl = malWahl();
+      const z = malZeichnung();
+      if (!p || !wahl || !z) return;
+      const kasten = { x1: Math.min(start.x, p.x), y1: Math.min(start.y, p.y),
+                       x2: Math.max(start.x, p.x), y2: Math.max(start.y, p.y) };
+      if (!dazu) wahl.length = 0;
+      for (const st of z.striche) {
+        if (wahl.includes(st)) continue;
+        if (strichImKasten(st, kasten)) wahl.push(st);
+      }
+      letzteStelle = null;
+      neuMalen();
+      rahmenZeichnen();
+      malsagen(wahl.length
+        ? `${wahl.length} ${wahl.length === 1 ? 'Strich' : 'Striche'} markiert - `
+          + 'ziehen verschiebt, Griffe ändern die Größe, ✕ löscht.'
+        : 'Nichts in diesem Rahmen.');
+    });
+
+    /* Strg+A. Im Text kann der Browser das selbst - dort nicht hineinfunken,
+       sonst markiert es statt der Zeilen das ganze Blatt. Ausserhalb gibt es
+       nichts, was es taete: dann alle Striche. */
+    document.addEventListener('keydown', function (ev) {
+      if (!(ev.ctrlKey || ev.metaKey) || (ev.key || '').toLowerCase() !== 'a') return;
+      if (ev.target && ev.target.closest
+          && ev.target.closest('[contenteditable], input, textarea')) return;
+      const wahl = malWahl();
+      const z = malZeichnung();
+      if (!wahl || !z || !z.striche || !z.striche.length) return;
+      ev.preventDefault();
+      wahl.length = 0;
+      for (const st of z.striche) wahl.push(st);
+      letzteStelle = null;
+      neuMalen();
+      rahmenZeichnen();
+      malsagen(`Alle ${wahl.length} Striche markiert - ziehen verschiebt, ✕ löscht.`);
+    });
+
     // Ein Klick daneben hebt die Markierung auf - sonst bleibt der Rahmen
     // stehen und man weiss nicht, warum Entf noch etwas loescht.
     document.addEventListener('pointerdown', function (ev) {
       const wahl = malWahl();
       if (!wahl || !wahl.length) return;
+      // Mit Umschalt wird dazugenommen - dann darf hier nichts geleert werden,
+      // sonst zieht man einen Rahmen auf eine leere Auswahl.
+      if (ev.shiftKey || ev.ctrlKey || ev.metaKey) return;
       if (ev.target && ev.target.closest && ev.target.closest('#malrahmen')) return;
       const p = stelleHier(ev);
       if (p && stricheBei(p.x, p.y).length) return;
@@ -1932,6 +2036,11 @@
       .malgriff {
         position: absolute; width: 9px; height: 9px;
         background: var(--papier); border: 1px solid var(--schrift);
+      }
+      #malband {
+        position: absolute; z-index: 19; pointer-events: none;
+        border: 1px dashed var(--akzent);
+        background: color-mix(in srgb, var(--akzent) 10%, transparent);
       }
       .malgriff-nw, .malgriff-so { cursor: nwse-resize; }
       .malgriff-no, .malgriff-sw { cursor: nesw-resize; }
