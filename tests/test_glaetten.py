@@ -11,6 +11,9 @@ Linie auf dem Bildschirm ruhiger ist.
 Deshalb zwei ehrliche Maße, beide entlang der Strecken abgetastet:
 * **Treue** - mittlerer Abstand zur Kurve, die die Hand gemeint hat.
 * **Wackeln** - mittlere Richtungsänderung je Bildpunkt Weg.
+* **Knick** - größte Richtungsänderung an einem einzelnen Punkt. Das ist das
+  Maß für „kantig": ein stehengebliebener Knick von 35 Grad ist genau die
+  Kante, die man sieht.
 
 Glätten muss das Wackeln deutlich senken, ohne die Treue zu verschlechtern.
 """
@@ -79,6 +82,21 @@ function treue(g) {
   }
   return s / n;
 }
+// Groesster und mittlerer Knick an einem Punkt, in Grad.
+function kanten(g) {
+  let max = 0, s = 0, n = 0;
+  for (let i = 3; i < g.length - 3; i += 3) {
+    const a = Math.atan2(g[i + 1] - g[i - 2], g[i] - g[i - 3]);
+    const b = Math.atan2(g[i + 4] - g[i + 1], g[i + 3] - g[i]);
+    let d = Math.abs(b - a);
+    if (d > Math.PI) d = 2 * Math.PI - d;
+    d *= 180 / Math.PI;
+    max = Math.max(max, d);
+    s += d;
+    n++;
+  }
+  return [max, n ? s / n : 0];
+}
 function wackeln(g) {
   let w = 0, l = 0;
   for (let i = 3; i < g.length - 3; i += 3) {
@@ -96,10 +114,12 @@ const ecke = [];
 for (let i = 0; i <= 100; i++) ecke.push(i, 0, 0.5);
 for (let i = 1; i <= 100; i++) ecke.push(100, i, 0.5);
 
-const raus = { roh: { treue: treue(echt), wackeln: wackeln(echt), punkte: echt.length / 3 } };
+const raus = { roh: { treue: treue(echt), wackeln: wackeln(echt), punkte: echt.length / 3,
+                      knick: kanten(echt)[0], knick_mittel: kanten(echt)[1] } };
 for (const stufe of ['aus', 'leicht', 'stark']) {
   const g = geglaettet(echt.slice(), stufe);
   raus[stufe] = { treue: treue(g), wackeln: wackeln(g), punkte: g.length / 3,
+                  knick: kanten(g)[0], knick_mittel: kanten(g)[1],
                   anfang: [g[0], g[1]], ende: [g[g.length - 3], g[g.length - 2]],
                   druck: g.filter((w, i) => i % 3 === 2),
                   teilbar: g.length % 3 === 0 };
@@ -130,18 +150,22 @@ if fehler:
 d = json.loads(lauf.stdout)
 roh = d["roh"]
 print(f"        gezogen: Treue {roh['treue']:.3f}, Wackeln {roh['wackeln']:.4f}, "
-      f"{roh['punkte']} Punkte")
+      f"Knick bis {roh['knick']:.0f}°, {roh['punkte']} Punkte")
 
 pruefe("'aus' ruehrt nichts an",
        d["aus"]["punkte"] == roh["punkte"] and abs(d["aus"]["wackeln"] - roh["wackeln"]) < 1e-9)
 
-for stufe, wackel_ziel, ecke_luft in (("leicht", 0.6, 4.0), ("stark", 0.2, 12.0)):
+for stufe, wackel_ziel, knick_ziel, ecke_luft in (("leicht", 0.25, 24.0, 4.0),
+                                                  ("stark", 0.1, 8.0, 12.0)):
     g = d[stufe]
     print(f"        {stufe}: Treue {g['treue']:.3f}, Wackeln {g['wackeln']:.4f}, "
+          f"Knick bis {g['knick']:.0f}° (im Mittel {g['knick_mittel']:.1f}°), "
           f"{g['punkte']} Punkte")
     pruefe(f"'{stufe}' nimmt das Wackeln heraus",
            g["wackeln"] < wackel_ziel * roh["wackeln"],
            f"{g['wackeln']:.4f} statt unter {wackel_ziel * roh['wackeln']:.4f}")
+    pruefe(f"'{stufe}' laesst keine Kanten stehen",
+           g["knick"] < knick_ziel, f"groesster Knick {g['knick']:.1f}°")
     pruefe(f"'{stufe}' trifft die gemeinte Kurve nicht schlechter",
            g["treue"] <= roh["treue"] + 0.02, f"{g['treue']:.3f} gegen {roh['treue']:.3f}")
     pruefe(f"'{stufe}' braucht nicht mehr Punkte als der gezogene Strich",
@@ -157,7 +181,9 @@ for stufe, wackel_ziel, ecke_luft in (("leicht", 0.6, 4.0), ("stark", 0.2, 12.0)
     pruefe(f"'{stufe}' behaelt beide Enden der Ecke",
            g["ecke_enden"] == [0, 0, 100, 100])
 
-pruefe("'stark' glaettet staerker als 'leicht'", d["stark"]["wackeln"] < d["leicht"]["wackeln"])
+pruefe("'stark' glaettet staerker als 'leicht'",
+       d["stark"]["wackeln"] < d["leicht"]["wackeln"]
+       and d["stark"]["knick"] < d["leicht"]["knick"])
 pruefe("ein zu kurzer Strich bleibt, wie er ist", d["kurz"] == [1, 2, 0.5, 3, 4, 0.5])
 
 shutil.rmtree(ordner, ignore_errors=True)

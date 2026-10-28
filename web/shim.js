@@ -878,20 +878,25 @@
   function geglaettet(p, stufe) {
     if (stufe === 'aus' || !p || p.length < 9) return p;
     const stark = stufe === 'stark';
-    let neu = ausduennen(p, stark ? 1.4 : 0.6);
-    const runden = stark ? 3 : 2;
+    let neu = ausduennen(p, stark ? 1.4 : 1.0);
+    // Jeder Durchgang halbiert den Knick an einer Ecke. Zwei waren zu wenig -
+    // gemessen blieben Knicke von 35 Grad stehen, und genau die sieht man als
+    // Kanten. Mit vier bis fuenf sind es unter 20 beziehungsweise 5 Grad.
+    const runden = stark ? 5 : 4;
     for (let i = 0; i < runden; i++) {
       // Nicht ueber die Grenze drueben hinaus wachsen lassen: ab MAX_PUNKTE
       // faengt dort ein neuer Strich an.
       if (neu.length * 2 > 1400 * 3) break;
-      neu = ecken_runden(neu, stark ? 4 : 2.5);
+      neu = ecken_runden(neu, stark ? 4 : 3);
     }
     // Nach dem Runden liegen viele Punkte fast auf einer Geraden. Die koennen
     // weg - sonst hat ein geglaetteter Strich mehr Punkte als der gezogene.
     // Nur ganz knapp: mit 0.25 waehlt das Ausduennen wieder die Ausreisser und
     // zieht gerade Strecken dazwischen - gemessen war das Wackeln danach so
-    // gross wie vorher. 0.12 laesst die Form stehen.
-    neu = ausduennen(neu, 0.12);
+    // gross wie vorher. Auch 0.12 holt noch Kanten zurueck; was hier
+    // weggeworfen wird, weicht jetzt um weniger als ein Zwanzigstel Bildpunkt
+    // ab und ist auf keinem Bildschirm zu sehen.
+    neu = ausduennen(neu, stark ? 0.04 : 0.05);
     // Genauso runden wie drueben beim Ablegen - zwei Nachkommastellen beim
     // Druck, eine bei den Punkten. Sonst blaeht das Glaetten die Datei auf.
     return neu.map((w, i) => (i % 3 === 2 ? Math.round(w * 100) / 100
@@ -1276,11 +1281,26 @@
       const stufe = glattStufe();
       knopf.classList.toggle('an', stufe !== 'aus');
       knopf.dataset.stufe = stufe;
-      knopf.title = { aus: 'Glätten aus - klicken für leicht',
-                      leicht: 'Glätten leicht - klicken für stark',
-                      stark: 'Glätten stark - klicken für aus' }[stufe];
+      knopf.title = ({ aus: 'Glätten aus - klicken für leicht',
+                       leicht: 'Glätten leicht - klicken für stark',
+                       stark: 'Glätten stark - klicken für aus' }[stufe])
+                    + ' (mit Markierung: die markierten Striche glätten)';
     };
     knopf.addEventListener('click', function () {
+      // Ist etwas markiert, gilt der Knopf dem Markierten: so kommt auch ein
+      // schon gemalter Strich noch zu seiner Rundung. Sonst waere das Glaetten
+      // nur fuer alles Kuenftige da.
+      const wahl = malWahl();
+      if (wahl && wahl.length) {
+        const stufe = glattStufe() === 'aus' ? 'leicht' : glattStufe();
+        for (const st of wahl) st.p = geglaettet(st.p, stufe);
+        neuMalen();
+        rahmenZeichnen();
+        gemerkt();
+        malsagen(`${wahl.length} ${wahl.length === 1 ? 'Strich' : 'Striche'} geglättet `
+                 + `(${stufe}). Ohne Markierung stellt der Knopf die Stufe um.`);
+        return;
+      }
       const jetzt = GLATT_STUFEN[(GLATT_STUFEN.indexOf(glattStufe()) + 1) % GLATT_STUFEN.length];
       try { localStorage.setItem(GLATT_SCHLUESSEL, jetzt); } catch (f) { /* dann eben nur jetzt */ }
       zeigen();
