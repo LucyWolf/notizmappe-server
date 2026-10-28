@@ -180,6 +180,24 @@ pruefe("der Klassenfehler .zieht/.schiebt besteht drueben noch",
        "zieht" in js_setzt and "zieht" not in stil_kennt,
        f"Stil: {sorted(stil_kennt)}, JS: {sorted(js_setzt)}")
 
+# --- Eigenes Profil im Fenster, Verwaltung nur in der Datei-Ebene --------
+#
+# Zwei verschiedene Dinge: im Profil geht es um einen selbst, in der Verwaltung
+# um andere Leute. Das Profil ist deshalb ein Fenster und kein Reiter, und in
+# das Menue unten gehoert die Verwaltung nicht - sonst gibt es zwei Wege zur
+# selben Seite, und einer davon fuehrt an der Datei-Ebene vorbei.
+pruefe("das Profil ist ein Fenster", "el('dialog', { id: 'profilfenster' }" in shim)
+pruefe("der Menuepunkt oeffnet es", "punkt('Mein Profil', profilOeffnen)" in shim)
+pruefe("und legt keinen Reiter mehr an", 'data-punkt="profil"' not in shim)
+pruefe("die Benutzerverwaltung steht nicht im Profilmenue",
+       "Benutzer verwalten" not in shim)
+pruefe("sie haengt weiter an der Konto-Seite der Datei-Ebene",
+       bool(re.search(r"function abschnittBauen\(\) \{\s*const konto = kontoseite\(\);", shim)))
+# Das Design hing am Profil: als Reiter wurde es beim Start mitgebaut, als
+# Fenster erst beim Oeffnen - bis dahin saesse man im Standarddesign.
+pruefe("das Design wird beim Start geladen, nicht erst mit dem Profil",
+       "['Aussehen', themaLaden]" in shim)
+
 # --- Von allein auf Updates hinweisen ------------------------------------
 #
 # Dass es eine neue Fassung gibt, stand vorher nur in den Einstellungen hinter

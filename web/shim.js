@@ -1306,24 +1306,37 @@
     glattKnopfBauen(zeug);
   }
 
-  function profilseite() {
-    const vorhanden = document.querySelector('.dateiseite[data-punkt="profil"]');
+  /* Das eigene Profil ist ein Fenster, kein Reiter.
+
+     Als Reiter lag es neben der Benutzerverwaltung in der Datei-Ebene - zwei
+     Dinge nebeneinander, die nichts miteinander zu tun haben: dort geht es um
+     andere Leute, hier um einen selbst. Und wer nur sein Passwort aendern
+     will, musste dafuer die ganze Datei-Ebene aufmachen. */
+  function profilfenster() {
+    const vorhanden = document.getElementById('profilfenster');
     if (vorhanden) return vorhanden;
-    const leiste = document.getElementById('dateileiste');
-    const konto = kontoseite();
-    if (!leiste || !konto) return null;
 
-    const reiter = el('button', { type: 'button', className: 'dateipunkt',
-                                  textContent: 'Mein Profil' });
-    reiter.dataset.punkt = 'profil';
-    leiste.insertBefore(reiter, leiste.querySelector('.dateipunkt[data-punkt="konto"]'));
-
-    const seite = el('section', { className: 'dateiseite', hidden: true }, [
-      el('h2', { textContent: 'Mein Profil' }),
+    const zu = el('button', { type: 'button', id: 'profilzu', title: 'Schließen',
+                              textContent: '✕' });
+    const fenster = el('dialog', { id: 'profilfenster' }, [
+      el('div', { id: 'profilkopfzeile' }, [el('h2', { textContent: 'Mein Profil' }), zu]),
     ]);
-    seite.dataset.punkt = 'profil';
-    konto.parentElement.insertBefore(seite, konto);
-    return seite;
+    zu.addEventListener('click', () => fenster.close());
+    // Klick auf den dunklen Rand schliesst auch - das Fenster selbst faengt
+    // seine eigenen Klicks ab.
+    fenster.addEventListener('click', function (ev) {
+      if (ev.target === fenster) fenster.close();
+    });
+    document.body.append(fenster);
+    return fenster;
+  }
+
+  function profilOeffnen() {
+    const fenster = profilfenster();
+    if (!fenster) return;
+    profilDatenLaden();
+    if (typeof fenster.showModal === 'function') fenster.showModal();
+    else fenster.setAttribute('open', 'open');
   }
 
   /* -------------------------------------------------------------- Mein Profil
@@ -1334,7 +1347,7 @@
      aendern konnte. */
 
   function profilBearbeitenBauen() {
-    const seite = profilseite();
+    const seite = profilfenster();
     if (!seite || document.getElementById('profilteil')) return;
 
     const wer = el('p', { className: 'zeile2' }, [
@@ -1438,7 +1451,6 @@
       el('h3', { textContent: 'Sitzung', style: 'margin-top:14px' }),
       el('p', { className: 'knoepfe' }, [abmelden]),
     ]));
-    profilDatenLaden();
   }
 
   async function profilDatenLaden() {
@@ -1618,24 +1630,15 @@
       return k;
     }
 
-    function dateiPunktOeffnen(welcher) {
-      // Erst die Datei-Ebene aufmachen (das kann nur die Oberflaeche selbst,
-      // ueber das versteckte Zahnrad), dann auf den Reiter wechseln.
-      zahnrad.click();
-      const ziel = document.querySelector('.dateipunkt[data-punkt="' + welcher + '"]');
-      if (ziel) ziel.click();
-    }
-
-    // Nur das Eigene. Benutzerverwaltung, Projekte und Einladungen sind
-    // etwas anderes - die stehen unter "Konto" und gehen Gaeste nichts an.
+    // Nur das Eigene. Die Benutzerverwaltung steht in der Datei-Ebene unter
+    // "Konto" und nur dort - sie gehoert zum Server, nicht zum eigenen Zugang,
+    // und zwei Wege zur selben Seite sind einer zu viel.
     menue.append(
       el('p', { id: 'profilkopf' }, [
         el('strong', { id: 'profilwer', textContent: '…' }),
         el('span', { id: 'profilrolle', className: 'hinweis' }),
       ]),
-      punkt('Mein Profil', function () { dateiPunktOeffnen('profil'); }),
-      el('p', { id: 'profil-verwalten', hidden: true },
-         [punkt('Benutzer verwalten', function () { dateiPunktOeffnen('konto'); })]),
+      punkt('Mein Profil', profilOeffnen),
       punkt('Abmelden', function () { location.href = '/abmelden'; }),
     );
 
@@ -1667,8 +1670,6 @@
     document.getElementById('profilrolle').textContent =
       rechte.indexOf('benutzer') >= 0 ? 'Verwalter'
         : (rechte.indexOf('schreiben') >= 0 ? 'Benutzer' : 'Gast');
-    const verwalten = document.getElementById('profil-verwalten');
-    if (verwalten) verwalten.hidden = rechte.indexOf('benutzer') < 0;
   }
 
   function abschnittBauen() {
@@ -1863,6 +1864,28 @@
       #ablageteil button:hover { border-color: var(--akzent); }
       #ablageteil .hinweis { color: var(--matt); font-size: 12px; margin: 8px 0 0; }
       #ablageteil h3 { margin: 0 0 10px; }
+      /* Das Profilfenster. Farben aus der Oberflaeche - ein <dialog> bringt
+         sonst Weiss und einen hellen Rand mit. */
+      #profilfenster {
+        width: min(560px, calc(100vw - 32px)); max-height: calc(100vh - 64px);
+        padding: 0 20px 20px; border: 1px solid var(--linie); border-radius: 12px;
+        background: var(--papier); color: var(--schrift);
+        box-shadow: 0 12px 48px rgba(0, 0, 0, .45);
+      }
+      #profilfenster::backdrop { background: rgba(0, 0, 0, .5); }
+      #profilkopfzeile {
+        position: sticky; top: 0; z-index: 1;
+        display: flex; align-items: center; justify-content: space-between;
+        gap: 12px; padding: 16px 0 10px; background: var(--papier);
+        border-bottom: 1px solid var(--linie);
+      }
+      #profilkopfzeile h2 { margin: 0; font-size: 16px; }
+      #profilzu {
+        width: 28px; height: 28px; padding: 0; line-height: 1;
+        border: 1px solid var(--linie); border-radius: 50%;
+        background: var(--leiste); color: var(--schrift); cursor: pointer;
+      }
+      #profilzu:hover { border-color: var(--akzent); }
       #profilteil .ordnerzeile { display: flex; gap: 8px; margin: 10px 0 4px; flex-wrap: wrap; }
       #profilteil input[type="password"] {
         flex: 1; min-width: 0; padding: 4px 8px;
@@ -1937,7 +1960,6 @@
          wird aber .zieht - die Hand bekommt damit nie pointer-events und tut
          gar nichts. Hier geradegerueckt, bis es drueben behoben ist. */
       #malblatt.zieht { pointer-events: auto; cursor: grab; }
-      #profil-verwalten { margin: 0; }
       #ablage-stand code { color: var(--schrift); }
       #serververwaltung h3 {
         margin: 22px 0 8px; font-size: 13px; text-transform: uppercase;
@@ -2130,6 +2152,7 @@
                                ['Bereichswahl', bereichBauen],
                                ['Profil', profilBauen],
                                ['Mein Profil', profilBearbeitenBauen],
+                               ['Aussehen', themaLaden],
                                ['Speicher', ablageBauen],
                                ['Striche markieren', strichMarkierenBauen],
                                ['Update-Hinweis', updateHinweisBauen],
