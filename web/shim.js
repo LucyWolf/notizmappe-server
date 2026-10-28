@@ -561,48 +561,15 @@
       jetzt.addEventListener('click', async () => {
         const hinweis = document.getElementById('e-updatehinweis');
         jetzt.disabled = true;
-        hinweis.textContent = 'wird geholt und geprüft … das dauert einen Moment.';
+        const melden = (t) => { hinweis.textContent = t; };
         try {
-          const d = await hol('/aktualisieren', {});
-          hinweis.textContent = d.hinweis || '';
-          if (d.getan) warten(d.fassung);
-          else jetzt.disabled = false;
+          if (!await updateStarten(melden)) jetzt.disabled = false;
         } catch (f) {
           hinweis.textContent = f.message;
           jetzt.disabled = false;
         }
       });
 
-      // Nach dem Neustart ist der Server ein paar Sekunden weg.
-      //
-      // Hier auf "antwortet wieder" zu warten, waere falsch - und zwar auf eine
-      // Art, die wie ein fehlgeschlagenes Update aussieht: der alte Prozess
-      // lebt noch gut eine Sekunde weiter und antwortet brav. Die Seite laedt
-      // dann neu, waehrend noch die alte Fassung laeuft, und man sieht
-      // unveraendert die alte Nummer.
-      //
-      // Deshalb wird auf die FASSUNG gewartet, nicht auf ein Lebenszeichen.
-      function warten(fassung) {
-        const hinweis = document.getElementById('e-updatehinweis');
-        let versuche = 0;
-        hinweis.textContent = `Fassung ${fassung} liegt bereit, der Server startet neu …`;
-        const uhr = setInterval(async () => {
-          versuche += 1;
-          try {
-            const antwort = await fetch('/fassung', { cache: 'no-store' });
-            if (antwort.ok) {
-              const d = await antwort.json();
-              if (d.laeuft === fassung) { clearInterval(uhr); location.reload(); return; }
-            }
-          } catch (f) { /* noch unterwegs, das ist der Normalfall */ }
-          if (versuche > 40) {
-            clearInterval(uhr);
-            hinweis.textContent = 'Der Server ist nicht mit der neuen Fassung '
-              + 'zurückgekommen. Im Protokoll nachsehen: '
-              + 'docker compose logs --tail 40 notizmappe';
-          }
-        }, 1500);
-      }
 
       version.append(el('p', { className: 'knoepfe' }, [knopf, jetzt, kopieren]), befehl);
       const stil = document.createElement('style');
@@ -2041,8 +2008,115 @@
         background: var(--flaeche, var(--papier)); border: 1px solid var(--linie);
         border-radius: 6px; padding: 5px 8px; text-align: center; user-select: all;
       }
-      #v-meldung { color: var(--matt); font-size: 12px; margin-top: 10px; }`;
+      #v-meldung { color: var(--matt); font-size: 12px; margin-top: 10px; }
+      /* Der Balken sitzt ueber allem, aber unten rechts - nicht im Weg und
+         nicht zu uebersehen. */
+      #updatebalken {
+        position: fixed; right: 16px; bottom: 16px; z-index: 60;
+        display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+        max-width: min(460px, calc(100vw - 32px));
+        padding: 10px 12px; border-radius: 10px;
+        border: 1px solid var(--akzent); background: var(--papier);
+        color: var(--schrift); font-size: 13px;
+        box-shadow: 0 6px 24px rgba(0, 0, 0, .35);
+      }
+      #updatebalken button {
+        border: 1px solid var(--linie); background: var(--leiste); color: var(--schrift);
+        border-radius: 6px; padding: 5px 10px; cursor: pointer; font: inherit; font-size: 13px;
+      }
+      #u-jetzt { border-color: var(--akzent); }
+      #u-jetzt:hover:not(:disabled) { background: var(--akzent); color: var(--papier); }
+      #updatebalken button:disabled { opacity: .6; cursor: default; }
+      #u-text { flex: 1 1 200px; }`;
     document.head.append(stil);
+  }
+
+  /* ---- Updates -----------------------------------------------------------
+
+     Nach dem Neustart ist der Server ein paar Sekunden weg.
+
+     Hier auf "antwortet wieder" zu warten, waere falsch - und zwar auf eine
+     Art, die wie ein fehlgeschlagenes Update aussieht: der alte Prozess lebt
+     noch gut eine Sekunde weiter und antwortet brav. Die Seite laedt dann neu,
+     waehrend noch die alte Fassung laeuft, und man sieht unveraendert die alte
+     Nummer. Deshalb wird auf die FASSUNG gewartet, nicht auf ein Lebenszeichen. */
+  function updateWarten(fassung, melden) {
+    let versuche = 0;
+    melden(`Fassung ${fassung} liegt bereit, der Server startet neu …`);
+    const uhr = setInterval(async () => {
+      versuche += 1;
+      try {
+        const antwort = await fetch('/fassung', { cache: 'no-store' });
+        if (antwort.ok) {
+          const d = await antwort.json();
+          if (d.laeuft === fassung) { clearInterval(uhr); location.reload(); return; }
+        }
+      } catch (f) { /* noch unterwegs, das ist der Normalfall */ }
+      if (versuche > 40) {
+        clearInterval(uhr);
+        melden('Der Server ist nicht mit der neuen Fassung zurückgekommen. '
+               + 'Er läuft weiter mit der alten - nachsehen lohnt sich im Protokoll '
+               + 'des Containers.');
+      }
+    }, 1500);
+  }
+
+  async function updateStarten(melden) {
+    melden('wird geholt und geprüft … das dauert einen Moment.');
+    const d = await hol('/aktualisieren', {});
+    if (d.getan) { updateWarten(d.fassung, melden); return true; }
+    melden(d.hinweis || 'Es gab nichts zu holen.');
+    return false;
+  }
+
+  /* Von allein sagen, dass es etwas Neues gibt. Vorher stand die Auskunft nur
+     in den Einstellungen unter "Nach Updates sehen" - wer nicht nachsieht,
+     erfaehrt nichts und bleibt auf einer alten Fassung sitzen.
+
+     Der Balken sagt nicht nur Bescheid, er bringt den Knopf gleich mit: eine
+     Meldung, die ein Problem nur beschreibt, nimmt einem die Arbeit nicht ab. */
+  const UPDATE_WEG = 'notizmappe.updateweg';
+
+  function updateBalken(f) {
+    const schon = document.getElementById('updatebalken');
+    if (schon) schon.remove();
+    const melden = (t) => { const z = document.getElementById('u-text'); if (z) z.textContent = t; };
+    const text = el('span', { id: 'u-text',
+                              textContent: `Fassung ${f.neueste} ist da - hier läuft ${f.laeuft}.` });
+    const jetzt = el('button', { type: 'button', id: 'u-jetzt', textContent: 'Jetzt aktualisieren' });
+    const weg = el('button', { type: 'button', id: 'u-spaeter', title: 'Für diese Fassung nicht mehr fragen',
+                               textContent: 'Später' });
+    const balken = el('div', { id: 'updatebalken' }, [text, jetzt, weg]);
+    jetzt.addEventListener('click', async () => {
+      jetzt.disabled = weg.disabled = true;
+      try { if (!await updateStarten(melden)) jetzt.disabled = false; }
+      catch (fehler) { melden(fehler.message); jetzt.disabled = false; }
+      weg.disabled = false;
+    });
+    weg.addEventListener('click', () => {
+      try { localStorage.setItem(UPDATE_WEG, f.neueste); } catch (e2) { /* dann eben nur jetzt */ }
+      balken.remove();
+    });
+    document.body.append(balken);
+  }
+
+  function updateHinweisBauen() {
+    const nachsehen = async () => {
+      try {
+        // Ohne frisch=1: der Server haelt die Antwort eine Stunde. Beim Laden
+        // der Seite soll nicht jedes Mal GitHub gefragt werden.
+        const f = await hol('/fassung');
+        if (!f || !f.neuer) return;
+        let weg = null;
+        try { weg = localStorage.getItem(UPDATE_WEG); } catch (e2) { /* egal */ }
+        if (weg === f.neueste) return;
+        updateBalken(f);
+      } catch (fehler) { /* nicht angemeldet oder kein Netz - dann eben nicht */ }
+    };
+    // Nicht sofort: erst soll die Oberflaeche stehen.
+    setTimeout(nachsehen, 4000);
+    // Und waehrend des Tages noch einmal, fuer offen stehende Fenster.
+    setInterval(nachsehen, 6 * 3600 * 1000);
   }
 
   // Beim Öffnen der Einstellungen neu laden - Rollen können sich geändert haben.
@@ -2058,6 +2132,7 @@
                                ['Mein Profil', profilBearbeitenBauen],
                                ['Speicher', ablageBauen],
                                ['Striche markieren', strichMarkierenBauen],
+                               ['Update-Hinweis', updateHinweisBauen],
                                ['Bereiche laden', bereicheLaden],
                                ['Verwaltung laden', verwaltungLaden]]) {
       try {

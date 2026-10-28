@@ -180,6 +180,22 @@ pruefe("der Klassenfehler .zieht/.schiebt besteht drueben noch",
        "zieht" in js_setzt and "zieht" not in stil_kennt,
        f"Stil: {sorted(stil_kennt)}, JS: {sorted(js_setzt)}")
 
+# --- Von allein auf Updates hinweisen ------------------------------------
+#
+# Dass es eine neue Fassung gibt, stand vorher nur in den Einstellungen hinter
+# einem Knopf. Wer nicht nachsieht, erfaehrt nichts - und genau das war der
+# Fall. Faellt der Balken aus der Startkette, passiert wieder lautlos nichts.
+pruefe("der Update-Hinweis haengt in der Startkette",
+       "['Update-Hinweis', updateHinweisBauen]" in shim)
+pruefe("der Balken bringt den Knopf mit, statt nur Bescheid zu sagen",
+       "id: 'u-jetzt'" in shim and "updateStarten(melden)" in shim)
+pruefe("und laesst sich je Fassung wegklicken",
+       "UPDATE_WEG" in shim and "localStorage.setItem(UPDATE_WEG" in shim)
+# Beide Wege - Balken und Einstellungen - warten auf die FASSUNG, nicht auf
+# ein Lebenszeichen. Sonst laedt die Seite neu, waehrend noch die alte laeuft.
+pruefe("gewartet wird auf die neue Fassung",
+       bool(re.search(r"if \(d\.laeuft === fassung\)", shim)))
+
 # --- Jedes Design muss die ganze Oberflaeche abdecken ---------------------
 #
 # Ein Design setzt die Farbnamen am <html> neu. Vergisst eines davon einen
