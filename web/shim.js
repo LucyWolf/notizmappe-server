@@ -797,6 +797,107 @@
      gewaehlt setzen, neu malen. Das geht im Start-Reiter genauso, braucht
      keinen Moduswechsel und keine nachgestellten Ereignisse. */
 
+  /* ---- Striche glaetten -------------------------------------------------
+
+     Eine mit der Maus gezogene Linie zittert. Drueben wird Punkt fuer Punkt
+     mit lineTo gemalt, jedes Zittern steht also im Bild - und in der Datei.
+
+     Deshalb hier zwei Schritte, erst wenn der Strich fertig ist:
+     1. ausduennen - Punkte, die kaum von der Geraden ihrer Nachbarn
+        abweichen, fliegen raus (Ramer-Douglas-Peucker). Das nimmt das
+        Zittern weg und macht die Datei kleiner.
+     2. runden - die verbliebenen Ecken werden abgeschnitten (Chaikin).
+        Anfang und Ende bleiben liegen, sonst wandert der Strich.
+
+     Beides laeuft auf den Punkten, nicht beim Malen: so sieht der Desktop
+     spaeter dasselbe, und am Zeichnen drueben ist nichts geaendert. */
+
+  const GLATT_SCHLUESSEL = 'notizmappe.glaetten';
+  const GLATT_STUFEN = ['aus', 'leicht', 'stark'];
+
+  function glattStufe() {
+    try {
+      const g = localStorage.getItem(GLATT_SCHLUESSEL);
+      return GLATT_STUFEN.includes(g) ? g : 'leicht';
+    } catch (f) { return 'leicht'; }
+  }
+
+  // Abstand eines Punktes von der Geraden a-b.
+  function abstand(px, py, ax, ay, bx, by) {
+    const dx = bx - ax, dy = by - ay;
+    const laenge = Math.hypot(dx, dy);
+    if (laenge < 1e-6) return Math.hypot(px - ax, py - ay);
+    return Math.abs(dy * px - dx * py + bx * ay - by * ax) / laenge;
+  }
+
+  function ausduennen(p, luft) {
+    const anzahl = p.length / 3;
+    if (anzahl < 3) return p.slice();
+    const behalten = new Uint8Array(anzahl);
+    behalten[0] = behalten[anzahl - 1] = 1;
+    // Ohne Rekursion, damit ein langer Strich nicht den Stapel sprengt.
+    const offen = [[0, anzahl - 1]];
+    while (offen.length) {
+      const [a, b] = offen.pop();
+      if (b - a < 2) continue;
+      let weit = -1, wo = -1;
+      for (let i = a + 1; i < b; i++) {
+        const d = abstand(p[i * 3], p[i * 3 + 1], p[a * 3], p[a * 3 + 1], p[b * 3], p[b * 3 + 1]);
+        if (d > weit) { weit = d; wo = i; }
+      }
+      if (weit > luft) { behalten[wo] = 1; offen.push([a, wo], [wo, b]); }
+    }
+    const raus = [];
+    for (let i = 0; i < anzahl; i++) {
+      if (behalten[i]) raus.push(p[i * 3], p[i * 3 + 1], p[i * 3 + 2]);
+    }
+    return raus;
+  }
+
+  function ecken_runden(p, radius) {
+    const anzahl = p.length / 3;
+    if (anzahl < 3) return p.slice();
+    const raus = [p[0], p[1], p[2]];
+    for (let i = 0; i < anzahl - 1; i++) {
+      const a = i * 3, b = (i + 1) * 3;
+      // Wie weit in die Strecke hinein abgeschnitten wird. Das klassische
+      // Viertel nimmt bei langen Strecken ganze Ecken weg - eine mit Absicht
+      // gezogene Ecke soll aber eine Ecke bleiben. Deshalb hoechstens so
+      // viele Bildpunkte, wie der Radius erlaubt.
+      const laenge = Math.hypot(p[b] - p[a], p[b + 1] - p[a + 1]);
+      const t = laenge > 1e-6 ? Math.min(0.25, radius / laenge) : 0.25;
+      raus.push(p[a] + (p[b] - p[a]) * t, p[a + 1] + (p[b + 1] - p[a + 1]) * t,
+                p[a + 2] + (p[b + 2] - p[a + 2]) * t);
+      raus.push(p[b] - (p[b] - p[a]) * t, p[b + 1] - (p[b + 1] - p[a + 1]) * t,
+                p[b + 2] - (p[b + 2] - p[a + 2]) * t);
+    }
+    raus.push(p[p.length - 3], p[p.length - 2], p[p.length - 1]);
+    return raus;
+  }
+
+  function geglaettet(p, stufe) {
+    if (stufe === 'aus' || !p || p.length < 9) return p;
+    const stark = stufe === 'stark';
+    let neu = ausduennen(p, stark ? 1.4 : 0.6);
+    const runden = stark ? 3 : 2;
+    for (let i = 0; i < runden; i++) {
+      // Nicht ueber die Grenze drueben hinaus wachsen lassen: ab MAX_PUNKTE
+      // faengt dort ein neuer Strich an.
+      if (neu.length * 2 > 1400 * 3) break;
+      neu = ecken_runden(neu, stark ? 4 : 2.5);
+    }
+    // Nach dem Runden liegen viele Punkte fast auf einer Geraden. Die koennen
+    // weg - sonst hat ein geglaetteter Strich mehr Punkte als der gezogene.
+    // Nur ganz knapp: mit 0.25 waehlt das Ausduennen wieder die Ausreisser und
+    // zieht gerade Strecken dazwischen - gemessen war das Wackeln danach so
+    // gross wie vorher. 0.12 laesst die Form stehen.
+    neu = ausduennen(neu, 0.12);
+    // Genauso runden wie drueben beim Ablegen - zwei Nachkommastellen beim
+    // Druck, eine bei den Punkten. Sonst blaeht das Glaetten die Datei auf.
+    return neu.map((w, i) => (i % 3 === 2 ? Math.round(w * 100) / 100
+                                          : Math.round(w * 10) / 10));
+  }
+
   const GRIFFE = ['no', 'n', 'nw', 'o', 'w', 'so', 's', 'sw'];
   /* Welche Kante beim Ziehen stehen bleibt: am Nordwest-Griff bleibt die
      Suedost-Ecke liegen, sonst wandert die Zeichnung beim Groesserziehen
@@ -906,6 +1007,36 @@
     const luft = 4;
     return a.x1 - luft <= b.x2 && a.x2 + luft >= b.x1
         && a.y1 - luft <= b.y2 && a.y2 + luft >= b.y1;
+  }
+
+  function glaettenAnschalten() {
+    if (document.body.dataset.glaetten === 'ja') return;
+    document.body.dataset.glaetten = 'ja';
+    let vorher = -1;
+
+    // Nicht am Ereignis festmachen, ob ein Strich fertig wurde, sondern an der
+    // Zahl der Striche: drueben legt auch ein zu langer Strich mitten in der
+    // Bewegung ab, und der Radierer loest dasselbe Ereignis aus.
+    document.addEventListener('pointerdown', function () {
+      const z = malZeichnung();
+      vorher = z && z.striche ? z.striche.length : -1;
+    }, true);
+
+    const nachsehen = function () {
+      const z = malZeichnung();
+      if (!z || !z.striche || vorher < 0 || z.striche.length <= vorher) { vorher = -1; return; }
+      const stufe = glattStufe();
+      const neue = z.striche.slice(vorher);
+      vorher = -1;
+      if (stufe === 'aus') return;
+      for (const st of neue) st.p = geglaettet(st.p, stufe);
+      neuMalen();
+      gemerkt();
+    };
+    for (const art of ['pointerup', 'pointercancel']) {
+      // Erst danach: drueben legt der Strich im selben Ereignis ab.
+      document.addEventListener(art, () => setTimeout(nachsehen, 0), true);
+    }
   }
 
   function markierenAnschalten() {
@@ -1139,9 +1270,33 @@
     rahmen.style.height = (g.y2 - g.y1 + luft * 2) + 'px';
   }
 
+  function glattKnopfBauen(zeug) {
+    const knopf = el('button', { type: 'button', id: 'm-glatt', textContent: '∿' });
+    const zeigen = () => {
+      const stufe = glattStufe();
+      knopf.classList.toggle('an', stufe !== 'aus');
+      knopf.dataset.stufe = stufe;
+      knopf.title = { aus: 'Glätten aus - klicken für leicht',
+                      leicht: 'Glätten leicht - klicken für stark',
+                      stark: 'Glätten stark - klicken für aus' }[stufe];
+    };
+    knopf.addEventListener('click', function () {
+      const jetzt = GLATT_STUFEN[(GLATT_STUFEN.indexOf(glattStufe()) + 1) % GLATT_STUFEN.length];
+      try { localStorage.setItem(GLATT_SCHLUESSEL, jetzt); } catch (f) { /* dann eben nur jetzt */ }
+      zeigen();
+      malsagen({ aus: 'Glätten aus - Striche bleiben, wie gezogen.',
+                 leicht: 'Glätten leicht - Zittern raus, Form bleibt.',
+                 stark: 'Glätten stark - deutlich runder, feine Ecken gehen verloren.' }[jetzt]);
+    });
+    zeigen();
+    zeug.append(knopf);
+    return knopf;
+  }
+
   function strichMarkierenBauen() {
     markierenAnschalten();
     rahmenAnschalten();
+    glaettenAnschalten();
 
     const zeug = document.getElementById('malzeug');
     if (!zeug || document.getElementById('m-loeschen')) return;
@@ -1161,6 +1316,7 @@
     } else {
       zeug.append(trenner, gruppe, loeschen);
     }
+    glattKnopfBauen(zeug);
   }
 
   function profilseite() {
@@ -1788,6 +1944,8 @@
       }
       .malweg:hover { border-color: var(--warnung); color: var(--warnung); }
       #m-loeschen, #m-gruppe { font-size: 14px; }
+      #m-glatt { font-size: 15px; }
+      #m-glatt[data-stufe="stark"] { font-weight: 700; }
       /* In der Oberflaeche heisst die Klasse fuers Schieben .schiebt, gesetzt
          wird aber .zieht - die Hand bekommt damit nie pointer-events und tut
          gar nichts. Hier geradegerueckt, bis es drueben behoben ist. */
