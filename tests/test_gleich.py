@@ -149,7 +149,15 @@ for name, muster in (("gewaehlt", r"^let gewaehlt\b"),
                      ("strichGrenzen", r"^function strichGrenzen\b"),
                      ("malblatt.id", r"malblatt\.id = 'malblatt'"),
                      ("Lasso-Knopf", r'data-werkzeug="lasso"'),
-                     ("malzeug-Leiste", r'id="malzeug"')):
+                     ("malzeug-Leiste", r'id="malzeug"'),
+                     # Texte, Bilder und Tabellen sind keine Striche, sondern
+                     # Kaesten. Die Auswahl hier fasst sie mit an - dafuer
+                     # braucht sie drueben elemente, die id am Kasten und den
+                     # Weg zum Loeschen.
+                     ("elemente", r"^let elemente\b"),
+                     ("die id am Kasten", r"k\.dataset\.id = e\.id"),
+                     ("kastenWeg", r"^function kastenWeg\b"),
+                     ("x/y/b am Element", r"k\.style\.left = e\.x \+ 'px'")):
     wo = html if name in ("Lasso-Knopf", "malzeug-Leiste") else js
     pruefe(f"mappe.js hat noch {name}", bool(re.search(muster, wo, re.M)))
 
@@ -195,6 +203,20 @@ pruefe("Strg+A laesst den Text dem Browser",
        bool(re.search(r"closest\('\[contenteditable\], input, textarea'\)\) return;", shim)))
 pruefe("Strg+A ausserhalb markiert alle Striche",
        bool(re.search(r"toLowerCase\(\) !== 'a'\) return;", shim)))
+# Und zwar wirklich alles: vorher waren nur die Striche gemeint, die Texte
+# blieben liegen - auf dem Bildschirm sieht das aus, als taete Strg+A nichts.
+pruefe("Strg+A nimmt auch die Kaesten mit",
+       "for (const k of kaesten) wahlKaesten.push(k);" in shim)
+pruefe("verschieben und loeschen fassen die Kaesten mit an",
+       "function kaestenSchieben" in shim and "kastenWeg(k.dataset.id)" in shim)
+pruefe("ein markierter Kasten sieht markiert aus",
+       ".kasten.mitgewaehlt {" in shim)
+# Entf steigt drueben aus, sobald die Malleiste versteckt ist - also im
+# Start-Reiter. Hier muss es trotzdem gehen.
+pruefe("Entf wird selbst behandelt",
+       bool(re.search(r"ev\.key !== 'Delete' && ev\.key !== 'Backspace'", shim)))
+pruefe("drueben steigt Entf bei versteckter Malleiste aus",
+       bool(re.search(r"if \(\$\('#malzeug'\)\.hidden\) return;", js)))
 
 # --- Eigenes Profil im Fenster, Verwaltung nur in der Datei-Ebene --------
 #

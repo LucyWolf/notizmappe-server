@@ -883,6 +883,48 @@
   let rahmenUhr = null;
   let letzteStelle = null;
 
+  /* Auf dem Blatt liegen zwei verschiedene Dinge: Striche in der Zeichnung und
+     Kaesten (Text, Bild, Tabelle) als eigene Elemente der Oberflaeche. Drueben
+     kennt die Auswahl nur Striche - deshalb hier eine zweite Liste, und alles,
+     was mit der Auswahl passiert, muss beide bedienen. Sonst markiert Strg+A
+     scheinbar "alles" und laesst die Texte liegen. */
+  const wahlKaesten = [];
+
+  function alleKaesten() {
+    const grund = document.getElementById('flaeche');
+    return grund ? Array.from(grund.querySelectorAll('.kasten')) : [];
+  }
+
+  function kastenDaten(k) {
+    try {
+      if (typeof elemente === 'undefined' || !k) return null;
+      return elemente.find((x) => x.id === k.dataset.id) || null;
+    } catch (f) { return null; }
+  }
+
+  // Die Kaesten liegen im selben Bezugssystem wie strichGrenzen: #flaeche wird
+  // als Ganzes gezoomt, die Zahlen darin sind ungezoomt.
+  function kastenGrenzen(k) {
+    return { x1: k.offsetLeft, y1: k.offsetTop,
+             x2: k.offsetLeft + k.offsetWidth, y2: k.offsetTop + k.offsetHeight };
+  }
+
+  function kaestenZeigen() {
+    for (const k of alleKaesten()) k.classList.toggle('mitgewaehlt', wahlKaesten.includes(k));
+  }
+
+  function auswahlLeeren() {
+    const wahl = malWahl();
+    if (wahl) wahl.length = 0;
+    wahlKaesten.length = 0;
+    kaestenZeigen();
+  }
+
+  function etwasGewaehlt() {
+    const wahl = malWahl();
+    return (wahl && wahl.length > 0) || wahlKaesten.length > 0;
+  }
+
   function malWahl() {
     try { return typeof gewaehlt === 'undefined' ? null : gewaehlt; }
     catch (f) { return null; }
@@ -1046,6 +1088,10 @@
         // Dazunehmen oder wieder abwaehlen, ohne die uebrige Wahl zu verlieren.
         const schon = wahl.indexOf(treffer[0]);
         if (schon >= 0) wahl.splice(schon, 1); else wahl.push(treffer[0]);
+      } else if (wahlKaesten.length) {
+        // Erst die Kaesten los, sonst haengt der Rahmen noch am halben Zettel.
+        auswahlLeeren();
+        wahl.push(treffer[0]);
       } else {
         // Zweimal an dieselbe Stelle: den naechsten darunter nehmen. So kommt
         // man an einen Strich heran, ueber dem ein anderer liegt.
@@ -1126,18 +1172,26 @@
       if (!p || !wahl || !z) return;
       const kasten = { x1: Math.min(start.x, p.x), y1: Math.min(start.y, p.y),
                        x2: Math.max(start.x, p.x), y2: Math.max(start.y, p.y) };
-      if (!dazu) wahl.length = 0;
+      if (!dazu) auswahlLeeren();
       for (const st of z.striche) {
         if (wahl.includes(st)) continue;
         if (strichImKasten(st, kasten)) wahl.push(st);
       }
+      // Ein Kasten gehoert dazu, wenn der Rahmen ihn beruehrt - ihn ganz
+      // einschliessen zu muessen waere bei einem breiten Absatz laestig.
+      for (const k of alleKaesten()) {
+        if (wahlKaesten.includes(k)) continue;
+        const b = kastenGrenzen(k);
+        if (b.x1 <= kasten.x2 && b.x2 >= kasten.x1
+            && b.y1 <= kasten.y2 && b.y2 >= kasten.y1) wahlKaesten.push(k);
+      }
+      kaestenZeigen();
       letzteStelle = null;
       neuMalen();
       rahmenZeichnen();
-      malsagen(wahl.length
-        ? `${wahl.length} ${wahl.length === 1 ? 'Strich' : 'Striche'} markiert - `
-          + 'ziehen verschiebt, Griffe ändern die Größe, ✕ löscht.'
-        : 'Nichts in diesem Rahmen.');
+      malsagen(etwasGewaehlt() ? wasMarkiert() + ' - ziehen verschiebt, '
+                                 + 'Griffe ändern die Größe, ✕ löscht.'
+                               : 'Nichts in diesem Rahmen.');
     });
 
     /* Strg+A. Im Text kann der Browser das selbst - dort nicht hineinfunken,
@@ -1149,21 +1203,26 @@
           && ev.target.closest('[contenteditable], input, textarea')) return;
       const wahl = malWahl();
       const z = malZeichnung();
-      if (!wahl || !z || !z.striche || !z.striche.length) return;
+      const kaesten = alleKaesten();
+      if (!wahl || !z) return;
+      if (!(z.striche && z.striche.length) && !kaesten.length) return;
       ev.preventDefault();
-      wahl.length = 0;
-      for (const st of z.striche) wahl.push(st);
+      auswahlLeeren();
+      for (const st of (z.striche || [])) wahl.push(st);
+      // Texte, Bilder und Tabellen sind keine Striche - ohne sie markiert
+      // "alles" nur die Zeichnung und laesst den halben Zettel liegen.
+      for (const k of kaesten) wahlKaesten.push(k);
+      kaestenZeigen();
       letzteStelle = null;
       neuMalen();
       rahmenZeichnen();
-      malsagen(`Alle ${wahl.length} Striche markiert - ziehen verschiebt, ✕ löscht.`);
+      malsagen(wasMarkiert() + ' - ziehen verschiebt, ✕ löscht.');
     });
 
     // Ein Klick daneben hebt die Markierung auf - sonst bleibt der Rahmen
     // stehen und man weiss nicht, warum Entf noch etwas loescht.
     document.addEventListener('pointerdown', function (ev) {
-      const wahl = malWahl();
-      if (!wahl || !wahl.length) return;
+      if (!etwasGewaehlt()) return;
       // Mit Umschalt wird dazugenommen - dann darf hier nichts geleert werden,
       // sonst zieht man einen Rahmen auf eine leere Auswahl.
       if (ev.shiftKey || ev.ctrlKey || ev.metaKey) return;
@@ -1171,10 +1230,43 @@
       const p = stelleHier(ev);
       if (p && stricheBei(p.x, p.y).length) return;
       letzteStelle = null;
-      wahl.length = 0;
+      auswahlLeeren();
       neuMalen();
       rahmenZeichnen();
     }, true);
+
+    /* Entf. Drueben gibt es das auch, aber nur im Zeichnen-Reiter: der
+       Tastenweg steigt aus, sobald die Malleiste versteckt ist - und im
+       Start-Reiter ist sie das. Deshalb hier selbst, vorher und fuer beides;
+       das Weiterreichen wird gestoppt, damit nichts zweimal loescht. */
+    document.addEventListener('keydown', function (ev) {
+      if (ev.key !== 'Delete' && ev.key !== 'Backspace') return;
+      if (ev.target && ev.target.closest
+          && ev.target.closest('.text, input, select, textarea, [contenteditable]')) return;
+      if (!etwasGewaehlt()) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      auswahlLoeschen();
+    }, true);
+
+    // Escape raeumt drueben die Striche ab - die Kaesten kennt es nicht.
+    document.addEventListener('keydown', function (ev) {
+      if (ev.key !== 'Escape' || !wahlKaesten.length) return;
+      auswahlLeeren();
+      neuMalen();
+      rahmenZeichnen();
+    });
+  }
+
+  function wasMarkiert() {
+    const wahl = malWahl();
+    const striche = wahl ? wahl.length : 0;
+    const teile = [];
+    if (striche) teile.push(`${striche} ${striche === 1 ? 'Strich' : 'Striche'}`);
+    if (wahlKaesten.length) {
+      teile.push(`${wahlKaesten.length} ${wahlKaesten.length === 1 ? 'Kasten' : 'Kästen'}`);
+    }
+    return (teile.join(' und ') || 'Nichts') + ' markiert';
   }
 
   function auswahlErweitern() {
@@ -1194,14 +1286,41 @@
     const wahl = malWahl();
     const z = malZeichnung();
     if (!wahl || !z) { malsagen('Die Auswahl ist von hier aus nicht erreichbar.'); return; }
-    if (!wahl.length) { malsagen('Nichts markiert - auf einen Strich doppelklicken.'); return; }
-    const anzahl = wahl.length;
+    if (!etwasGewaehlt()) {
+      malsagen('Nichts markiert - auf einen Strich doppelklicken oder einen Rahmen aufziehen.');
+      return;
+    }
+    const striche = wahl.length;
+    const kaesten = wahlKaesten.length;
     z.striche = z.striche.filter((st) => !wahl.includes(st));
-    wahl.length = 0;
+    // Kaesten nicht selbst aus dem Baum nehmen: kastenWeg raeumt auch elemente
+    // auf und meldet die Aenderung - sonst ist der Text beim naechsten Laden
+    // wieder da.
+    for (const k of wahlKaesten.slice()) {
+      try { kastenWeg(k.dataset.id); } catch (f) { k.remove(); }
+    }
+    auswahlLeeren();
     gemerkt();
     neuMalen();
     rahmenZeichnen();
-    malsagen(`${anzahl} ${anzahl === 1 ? 'Strich' : 'Striche'} gelöscht.`);
+    const teile = [];
+    if (striche) teile.push(`${striche} ${striche === 1 ? 'Strich' : 'Striche'}`);
+    if (kaesten) teile.push(`${kaesten} ${kaesten === 1 ? 'Kasten' : 'Kästen'}`);
+    malsagen(teile.join(' und ') + ' gelöscht.');
+  }
+
+  /* Die Kaesten stehen in zwei Welten: als Zahl in elemente (das wird
+     gespeichert) und als Stil am Element (das sieht man). Beides muss mit,
+     sonst springt der Kasten beim naechsten Laden zurueck. */
+  function kaestenSchieben(dx, dy) {
+    for (const k of wahlKaesten) {
+      const e = kastenDaten(k);
+      if (!e) continue;
+      e.x = Math.max(0, Math.round(e.x + dx));
+      e.y = Math.max(0, Math.round(e.y + dy));
+      k.style.left = e.x + 'px';
+      k.style.top = e.y + 'px';
+    }
   }
 
   /* Der Rahmen. Er haengt an #flaeche, weil strichGrenzen() in genau diesem
@@ -1231,8 +1350,8 @@
     let zieht = null;
     let zerrt = null;
     kasten.addEventListener('pointerdown', function (ev) {
-      const wahl = malWahl();
-      if (!wahl || !wahl.length) return;
+      const wahl = malWahl() || [];
+      if (!etwasGewaehlt()) return;
       const p = stelleHier(ev);
       if (!p) return;
       const griff = ev.target && ev.target.classList
@@ -1247,6 +1366,10 @@
         zerrt = {
           griff, g0,
           vorher: wahl.map((st) => ({ st, p: st.p.slice(), d: st.d })),
+          kaesten: wahlKaesten.map((k) => {
+            const e = kastenDaten(k);
+            return e ? { k, e, x: e.x, y: e.y, b: e.b } : null;
+          }).filter(Boolean),
         };
       } else {
         zieht = { x: p.x, y: p.y };
@@ -1259,13 +1382,13 @@
       if (!p) return;
       if (zerrt) { groesseZiehen(p); return; }
       if (!zieht) return;
-      const wahl = malWahl();
-      if (!wahl) return;
+      const wahl = malWahl() || [];
       const dx = p.x - zieht.x, dy = p.y - zieht.y;
       zieht.x = p.x; zieht.y = p.y;
       for (const st of wahl) {
         for (let i = 0; i < st.p.length; i += 3) { st.p[i] += dx; st.p[i + 1] += dy; }
       }
+      kaestenSchieben(dx, dy);
       neuMalen();
       rahmenZeichnen();
     });
@@ -1287,6 +1410,17 @@
           neu[i + 1] = sy.anker + (alt.p[i + 1] - sy.anker) * sy.f;
         }
         if (alt.d) alt.st.d = Math.max(1, alt.d * dick);
+      }
+      // Kaesten wandern mit und werden breiter - die Schriftgroesse bleibt.
+      // Text mitzuskalieren klingt richtig, macht aber aus einem Absatz beim
+      // kleinsten Ziehen unleserliche Krumen.
+      for (const alt of zerrt.kaesten) {
+        alt.e.x = Math.max(0, Math.round(sx.anker + (alt.x - sx.anker) * sx.f));
+        alt.e.y = Math.max(0, Math.round(sy.anker + (alt.y - sy.anker) * sy.f));
+        alt.e.b = Math.max(40, Math.round(alt.b * sx.f));
+        alt.k.style.left = alt.e.x + 'px';
+        alt.k.style.top = alt.e.y + 'px';
+        alt.k.style.width = alt.e.b + 'px';
       }
       neuMalen();
       rahmenZeichnen();
@@ -1319,15 +1453,15 @@
   function wahlGrenzen() {
     const wahl = malWahl();
     const grenzenVon = malGrenzen();
-    if (!wahl || !grenzenVon || !wahl.length) return null;
     let g = null;
+    const dazu = (e) => {
+      g = g ? { x1: Math.min(g.x1, e.x1), y1: Math.min(g.y1, e.y1),
+                x2: Math.max(g.x2, e.x2), y2: Math.max(g.y2, e.y2) }
+            : { x1: e.x1, y1: e.y1, x2: e.x2, y2: e.y2 };
+    };
     try {
-      for (const st of wahl) {
-        const e = grenzenVon(st);
-        g = g ? { x1: Math.min(g.x1, e.x1), y1: Math.min(g.y1, e.y1),
-                  x2: Math.max(g.x2, e.x2), y2: Math.max(g.y2, e.y2) }
-              : { x1: e.x1, y1: e.y1, x2: e.x2, y2: e.y2 };
-      }
+      if (wahl && grenzenVon) for (const st of wahl) dazu(grenzenVon(st));
+      for (const k of wahlKaesten) dazu(kastenGrenzen(k));
     } catch (f) { return null; }
     return g;
   }
@@ -2037,6 +2171,9 @@
         position: absolute; width: 9px; height: 9px;
         background: var(--papier); border: 1px solid var(--schrift);
       }
+      /* Ein markierter Kasten muss auch markiert aussehen. .aktiv gibt es
+         drueben schon fuers Schreiben - deshalb ein eigener Name. */
+      .kasten.mitgewaehlt { outline: 1px dashed var(--akzent); outline-offset: 2px; }
       #malband {
         position: absolute; z-index: 19; pointer-events: none;
         border: 1px dashed var(--akzent);
