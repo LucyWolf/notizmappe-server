@@ -32,6 +32,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
+from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
 
 import ablage
@@ -402,6 +403,36 @@ def _text(roh: str) -> str:
             .replace(">", "&gt;").replace('"', "&quot;"))
 
 
+def anmeldung_melden(bitte: Request, name: str, geglueckt: bool):
+    """Nachricht ueber einen Anmeldeversuch - als Nachlauf, nicht als Umweg.
+
+    Wichtig ist das **Nachher**: verschickt wird erst, wenn die Antwort schon
+    draussen ist. Sonst dauert eine Anmeldung an einem Zugang mit Adresse
+    messbar laenger als an einem erfundenen Namen - und damit waere die
+    Anmeldeseite wieder eine Auskunft darueber, welche Zugaenge es gibt.
+    Nebenbei haengt niemand fuenfzehn Sekunden vor einer weissen Seite, nur
+    weil der Mailserver gerade traeumt.
+    """
+    try:
+        if not post.eingerichtet():
+            return None
+        auftrag = nutzer.meldung_faellig(name, geglueckt)
+    except (nutzer.BenutzerFehler, post.PostFehler):
+        return None
+    if not auftrag:
+        return None
+    herkunft = bitte.client.host if bitte.client else "unbekannt"
+
+    def schicken():
+        try:
+            post.anmeldemail(auftrag["email"], auftrag["name"], geglueckt, herkunft,
+                             auftrag.get("verschluckt", 0))
+        except post.PostFehler as f:
+            print(f"[notizmappe] Anmeldemeldung nicht zugestellt: {f}", flush=True)
+
+    return BackgroundTask(schicken)
+
+
 @app.get("/anmelden", response_class=HTMLResponse)
 def anmeldeseite(bitte: Request, fehler: str = ""):
     try:
@@ -455,7 +486,9 @@ def anmelden(bitte: Request, name: str = Form(""), passwort: str = Form("")):
         fehlversuch(wer)
         # Nicht sagen, ob der Name oder das Passwort falsch war: sonst ist die
         # Seite eine Auskunft darueber, welche Namen es gibt.
-        return RedirectResponse("/anmelden?fehler=Name+oder+Passwort+stimmt+nicht.", status_code=303)
+        return RedirectResponse("/anmelden?fehler=Name+oder+Passwort+stimmt+nicht.",
+                                status_code=303,
+                                background=anmeldung_melden(bitte, name, False))
     geklappt(wer)
     if nutzer.zwei_schritte_stand(b["name"])["an"]:
         antwort = RedirectResponse("/zweiter-schritt", status_code=303)
@@ -464,7 +497,8 @@ def anmelden(bitte: Request, name: str = Form(""), passwort: str = Form("")):
                            samesite="lax", secure=HTTPS, path="/")
         return antwort
     nutzer.gesehen(b["name"])
-    antwort = RedirectResponse("/", status_code=303)
+    antwort = RedirectResponse("/", status_code=303,
+                               background=anmeldung_melden(bitte, b["name"], True))
     keks_setzen(antwort, b["name"])
     return antwort
 
@@ -575,11 +609,15 @@ def zweiter_schritt(bitte: Request, code: str = Form("")):
             status_code=303)
     if not nutzer.zweiter_schritt_pruefen(wer, code):
         fehlversuch(bremse)
+        # Auch das ist ein Anmeldeversuch - und zwar einer von jemandem, der das
+        # Passwort schon hat. Der gehoert erst recht gemeldet.
         return RedirectResponse("/zweiter-schritt?fehler=Der+Code+stimmt+nicht.",
-                                status_code=303)
+                                status_code=303,
+                                background=anmeldung_melden(bitte, wer, False))
     geklappt(bremse)
     nutzer.gesehen(wer)
-    antwort = RedirectResponse("/", status_code=303)
+    antwort = RedirectResponse("/", status_code=303,
+                               background=anmeldung_melden(bitte, wer, True))
     keks_setzen(antwort, wer)
     antwort.delete_cookie(HALBKEKS, path="/")
     return antwort
@@ -826,6 +864,7 @@ def profil_lesen(bitte: Request):
                       else ("Benutzer" if "schreiben" in rechte else "Gast")),
             "zwei": nutzer.zwei_schritte_stand(wer)["an"],
             "email": nutzer.email_von(wer),
+            "melde": nutzer.meldung_von(wer),
             "post_an": post.eingerichtet(),
             "darf_verwalten": "benutzer" in rechte}
 
@@ -847,9 +886,27 @@ async def profil_email(bitte: Request):
     except nutzer.BenutzerFehler as f:
         return JSONResponse({"fehler": str(f)}, status_code=400)
     neue = nutzer.email_von(wer)
-    return {"email": neue,
+    return {"email": neue, "melde": nutzer.meldung_von(wer),
             "hinweis": ("Adresse gespeichert." if neue
                         else "Adresse entfernt - ohne sie geht kein Zurücksetzen.")}
+
+
+@app.post("/profil/meldung")
+async def profil_meldung(bitte: Request):
+    """Wann der Zugang Bescheid gibt: aus, nur fehlgeschlagene, alle."""
+    wer = angemeldet(bitte)
+    if not wer:
+        return JSONResponse({"fehler": "Nicht angemeldet"}, status_code=401)
+    rumpf = _rumpf(await bitte.json())
+    try:
+        nutzer.meldung_setzen(wer, rumpf.get("art") or "")
+    except nutzer.BenutzerFehler as f:
+        return JSONResponse({"fehler": str(f)}, status_code=400)
+    art = nutzer.meldung_von(wer)
+    return {"melde": art,
+            "hinweis": {"aus": "Es kommt keine Nachricht mehr.",
+                        "fehler": "Nachricht bei fehlgeschlagenen Versuchen.",
+                        "alle": "Nachricht bei jeder Anmeldung."}[art]}
 
 
 # --- Mailversand ------------------------------------------------------------

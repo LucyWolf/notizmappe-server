@@ -1637,6 +1637,23 @@
       } catch (f) { emailHinweis.textContent = f.message; }
     });
 
+    /* Bescheid, wenn jemand an der eigenen Tuer ruettelt. Hoechstens eine
+       Nachricht je Viertelstunde - sonst wird daraus Spam, und Spam klickt
+       man weg, auch den echten Einbruch. */
+    const melde = el('select', { id: 'p-melde' });
+    for (const [wert, text] of [['fehler', 'nur bei fehlgeschlagenen Versuchen'],
+                                ['alle', 'bei jeder Anmeldung'],
+                                ['aus', 'gar nicht']]) {
+      melde.append(el('option', { value: wert, textContent: text }));
+    }
+    melde.addEventListener('change', async () => {
+      emailHinweis.textContent = 'wird gespeichert …';
+      try {
+        const d = await hol('/profil/meldung', { art: melde.value });
+        emailHinweis.textContent = d.hinweis || '';
+      } catch (f) { emailHinweis.textContent = f.message; }
+    });
+
     const abmelden = el('button', { type: 'button', textContent: 'Abmelden' });
     abmelden.addEventListener('click', function () { location.href = '/abmelden'; });
 
@@ -1697,6 +1714,8 @@
         'Nur dafür da, ein vergessenes Passwort zurückzusetzen. Ohne Adresse '
         + 'geht das nicht - dann hilft nur ein Verwalter.' }),
       el('p', { className: 'ordnerzeile' }, [email, emailSichern]),
+      el('p', { className: 'zeile2' }, [
+        el('span', { textContent: 'Nachricht bei Anmeldeversuchen' }), melde]),
       emailHinweis,
       el('h3', { textContent: 'Passwort ändern', style: 'margin-top:14px' }),
       el('p', { className: 'hinweis', textContent:
@@ -1724,6 +1743,8 @@
     setz('p-zwei', d.zwei ? 'eingeschaltet' : 'aus');
     const email = document.getElementById('p-email');
     if (email) email.value = d.email || '';
+    const melde = document.getElementById('p-melde');
+    if (melde) melde.value = d.melde || 'fehler';
     const zweck = document.getElementById('p-emailzweck');
     // Ohne eingerichteten Mailversand waere die Adresse ein Feld, das nichts
     // tut. Dann lieber sagen, woran es liegt.
@@ -2250,7 +2271,10 @@
       }
       #profilzu:hover { border-color: var(--akzent); }
       #profilteil .ordnerzeile { display: flex; gap: 8px; margin: 10px 0 4px; flex-wrap: wrap; }
-      #profilteil input[type="password"] {
+      /* Auch das E-Mail-Feld: die Regel galt nur fuer Passwortfelder, und ein
+         weisses Feld in der dunklen Oberflaeche ist genau der Fleck, der hier
+         schon zweimal aufgefallen ist. */
+      #profilteil input[type="password"], #profilteil input[type="email"] {
         flex: 1; min-width: 0; padding: 4px 8px;
         border: 1px solid var(--linie); border-radius: 6px;
         background: var(--papier); color: var(--schrift);
@@ -2342,6 +2366,10 @@
         border-bottom: 1px solid var(--linie);
       }
       #serververwaltung .zeile2 span:last-child { display: flex; gap: 6px; flex: 0 0 auto; }
+      #profilteil .zeile2 {
+        display: flex; align-items: center; justify-content: space-between;
+        gap: 12px; margin: 10px 0 4px;
+      }
       #postteil { max-width: 760px; }
       #postteil input[type="text"], #postteil input[type="email"],
       #postteil input[type="password"], #postteil input[type="number"],

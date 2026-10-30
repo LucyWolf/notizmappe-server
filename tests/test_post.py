@@ -186,6 +186,62 @@ nutzer.email_setzen("lucy", "andere@example.de")
 pruefe("beim Adresswechsel verfallen offene Marken",
        nutzer.rueckstellung_name(neu["marke"]) == "")
 
+# --- Nachricht bei Anmeldeversuchen -----------------------------------------
+#
+# Die Bremse ist hier kein Beiwerk: ohne sie schickt ein Zugang bei einem
+# Durchprobieren im Minutentakt Mail, und wer so etwas einmal erlebt hat,
+# schaltet es ab - dann merkt er auch den echten Einbruch nicht.
+nutzer.email_setzen("gast", "gast@example.de")
+pruefe("mit Adresse ist 'nur fehlgeschlagene' voreingestellt",
+       nutzer.meldung_von("gast") == "fehler", nutzer.meldung_von("gast"))
+nutzer.anlegen("ohnemail", "geheim12345")
+pruefe("ohne Adresse kommt nichts", nutzer.meldung_von("ohnemail") == "aus")
+pruefe("ohne Adresse gibt es auch nichts zu melden",
+       nutzer.meldung_faellig("ohnemail", False) is None)
+
+pruefe("eine geglueckte Anmeldung meldet 'fehler' nicht",
+       nutzer.meldung_faellig("gast", True) is None)
+erste = nutzer.meldung_faellig("gast", False)
+pruefe("der erste Fehlversuch wird gemeldet",
+       erste and erste["email"] == "gast@example.de" and erste["verschluckt"] == 0,
+       str(erste))
+pruefe("der zweite kurz danach nicht mehr",
+       nutzer.meldung_faellig("gast", False) is None)
+pruefe("der dritte auch nicht", nutzer.meldung_faellig("gast", False) is None)
+
+# Die Pause zurückdrehen: die nächste Nachricht muss die verschluckten
+# nachtragen, sonst sieht ein Dauerangriff aus wie ein einzelner Vertipper.
+roh = json.loads((DATEN / "benutzer.json").read_text(encoding="utf-8"))
+roh["benutzer"]["gast"]["melde"]["zuletzt"] = time.time() - nutzer.MELDE_PAUSE - 1
+(DATEN / "benutzer.json").write_text(json.dumps(roh), encoding="utf-8")
+naechste = nutzer.meldung_faellig("gast", False)
+pruefe("nach der Pause kommt eine Nachricht mit Nachtrag",
+       naechste and naechste["verschluckt"] == 2, str(naechste))
+
+nutzer.meldung_setzen("gast", "alle")
+roh = json.loads((DATEN / "benutzer.json").read_text(encoding="utf-8"))
+roh["benutzer"]["gast"]["melde"]["zuletzt"] = 0
+(DATEN / "benutzer.json").write_text(json.dumps(roh), encoding="utf-8")
+pruefe("bei 'alle' wird auch die geglueckte Anmeldung gemeldet",
+       nutzer.meldung_faellig("gast", True) is not None)
+
+nutzer.meldung_setzen("gast", "aus")
+roh = json.loads((DATEN / "benutzer.json").read_text(encoding="utf-8"))
+roh["benutzer"]["gast"]["melde"]["zuletzt"] = 0
+(DATEN / "benutzer.json").write_text(json.dumps(roh), encoding="utf-8")
+pruefe("bei 'aus' kommt gar nichts", nutzer.meldung_faellig("gast", False) is None)
+try:
+    nutzer.meldung_setzen("gast", "vielleicht")
+    pruefe("eine erfundene Stufe wird abgelehnt", False)
+except nutzer.BenutzerFehler:
+    pruefe("eine erfundene Stufe wird abgelehnt", True)
+
+verschickt.clear()
+post.anmeldemail("gast@example.de", "gast", False, "10.0.0.9", 4)
+text = verschickt[-1]["text"]
+pruefe("in der Nachricht steht, woher der Versuch kam", "10.0.0.9" in text, text)
+pruefe("und wie viele Versuche verschluckt wurden", "4 weitere" in text, text)
+
 import shutil                                               # noqa: E402
 shutil.rmtree(DATEN, ignore_errors=True)
 print()

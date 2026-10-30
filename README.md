@@ -387,6 +387,26 @@ Was dabei absichtlich so ist:
   seinen eigenen Rechner zu verschicken und dort das neue Passwort abzufangen.
 * Eine neue E-Mail-Adresse macht offene Marken wertlos.
 
+### Nachricht bei Anmeldeversuchen
+
+Wer eine Adresse hinterlegt hat, bekommt Bescheid, wenn jemand an seinem Zugang
+scheitert. Drei Stufen im Profil: **nur fehlgeschlagene** (Voreinstellung),
+**jede Anmeldung**, **gar nicht**. Gemeldet wird auch ein falscher Code beim
+zweiten Schritt — das ist ein Versuch von jemandem, der das Passwort schon hat.
+
+Höchstens **eine Nachricht je Viertelstunde**; in der nächsten steht, wie viele
+Versuche dazwischen lagen. Ohne diese Bremse schickt ein Durchprobieren im
+Minutentakt Mail, und wer das einmal erlebt hat, schaltet es ab — dann fällt
+auch der echte Einbruch nicht mehr auf.
+
+Verschickt wird **nach** der Antwort, nicht davor. Sonst dauerte ein
+Fehlversuch an einem echten Zugang messbar länger als an einem erfundenen
+Namen, und die Anmeldeseite wäre über die Zeit doch wieder eine Auskunft
+darüber, welche Zugänge es gibt.
+
+In der Nachricht steht die Adresse, die **der Server** sieht. Steht ein Reverse
+Proxy davor, ist es dessen Adresse.
+
 **Das SMTP-Passwort liegt im Klartext** in `daten/.post.json` (Datei auf 0600).
 Anders geht es nicht: der Server muss sich damit anmelden, und was er selbst
 wieder lesbar machen kann, ist nicht verschlüsselt, sondern nur versteckt. Wer

@@ -813,3 +813,75 @@ def rueckstellung_einloesen(marke: str, passwort: str) -> str:
                 "wann": (rueck or {}).get("wann", []) if isinstance(rueck, dict) else []}
             _schreiben(daten)
     return name
+
+
+# --- Benachrichtigung bei Anmeldeversuchen -----------------------------------
+#
+# Drei Stufen, je Zugang: aus, nur fehlgeschlagene, alle. Fehlgeschlagene ist
+# die Voreinstellung fuer jeden, der eine Adresse eintraegt - genau darum ging
+# es: zu merken, wenn jemand an der eigenen Tuer ruettelt.
+#
+# Mit Bremse. Ohne sie ist die Warnung nach dem dritten Versuch Spam, und Spam
+# wird weggeklickt - dann faellt auch der echte Einbruch nicht mehr auf. Also
+# hoechstens eine Nachricht je Viertelstunde, und darin steht, wie viele
+# Versuche seitdem noch kamen.
+MELDE_ARTEN = ("aus", "fehler", "alle")
+MELDE_PAUSE = 15 * 60
+
+
+def meldung_von(name: str) -> str:
+    b = _lesen()["benutzer"].get((name or "").strip().lower())
+    if not b:
+        return "aus"
+    art = (b.get("melde") or {}).get("art")
+    # Wer eine Adresse hat und nie etwas eingestellt hat, bekommt Bescheid,
+    # wenn jemand sein Passwort raet. Das ist die Stufe, die man sich im
+    # Nachhinein gewuenscht haette.
+    return art if art in MELDE_ARTEN else ("fehler" if b.get("email") else "aus")
+
+
+def meldung_setzen(name: str, art: str) -> None:
+    art = (art or "").strip()
+    if art not in MELDE_ARTEN:
+        raise BenutzerFehler("Benachrichtigung: aus, fehler oder alle")
+    with _sperre:
+        daten = _lesen()
+        if name not in daten["benutzer"]:
+            raise BenutzerFehler("Den Benutzer gibt es nicht")
+        melde = daten["benutzer"][name].get("melde")
+        if not isinstance(melde, dict):
+            melde = {}
+        melde["art"] = art
+        daten["benutzer"][name]["melde"] = melde
+        _schreiben(daten)
+
+
+def meldung_faellig(name: str, geglueckt: bool) -> dict | None:
+    """Soll jetzt eine Nachricht raus - und was stand seit der letzten an?
+
+    Gibt None zurueck, wenn nichts zu melden ist. Zaehlt dabei mit, was die
+    Bremse verschluckt hat, damit die naechste Nachricht es nachtragen kann.
+    """
+    name = (name or "").strip().lower()
+    jetzt = time.time()
+    with _sperre:
+        daten = _lesen()
+        b = daten["benutzer"].get(name)
+        if not b or not b.get("email"):
+            return None
+        art = meldung_von(name)
+        if art == "aus" or (art == "fehler" and geglueckt):
+            return None
+        melde = b.get("melde") if isinstance(b.get("melde"), dict) else {}
+        zuletzt = float(melde.get("zuletzt") or 0)
+        verschluckt = int(melde.get("verschluckt") or 0)
+        if jetzt - zuletzt < MELDE_PAUSE:
+            melde["verschluckt"] = verschluckt + 1
+            melde["art"] = art
+            b["melde"] = melde
+            _schreiben(daten)
+            return None
+        melde.update({"art": art, "zuletzt": jetzt, "verschluckt": 0})
+        b["melde"] = melde
+        _schreiben(daten)
+        return {"email": b["email"], "name": name, "verschluckt": verschluckt}

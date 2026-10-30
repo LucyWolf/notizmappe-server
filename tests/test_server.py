@@ -718,6 +718,29 @@ pruefe("jeder darf seine eigene Adresse eintragen", a.status_code == 200)
 pruefe("und sie steht danach im Profil",
        g.get("/profil").json().get("email") == "gast@example.de")
 
+# --- Nachricht bei Anmeldeversuchen -----------------------------------------
+#
+# Verschickt wird als Nachlauf, erst wenn die Antwort draussen ist. Sonst
+# dauert ein Fehlversuch an einem echten Zugang laenger als an einem
+# erfundenen Namen - und die Anmeldeseite waere ueber die Zeit wieder eine
+# Auskunft darueber, welche Zugaenge es gibt.
+verschickt.clear()
+anon.post("/anmelden", data={"name": "lucy", "passwort": "ganzfalsch123"},
+          follow_redirects=False)
+pruefe("ein Fehlversuch meldet sich beim Zugang",
+       verschickt == ["lucy@example.de"], str(verschickt))
+
+verschickt.clear()
+anon.post("/anmelden", data={"name": "lucy", "passwort": "nochmalfalsch"},
+          follow_redirects=False)
+pruefe("der naechste Versuch gleich danach meldet sich nicht noch einmal",
+       verschickt == [], str(verschickt))
+
+verschickt.clear()
+anon.post("/anmelden", data={"name": "gibtsnichtmehr", "passwort": "egal12345"},
+          follow_redirects=False)
+pruefe("ein erfundener Name schickt nichts", verschickt == [], str(verschickt))
+
 print()
 print("alles gruen" if not fehler else f"{len(fehler)} FEHLER:\n - " + "\n - ".join(fehler))
 shutil.rmtree(DATEN, ignore_errors=True)

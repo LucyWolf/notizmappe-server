@@ -18,6 +18,7 @@ import os
 import re
 import smtplib
 import ssl
+import time
 from email.message import EmailMessage
 from email.utils import formataddr
 from pathlib import Path
@@ -195,3 +196,32 @@ def ruecksetzmail(empfaenger: str, name: str, marke: str) -> None:
         "Sitzungen dieses Zugangs abgemeldet.\n\n"
         "Wenn du das nicht warst, kannst du diese Nachricht wegwerfen - solange "
         "niemand den Link hat, ändert sich nichts.\n")
+
+
+def anmeldemail(empfaenger: str, name: str, geglueckt: bool, herkunft: str,
+                verschluckt: int = 0) -> None:
+    """Jemand hat sich an diesem Zugang versucht.
+
+    Die Herkunft ist die Adresse, die der Server sieht. Steht ein Reverse Proxy
+    davor, ist es dessen Adresse - das steht so in der Nachricht, sonst sucht
+    jemand den Einbrecher im eigenen Keller.
+    """
+    wann = time.strftime("%d.%m.%Y um %H:%M:%S")
+    was = "Anmeldung geglückt" if geglueckt else "Fehlgeschlagener Anmeldeversuch"
+    nachtrag = (f"\nSeit der letzten Nachricht gab es {verschluckt} weitere Versuche, "
+                "die nicht einzeln gemeldet wurden.\n" if verschluckt else "")
+    rat = ("Warst du das nicht, ändere das Passwort - und schalte die zwei Schritte "
+           "beim Anmelden ein.\n" if geglueckt else
+           "Einzelne Versuche sind normal (vertippt). Häufen sie sich, lohnen ein "
+           "neues Passwort und die zwei Schritte beim Anmelden.\n")
+    senden(
+        empfaenger,
+        f"Notizmappe: {was}",
+        f"{was} für den Zugang „{name}“.\n\n"
+        f"Wann: {wann}\n"
+        f"Von: {herkunft}\n"
+        f"{nachtrag}\n"
+        f"{rat}\n"
+        "Die Adresse ist die, die der Server sieht. Steht ein Reverse Proxy davor, "
+        "ist es dessen Adresse.\n\n"
+        "Diese Nachrichten lassen sich im Profil abschalten.\n")
