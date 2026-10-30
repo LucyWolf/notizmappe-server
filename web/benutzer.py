@@ -689,3 +689,127 @@ def geheimnis() -> bytes:
             with os.fdopen(fd, "wb") as f:
                 f.write(secrets.token_bytes(32))
         return p.read_bytes()
+
+
+# --- E-Mail und Passwort zuruecksetzen ---------------------------------------
+#
+# Die Adresse ist freiwillig. Ohne sie laeuft alles wie bisher - nur
+# zuruecksetzen kann man dann nichts, und das ist in Ordnung: ein Server, der
+# keine Mail verschickt, ist einer weniger, der verschickt, was er nicht soll.
+#
+# Die Marke wird **gehasht** gespeichert, genau wie ein Passwort. Wer an die
+# Benutzerdatei kommt, kann damit keinen gueltigen Link bauen. Sie gilt 30
+# Minuten und genau einmal; mit dem neuen Passwort wechselt ausserdem die
+# Sitzungsmarke, also fliegen alle offenen Sitzungen raus - auch die von
+# jemandem, der schon drin war.
+RUECK_MINUTEN = 30
+RUECK_PRO_STUNDE = 3
+
+EMAIL_MUSTER = re.compile(r"^[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,251}\.[A-Za-z]{2,24}$")
+
+
+def email_von(name: str) -> str:
+    b = _lesen()["benutzer"].get((name or "").strip().lower())
+    return (b or {}).get("email", "")
+
+
+def email_setzen(name: str, email: str) -> None:
+    name = (name or "").strip().lower()
+    email = (email or "").strip()
+    if email and not EMAIL_MUSTER.match(email):
+        raise BenutzerFehler("Das sieht nicht wie eine E-Mail-Adresse aus")
+    with _sperre:
+        daten = _lesen()
+        if name not in daten["benutzer"]:
+            raise BenutzerFehler("Den Benutzer gibt es nicht")
+        # Zwei Zugaenge mit derselben Adresse waeren beim Zuruecksetzen nicht
+        # auseinanderzuhalten - dann bekaeme einer den Link fuer den anderen.
+        for anderer, b in daten["benutzer"].items():
+            if anderer != name and email and b.get("email", "").lower() == email.lower():
+                raise BenutzerFehler("Diese Adresse ist schon bei einem anderen Zugang eingetragen")
+        daten["benutzer"][name]["email"] = email
+        daten["benutzer"][name].pop("rueck", None)      # alte Marken gelten nicht mehr
+        _schreiben(daten)
+
+
+def _wer_ist(wer: str, daten: dict) -> str:
+    """Name oder E-Mail zu einem Benutzernamen - oder leer."""
+    wer = (wer or "").strip()
+    if not wer:
+        return ""
+    klein = wer.lower()
+    if klein in daten["benutzer"]:
+        return klein
+    for name, b in daten["benutzer"].items():
+        if b.get("email", "") and b["email"].lower() == klein:
+            return name
+    return ""
+
+
+def _markenhash(marke: str) -> str:
+    return hashlib.sha256((marke or "").encode("utf-8")).hexdigest()
+
+
+def rueckstellung_anlegen(wer: str) -> dict | None:
+    """Marke fuer "Passwort vergessen". Gibt None zurueck, wenn es nichts zu
+    schicken gibt - der Aufrufer antwortet trotzdem immer dasselbe."""
+    jetzt = time.time()
+    with _sperre:
+        daten = _lesen()
+        name = _wer_ist(wer, daten)
+        if not name:
+            return None
+        b = daten["benutzer"][name]
+        if not b.get("email"):
+            return None
+        rueck = b.get("rueck") if isinstance(b.get("rueck"), dict) else {}
+        # Bremse je Zugang: sonst ist der Knopf ein Weg, jemandem das Postfach
+        # vollzuschicken.
+        versuche = [t for t in rueck.get("wann", []) if isinstance(t, (int, float))
+                    and jetzt - t < 3600]
+        if len(versuche) >= RUECK_PRO_STUNDE:
+            return None
+        marke = secrets.token_urlsafe(32)
+        versuche.append(jetzt)
+        b["rueck"] = {"hash": _markenhash(marke), "bis": jetzt + RUECK_MINUTEN * 60,
+                      "wann": versuche}
+        _schreiben(daten)
+        return {"name": name, "email": b["email"], "marke": marke}
+
+
+def rueckstellung_name(marke: str) -> str:
+    """Zu welchem Zugang gehoert die Marke - oder leer, wenn sie nichts taugt."""
+    if not marke:
+        return ""
+    gesucht = _markenhash(marke)
+    jetzt = time.time()
+    daten = _lesen()
+    for name, b in daten["benutzer"].items():
+        rueck = b.get("rueck")
+        if not isinstance(rueck, dict) or not rueck.get("hash"):
+            continue
+        if not secrets.compare_digest(rueck["hash"], gesucht):
+            continue
+        if jetzt > float(rueck.get("bis") or 0):
+            return ""
+        return name
+    return ""
+
+
+def rueckstellung_einloesen(marke: str, passwort: str) -> str:
+    name = rueckstellung_name(marke)
+    if not name:
+        raise BenutzerFehler("Dieser Link gilt nicht mehr. Bitte neu anfordern.")
+    if len(passwort or "") < 8:
+        raise BenutzerFehler("Das Passwort braucht mindestens 8 Zeichen")
+    passwort_setzen(name, passwort)
+    with _sperre:
+        daten = _lesen()
+        if name in daten["benutzer"]:
+            # Die Marke ist verbraucht. Der Zaehler bleibt stehen, sonst waere
+            # die Bremse mit jedem erfolgreichen Zuruecksetzen wieder offen.
+            rueck = daten["benutzer"][name].get("rueck")
+            daten["benutzer"][name]["rueck"] = {
+                "wann": (rueck or {}).get("wann", []) if isinstance(rueck, dict) else []}
+            _schreiben(daten)
+    return name

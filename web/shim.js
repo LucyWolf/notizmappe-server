@@ -1622,6 +1622,21 @@
       } catch (f) { hinweis.textContent = f.message; }
     });
 
+    /* Die eigene Adresse. Freiwillig und mit genau einem Zweck - deshalb
+       steht der Zweck auch daneben: wer nicht weiss, wofuer eine Adresse
+       gebraucht wird, traegt zu Recht keine ein. */
+    const email = el('input', { type: 'email', id: 'p-email',
+                                placeholder: 'name@beispiel.de', autocomplete: 'email' });
+    const emailHinweis = el('p', { className: 'hinweis', id: 'p-emailhinweis' });
+    const emailSichern = el('button', { type: 'button', textContent: 'Adresse speichern' });
+    emailSichern.addEventListener('click', async () => {
+      emailHinweis.textContent = 'wird gespeichert …';
+      try {
+        const d = await hol('/profil/email', { email: email.value });
+        emailHinweis.textContent = d.hinweis || '';
+      } catch (f) { emailHinweis.textContent = f.message; }
+    });
+
     const abmelden = el('button', { type: 'button', textContent: 'Abmelden' });
     abmelden.addEventListener('click', function () { location.href = '/abmelden'; });
 
@@ -1677,6 +1692,12 @@
         + 'eigenes Design.' }),
       el('p', { className: 'ordnerzeile' }, [thema]),
       kasten,
+      el('h3', { textContent: 'E-Mail', style: 'margin-top:14px' }),
+      el('p', { className: 'hinweis', id: 'p-emailzweck', textContent:
+        'Nur dafür da, ein vergessenes Passwort zurückzusetzen. Ohne Adresse '
+        + 'geht das nicht - dann hilft nur ein Verwalter.' }),
+      el('p', { className: 'ordnerzeile' }, [email, emailSichern]),
+      emailHinweis,
       el('h3', { textContent: 'Passwort ändern', style: 'margin-top:14px' }),
       el('p', { className: 'hinweis', textContent:
         'Das bisherige Passwort wird abgefragt - sonst könnte jemand an einem '
@@ -1701,6 +1722,17 @@
     setz('p-ich', d.ich);
     setz('p-rolle', d.rolle);
     setz('p-zwei', d.zwei ? 'eingeschaltet' : 'aus');
+    const email = document.getElementById('p-email');
+    if (email) email.value = d.email || '';
+    const zweck = document.getElementById('p-emailzweck');
+    // Ohne eingerichteten Mailversand waere die Adresse ein Feld, das nichts
+    // tut. Dann lieber sagen, woran es liegt.
+    if (zweck && !d.post_an) {
+      zweck.textContent = 'Auf diesem Server ist noch kein Mailversand eingerichtet - '
+        + 'bis dahin kann auch mit Adresse nichts zurückgesetzt werden. '
+        + (d.darf_verwalten ? 'Einrichten lässt sich das unter Konto.'
+                            : 'Das kann nur ein Verwalter einrichten.');
+    }
     themaLaden();
   }
 
@@ -1908,6 +1940,99 @@
     document.getElementById('profilrolle').textContent =
       rechte.indexOf('benutzer') >= 0 ? 'Verwalter'
         : (rechte.indexOf('schreiben') >= 0 ? 'Benutzer' : 'Gast');
+  }
+
+  /* Mailversand. Steht bei der Verwaltung, nicht im Profil: es ist eine
+     Einstellung des Servers, keine des eigenen Zugangs. Nur Verwalter sehen
+     sie - fuer alle anderen antwortet /post mit 403, und dann verschwindet
+     der ganze Abschnitt wieder. */
+  function postBauen() {
+    const konto = kontoseite();
+    if (!konto || document.getElementById('postteil')) return;
+
+    const an = el('input', { type: 'checkbox', id: 'po-an' });
+    const server = el('input', { type: 'text', id: 'po-server', placeholder: 'mail.example.de' });
+    const port = el('input', { type: 'number', id: 'po-port', value: '587', min: '1', max: '65535' });
+    const sicherheit = el('select', { id: 'po-sicherheit' });
+    for (const [wert, text] of [['starttls', 'STARTTLS (meist Port 587)'],
+                                ['ssl', 'SSL (meist Port 465)'],
+                                ['keine', 'ohne Verschlüsselung']]) {
+      sicherheit.append(el('option', { value: wert, textContent: text }));
+    }
+    const benutzer = el('input', { type: 'text', id: 'po-benutzer',
+                                   placeholder: 'Anmeldename beim Mailserver',
+                                   autocomplete: 'off' });
+    const passwort = el('input', { type: 'password', id: 'po-passwort',
+                                   placeholder: 'Passwort', autocomplete: 'new-password' });
+    const absender = el('input', { type: 'email', id: 'po-absender',
+                                   placeholder: 'notizmappe@example.de' });
+    const stelle = el('input', { type: 'text', id: 'po-stelle',
+                                 placeholder: 'https://notizen.example.de' });
+    const hinweis = el('p', { className: 'hinweis', id: 'po-hinweis' });
+    const sichern = el('button', { type: 'button', textContent: 'Speichern' });
+    const testen = el('button', { type: 'button', textContent: 'Testnachricht an mich' });
+
+    sichern.addEventListener('click', async () => {
+      hinweis.textContent = 'wird gespeichert …';
+      try {
+        const d = await hol('/post', {
+          an: an.checked, server: server.value, port: Number(port.value) || 0,
+          sicherheit: sicherheit.value, benutzer: benutzer.value,
+          passwort: passwort.value, absender: absender.value, stelle: stelle.value,
+        });
+        passwort.value = '';
+        passwort.placeholder = d.passwort_da ? 'unverändert' : 'Passwort';
+        hinweis.textContent = d.hinweis || 'Gespeichert.';
+      } catch (f) { hinweis.textContent = f.message; }
+    });
+    testen.addEventListener('click', async () => {
+      hinweis.textContent = 'wird verschickt … das kann einen Moment dauern.';
+      try {
+        const d = await hol('/post/probe', {});
+        hinweis.textContent = d.hinweis || 'Abgeschickt.';
+      } catch (f) { hinweis.textContent = f.message; }
+    });
+
+    const zeile = (text, feld) => el('p', { className: 'zeile2' },
+                                     [el('span', { textContent: text }), feld]);
+    konto.append(el('section', { id: 'postteil' }, [
+      el('h3', { textContent: 'Mailversand', style: 'margin-top:22px' }),
+      el('p', { className: 'hinweis', textContent:
+        'Nur für eines da: einen Link zum Zurücksetzen des Passworts zu '
+        + 'verschicken. Das Passwort des Mailkontos liegt dabei im Klartext im '
+        + 'Datenordner - der Server muss sich damit anmelden können. Wer an die '
+        + 'Datei kommt, hat das Mailkonto.' }),
+      zeile('Einschalten', an),
+      zeile('Mailserver', server),
+      zeile('Port', port),
+      zeile('Verschlüsselung', sicherheit),
+      zeile('Anmeldename', benutzer),
+      zeile('Passwort', passwort),
+      zeile('Absender', absender),
+      zeile('Adresse dieses Servers', stelle),
+      el('p', { className: 'hinweis', textContent:
+        'Die Adresse steht im Link der Mail. Sie wird hier eingetragen und '
+        + 'nicht aus der Anfrage geraten - sonst könnte jemand den Server dazu '
+        + 'bringen, einen Link auf seinen eigenen Rechner zu verschicken.' }),
+      el('p', { className: 'knoepfe' }, [sichern, testen]),
+      hinweis,
+    ]));
+    postLaden();
+  }
+
+  async function postLaden() {
+    const teil = document.getElementById('postteil');
+    if (!teil) return;
+    let d;
+    try { d = await hol('/post'); } catch (f) { teil.remove(); return; }
+    document.getElementById('po-an').checked = !!d.an;
+    document.getElementById('po-server').value = d.server || '';
+    document.getElementById('po-port').value = d.port || 587;
+    document.getElementById('po-sicherheit').value = d.sicherheit || 'starttls';
+    document.getElementById('po-benutzer').value = d.benutzer || '';
+    document.getElementById('po-passwort').placeholder = d.passwort_da ? 'unverändert' : 'Passwort';
+    document.getElementById('po-absender').value = d.absender || '';
+    document.getElementById('po-stelle').value = d.stelle || '';
   }
 
   function abschnittBauen() {
@@ -2217,6 +2342,27 @@
         border-bottom: 1px solid var(--linie);
       }
       #serververwaltung .zeile2 span:last-child { display: flex; gap: 6px; flex: 0 0 auto; }
+      #postteil { max-width: 760px; }
+      #postteil input[type="text"], #postteil input[type="email"],
+      #postteil input[type="password"], #postteil input[type="number"],
+      #postteil select {
+        border: 1px solid var(--linie); border-radius: 6px; padding: 5px 8px;
+        background: var(--flaeche, var(--papier)); color: var(--schrift);
+        font: inherit; font-size: 13px; min-width: 220px;
+      }
+      #postteil option { background: var(--papier); color: var(--schrift); }
+      #postteil button {
+        border: 1px solid var(--linie); background: var(--leiste); color: var(--schrift);
+        border-radius: 6px; padding: 5px 10px; cursor: pointer; font: inherit; font-size: 13px;
+      }
+      #postteil button:hover { border-color: var(--akzent); }
+      #postteil .zeile2 {
+        display: flex; align-items: center; justify-content: space-between;
+        gap: 12px; margin: 6px 0; padding-bottom: 6px;
+        border-bottom: 1px solid var(--linie);
+      }
+      #postteil .hinweis { color: var(--matt); font-size: 12px; margin: 8px 0 0; }
+      #postteil .knoepfe { display: flex; gap: 8px; margin-top: 12px; }
       #serververwaltung .hinweis {
         color: var(--matt); font-size: 12px; margin: 8px 0 0; max-width: 640px;
       }
@@ -2407,6 +2553,7 @@
                                ['Aussehen', themaLaden],
                                ['Speicher', ablageBauen],
                                ['Striche markieren', strichMarkierenBauen],
+                               ['Mailversand', postBauen],
                                ['Update-Hinweis', updateHinweisBauen],
                                ['Bereiche laden', bereicheLaden],
                                ['Verwaltung laden', verwaltungLaden]]) {

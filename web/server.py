@@ -36,6 +36,7 @@ from starlette.concurrency import run_in_threadpool
 
 import ablage
 import benutzer as nutzer
+import post
 import selbst
 
 HIER = Path(__file__).resolve().parent
@@ -468,6 +469,91 @@ def anmelden(bitte: Request, name: str = Form(""), passwort: str = Form("")):
     return antwort
 
 
+# --- Passwort vergessen ------------------------------------------------------
+#
+# Der einzige Weg in einen Zugang hinein, der ohne Passwort auskommt. Deshalb
+# drei Dinge, die nicht verhandelbar sind:
+#
+# 1. Die Antwort ist immer dieselbe - auch bei einem Namen, den es nicht gibt.
+#    Sonst ist die Seite eine Auskunft darueber, welche Zugaenge es gibt.
+# 2. Die Marke steht gehasht in der Benutzerdatei, gilt 30 Minuten und genau
+#    einmal.
+# 3. Die Adresse im Link kommt aus den Einstellungen, nicht aus dem Host-Kopf
+#    der Anfrage. Sonst schickt der Server auf Zuruf einen Link, der auf den
+#    Rechner des Fragenden zeigt - und faengt dort das neue Passwort ab.
+MARKE_MUSTER = re.compile(r"^[A-Za-z0-9_-]{10,200}$")
+VERGESSEN_ANTWORT = ("Wenn es diesen Zugang gibt und eine Adresse hinterlegt ist, "
+                     "ist eine Nachricht unterwegs.")
+
+
+@app.get("/passwort-vergessen", response_class=HTMLResponse)
+def vergessen_seite(fehler: str = "", hinweis: str = ""):
+    if not post.eingerichtet():
+        return HTMLResponse(_vorlage("vergessen.html", fehler="",
+                                     hinweis="Auf diesem Server ist kein Mailversand "
+                                             "eingerichtet - bitte an die Verwaltung wenden.",
+                                     aus="disabled", fassung=DESKTOP_FASSUNG))
+    return HTMLResponse(_vorlage("vergessen.html", fehler=_text(fehler),
+                                 hinweis=_text(hinweis), aus="",
+                                 fassung=DESKTOP_FASSUNG))
+
+
+@app.post("/passwort-vergessen")
+async def vergessen(bitte: Request, wer: str = Form("")):
+    if not post.eingerichtet():
+        return RedirectResponse("/passwort-vergessen", status_code=303)
+    schluessel = bremsschluessel(bitte, "vergessen")
+    if gebremst(schluessel):
+        # Auch hier keine andere Auskunft als sonst: die Bremse soll niemandem
+        # verraten, dass er einen Treffer gelandet hat.
+        return RedirectResponse(
+            f"/passwort-vergessen?hinweis={urllib.parse.quote_plus(VERGESSEN_ANTWORT)}",
+            status_code=303)
+    fehlversuch(schluessel)
+    try:
+        auftrag = await run_in_threadpool(nutzer.rueckstellung_anlegen, wer)
+        if auftrag:
+            await run_in_threadpool(post.ruecksetzmail, auftrag["email"],
+                                    auftrag["name"], auftrag["marke"])
+    except (nutzer.BenutzerFehler, post.PostFehler) as f:
+        # Dem Fragenden sagt das nichts - im Protokoll steht es, damit man
+        # nachsehen kann, wenn sich jemand beschwert, es komme nichts an.
+        print(f"[notizmappe] Zuruecksetzen fehlgeschlagen: {f}", flush=True)
+    return RedirectResponse(
+        f"/passwort-vergessen?hinweis={urllib.parse.quote_plus(VERGESSEN_ANTWORT)}",
+        status_code=303)
+
+
+@app.get("/neues-passwort", response_class=HTMLResponse)
+def neues_passwort_seite(marke: str = "", fehler: str = ""):
+    if not MARKE_MUSTER.match(marke or "") or not nutzer.rueckstellung_name(marke):
+        return HTMLResponse(_vorlage("neues-passwort.html", marke="", aus="disabled",
+                                     fehler="Dieser Link gilt nicht mehr. "
+                                            "Bitte neu anfordern.",
+                                     fassung=DESKTOP_FASSUNG))
+    return HTMLResponse(_vorlage("neues-passwort.html", marke=_text(marke), aus="",
+                                 fehler=_text(fehler), fassung=DESKTOP_FASSUNG))
+
+
+@app.post("/neues-passwort")
+def neues_passwort(marke: str = Form(""), passwort: str = Form(""),
+                   passwort2: str = Form("")):
+    ziel = f"/neues-passwort?marke={urllib.parse.quote_plus(marke)}&fehler="
+    if not MARKE_MUSTER.match(marke or ""):
+        return RedirectResponse("/anmelden?fehler=Dieser+Link+gilt+nicht+mehr.", status_code=303)
+    if passwort != passwort2:
+        return RedirectResponse(ziel + "Die+Passw%C3%B6rter+sind+nicht+gleich.",
+                                status_code=303)
+    try:
+        nutzer.rueckstellung_einloesen(marke, passwort)
+    except nutzer.BenutzerFehler as f:
+        return RedirectResponse(ziel + urllib.parse.quote_plus(str(f)), status_code=303)
+    # Kein Keks, keine Anmeldung nebenbei: wer das Passwort gesetzt hat, meldet
+    # sich damit an. Sonst waere der Link ein Weg hinein, ohne es zu kennen.
+    return RedirectResponse("/anmelden?fehler=Passwort+gesetzt.+Bitte+anmelden.",
+                            status_code=303)
+
+
 @app.get("/zweiter-schritt", response_class=HTMLResponse)
 def zweiter_schritt_seite(bitte: Request, fehler: str = ""):
     wer = halbkeks_lesen(bitte.cookies.get(HALBKEKS))
@@ -739,7 +825,81 @@ def profil_lesen(bitte: Request):
             "rolle": ("Verwalter" if "benutzer" in rechte
                       else ("Benutzer" if "schreiben" in rechte else "Gast")),
             "zwei": nutzer.zwei_schritte_stand(wer)["an"],
+            "email": nutzer.email_von(wer),
+            "post_an": post.eingerichtet(),
             "darf_verwalten": "benutzer" in rechte}
+
+
+@app.post("/profil/email")
+async def profil_email(bitte: Request):
+    """Die eigene Adresse eintragen oder wieder loeschen.
+
+    Freiwillig. Sie hat genau einen Zweck: den Link zum Zuruecksetzen. Deshalb
+    steht sie auch nur im eigenen Profil - ein Verwalter, der sie fuer andere
+    eintragen koennte, koennte sich damit fremde Zugaenge schicken lassen.
+    """
+    wer = angemeldet(bitte)
+    if not wer:
+        return JSONResponse({"fehler": "Nicht angemeldet"}, status_code=401)
+    rumpf = _rumpf(await bitte.json())
+    try:
+        nutzer.email_setzen(wer, rumpf.get("email") or "")
+    except nutzer.BenutzerFehler as f:
+        return JSONResponse({"fehler": str(f)}, status_code=400)
+    neue = nutzer.email_von(wer)
+    return {"email": neue,
+            "hinweis": ("Adresse gespeichert." if neue
+                        else "Adresse entfernt - ohne sie geht kein Zurücksetzen.")}
+
+
+# --- Mailversand ------------------------------------------------------------
+
+@app.get("/post")
+def post_lesen(bitte: Request):
+    wer = angemeldet(bitte)
+    if not wer or "benutzer" not in nutzer.rechte_von(wer):
+        return JSONResponse({"fehler": "Dafür fehlt das Recht"}, status_code=403)
+    return post.stand()
+
+
+@app.post("/post")
+async def post_setzen(bitte: Request):
+    wer = angemeldet(bitte)
+    if not wer or "benutzer" not in nutzer.rechte_von(wer):
+        return JSONResponse({"fehler": "Dafür fehlt das Recht"}, status_code=403)
+    rumpf = _rumpf(await bitte.json())
+    # Kein Passwort im Rumpf heisst "das bisherige behalten" - sonst muesste
+    # man es bei jeder Kleinigkeit neu eintippen.
+    passwort = rumpf.get("passwort")
+    try:
+        post.setzen(an=bool(rumpf.get("an")), server=rumpf.get("server", ""),
+                    port=rumpf.get("port"), sicherheit=rumpf.get("sicherheit", "starttls"),
+                    benutzer=rumpf.get("benutzer", ""),
+                    passwort=None if passwort in (None, "") else passwort,
+                    absender=rumpf.get("absender", ""), stelle=rumpf.get("stelle", ""))
+    except post.PostFehler as f:
+        return JSONResponse({"fehler": str(f)}, status_code=400)
+    stand = post.stand()
+    stand["hinweis"] = "Gespeichert."
+    return stand
+
+
+@app.post("/post/probe")
+async def post_probe(bitte: Request):
+    """Testnachricht an die eigene Adresse. Ohne das merkt man den Tippfehler
+    erst, wenn jemand sein Passwort braucht."""
+    wer = angemeldet(bitte)
+    if not wer or "benutzer" not in nutzer.rechte_von(wer):
+        return JSONResponse({"fehler": "Dafür fehlt das Recht"}, status_code=403)
+    ziel = nutzer.email_von(wer)
+    if not ziel:
+        return JSONResponse({"fehler": "Erst im eigenen Profil eine Adresse eintragen - "
+                                       "die Testnachricht geht dorthin."}, status_code=400)
+    try:
+        await run_in_threadpool(post.probe, ziel)
+    except post.PostFehler as f:
+        return JSONResponse({"fehler": str(f)}, status_code=400)
+    return {"hinweis": f"Testnachricht an {ziel} abgeschickt."}
 
 
 @app.post("/profil/passwort")

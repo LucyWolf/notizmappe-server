@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Notizmappe - neues Passwort</title>
+<link rel="icon" href="icon.png">
+<link rel="stylesheet" href="stil.css">
+</head>
+<body>
+<div id="sperrschirm">
+  <div class="tafel" role="dialog" aria-label="Neues Passwort">
+    <h2>Neues Passwort</h2>
+    <p>Mindestens 8 Zeichen. Danach sind alle offenen Sitzungen dieses Zugangs abgemeldet.</p>
+    <form method="post" action="/neues-passwort">
+      <input type="hidden" name="marke" value="{{marke}}">
+      <p class="ordnerzeile">
+        <input type="password" name="passwort" placeholder="Neues Passwort"
+               autocomplete="new-password" autofocus {{aus}}>
+      </p>
+      <p class="ordnerzeile">
+        <input type="password" name="passwort2" placeholder="Noch einmal"
+               autocomplete="new-password" {{aus}}>
+        <button type="submit" id="s-auf" {{aus}}>Passwort setzen</button>
+      </p>
+    </form>
+    <p class="fehlerzeile">{{fehler}}</p>
+    <p class="hinweis"><a href="/passwort-vergessen">Neuen Link anfordern</a></p>
+    <p class="hinweis">Notizmappe {{fassung}} · Serverfassung</p>
+  </div>
+</div>
+</body>
+</html>

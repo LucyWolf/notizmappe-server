@@ -37,6 +37,7 @@ jobs:
           python tests/test_zerren.py
           python tests/test_glaetten.py
           python tests/test_balken.py
+          python tests/test_post.py
 
   bauen:
     needs: pruefen

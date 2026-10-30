@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Notizmappe - Passwort vergessen</title>
+<link rel="icon" href="icon.png">
+<link rel="stylesheet" href="stil.css">
+</head>
+<body>
+<div id="sperrschirm">
+  <div class="tafel" role="dialog" aria-label="Passwort vergessen">
+    <h2>Passwort vergessen</h2>
+    <p>Benutzername oder E-Mail eintragen. Der Link in der Nachricht gilt 30 Minuten.</p>
+    <form method="post" action="/passwort-vergessen">
+      <p class="ordnerzeile">
+        <input type="text" name="wer" placeholder="Benutzername oder E-Mail"
+               autocapitalize="none" spellcheck="false" autofocus {{aus}}>
+        <button type="submit" id="s-auf" {{aus}}>Link schicken</button>
+      </p>
+    </form>
+    <p class="fehlerzeile">{{fehler}}</p>
+    <p class="hinweis">{{hinweis}}</p>
+    <p class="hinweis"><a href="/anmelden">Zurück zur Anmeldung</a></p>
+    <p class="hinweis">Notizmappe {{fassung}} · Serverfassung</p>
+  </div>
+</div>
+</body>
+</html>

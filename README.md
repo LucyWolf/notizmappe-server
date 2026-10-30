@@ -360,6 +360,40 @@ Docker-Rechner — dann hat jemand mit Zugriff auf die Freigabe nur Kauderwelsch
   die Updates (am Server ist das `docker pull`) und `anhang_oeffnen` — das würde
   sonst ein Programm **auf dem Server** starten.
 
+## Passwort vergessen
+
+Der einzige Weg in einen Zugang hinein, der ohne Passwort auskommt — deshalb
+eng gebaut:
+
+1. **E-Mail im eigenen Profil** eintragen (Profilfenster, freiwillig). Ohne
+   Adresse geht nichts zurückzusetzen; dann hilft nur ein Verwalter.
+2. **Mailversand einrichten**: Datei → Konto → *Mailversand* (nur Verwalter).
+   Server, Port, Verschlüsselung, Anmeldung, Absender und die **Adresse dieses
+   Servers**. Daneben steht ein Knopf für eine Testnachricht an die eigene
+   Adresse — sonst merkt man den Tippfehler erst, wenn jemand sein Passwort
+   braucht.
+3. Auf der Anmeldeseite steht dann **„Passwort vergessen?"**.
+
+Was dabei absichtlich so ist:
+
+* Die Antwort auf „Link schicken" ist **immer dieselbe**, auch bei einem Namen,
+  den es nicht gibt. Sonst wäre die Seite eine Auskunft darüber, welche Zugänge
+  es gibt.
+* Die Marke im Link steht **gehasht** in `benutzer.json`, gilt **30 Minuten**
+  und **genau einmal**. Höchstens drei Anforderungen je Zugang und Stunde.
+* Nach dem Setzen sind **alle offenen Sitzungen** dieses Zugangs abgemeldet.
+* Die Adresse im Link kommt aus den Einstellungen, **nicht** aus dem Host-Kopf
+  der Anfrage. Sonst könnte jemand den Server dazu bringen, einen Link auf
+  seinen eigenen Rechner zu verschicken und dort das neue Passwort abzufangen.
+* Eine neue E-Mail-Adresse macht offene Marken wertlos.
+
+**Das SMTP-Passwort liegt im Klartext** in `daten/.post.json` (Datei auf 0600).
+Anders geht es nicht: der Server muss sich damit anmelden, und was er selbst
+wieder lesbar machen kann, ist nicht verschlüsselt, sondern nur versteckt. Wer
+an die Datei kommt, hat das Mailkonto — das sollte man wissen, bevor man dort
+die Zugangsdaten des Hauptpostfachs einträgt. Ein eigenes Konto nur für diesen
+Zweck ist die bessere Wahl.
+
 ### HTTPS
 
 Im Image steckt kein Reverse Proxy. Steht einer davor (nginx, Caddy), dann

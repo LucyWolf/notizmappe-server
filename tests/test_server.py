@@ -665,6 +665,59 @@ roh = (DESKTOP / "app/oberflaeche/index.html").read_text(encoding="utf-8")
 pruefe("Sonst ist es dieselbe index.html",
        a.text.replace('<script src="shim.js"></script>\n', "") == roh)
 
+# --- Passwort vergessen: keine Auskunft ueber Zugaenge -----------------------
+#
+# Das ist der einzige Weg in einen Zugang hinein, der ohne Passwort auskommt.
+# Was er auf keinen Fall sein darf: eine Auskunft darueber, welche Namen es
+# gibt. Deshalb muss die Antwort fuer einen echten und einen erfundenen Namen
+# ununterscheidbar sein - gleicher Status, gleiches Ziel.
+anon = TestClient(server.app)
+a = anon.get("/passwort-vergessen")
+pruefe("die Seite 'Passwort vergessen' kommt", a.status_code == 200)
+pruefe("ohne eingerichteten Versand sagt sie das",
+       "kein Mailversand" in a.text, a.text[-400:])
+
+server.post.setzen(an=True, server="mail.example.de", port=587, sicherheit="starttls",
+                   benutzer="", passwort="geheim", absender="notiz@example.de",
+                   stelle="https://notizen.example.de")
+verschickt = []
+server.post.senden = lambda an_, betreff, text: verschickt.append(an_)
+server.nutzer.email_setzen("lucy", "lucy@example.de")
+
+echt = anon.post("/passwort-vergessen", data={"wer": "lucy"}, follow_redirects=False)
+erfunden = anon.post("/passwort-vergessen", data={"wer": "gibtsnicht"}, follow_redirects=False)
+pruefe("echter und erfundener Name sehen gleich aus",
+       echt.status_code == erfunden.status_code
+       and echt.headers.get("location") == erfunden.headers.get("location"),
+       f"{echt.status_code} {echt.headers.get('location')} / "
+       f"{erfunden.status_code} {erfunden.headers.get('location')}")
+pruefe("nur fuer den echten Zugang geht etwas raus",
+       verschickt == ["lucy@example.de"], str(verschickt))
+
+a = anon.get("/neues-passwort?marke=" + "x" * 40)
+pruefe("eine erfundene Marke fuehrt zu keinem Formular",
+       a.status_code == 200 and "gilt nicht mehr" in a.text)
+a = anon.post("/neues-passwort", data={"marke": "zu-kurz", "passwort": "neues1234",
+                                       "passwort2": "neues1234"},
+              follow_redirects=False)
+pruefe("eine unsinnige Marke landet wieder bei der Anmeldung",
+       a.status_code == 303 and a.headers.get("location", "").startswith("/anmelden"))
+
+# Die Mail-Einstellungen gehoeren dem Server, nicht dem einzelnen Zugang.
+pruefe("ohne Anmeldung keine Mail-Einstellungen", anon.get("/post").status_code == 403)
+pruefe("ein Gast sieht die Mail-Einstellungen nicht", g.get("/post").status_code == 403)
+pruefe("ein Gast kann sie auch nicht setzen",
+       g.post("/post", json={"an": False}, headers={"X-Notizmappe": "1"}).status_code == 403)
+pruefe("der Verwalter sieht sie", k.get("/post").status_code == 200)
+pruefe("das Passwort steht nicht in der Antwort", "passwort\"" not in k.get("/post").text,
+       k.get("/post").text)
+
+# Die eigene Adresse darf jeder selbst setzen - und nur die eigene.
+a = g.post("/profil/email", json={"email": "gast@example.de"}, headers={"X-Notizmappe": "1"})
+pruefe("jeder darf seine eigene Adresse eintragen", a.status_code == 200)
+pruefe("und sie steht danach im Profil",
+       g.get("/profil").json().get("email") == "gast@example.de")
+
 print()
 print("alles gruen" if not fehler else f"{len(fehler)} FEHLER:\n - " + "\n - ".join(fehler))
 shutil.rmtree(DATEN, ignore_errors=True)
