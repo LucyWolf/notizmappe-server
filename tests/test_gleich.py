@@ -240,7 +240,7 @@ pruefe("und legt keinen Reiter mehr an", 'data-punkt="profil"' not in shim)
 pruefe("die Benutzerverwaltung steht nicht im Profilmenue",
        "Benutzer verwalten" not in shim)
 pruefe("sie haengt unter Optionen in der Datei-Ebene",
-       bool(re.search(r"function abschnittBauen\(\) \{\s*const wo = serveroptionen\(\);", shim)))
+       bool(re.search(r"function abschnittBauen\(\) \{\s*if \(!optionentafel\(\)", shim)))
 # Das Design hing am Profil: als Reiter wurde es beim Start mitgebaut, als
 # Fenster erst beim Oeffnen - bis dahin saesse man im Standarddesign.
 pruefe("das Design wird beim Start geladen, nicht erst mit dem Profil",

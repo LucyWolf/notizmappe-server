@@ -424,9 +424,13 @@ pruefe("Auch wer nichts verwalten darf, erfährt wer er ist",
        d.get("ich") == "nurlesen" and isinstance(d.get("meine_rechte"), list), d)
 shimtext = (WURZEL / "web/shim.js").read_text(encoding="utf-8")
 pruefe("Benutzer, Rollen und Mailversand stehen unter Optionen",
-       "const wo = serveroptionen();" in shimtext
-       and "wo.append(abschnitt);" in shimtext
-       and "wo.append(el('section', { id: 'postteil' }" in shimtext)
+       "optionAnhaengen(abschnitt);" in shimtext
+       and "optionAnhaengen(el('section', { id: 'postteil' }" in shimtext)
+# Jeder Abschnitt dort bekommt einen Reiter. Was dabei schiefgehen kann,
+# prueft tests/test_reiter.py in einem nachgebauten DOM.
+pruefe("und bekommen oben eine Reiterleiste",
+       "['Optionen-Reiter', optionenReiterBauen]" in shimtext
+       and "id: 'optionenreiter'" in shimtext)
 pruefe("Der Reiter Konto heißt System",
        "kopf.textContent = 'System'" in shimtext
        and "reiter.textContent = 'System'" in shimtext)

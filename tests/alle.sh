@@ -11,7 +11,7 @@ fehler=0
 echo "=== Desktop holen ==="
 "$WURZEL/tools/desktop_holen.sh" || exit 1
 
-for t in test_gleich test_server test_ablage test_selbst test_zerren test_glaetten test_balken test_post; do
+for t in test_gleich test_server test_ablage test_selbst test_zerren test_glaetten test_balken test_post test_reiter; do
   echo "=== $t ==="
   "$PY" "$WURZEL/tests/$t.py" 2>&1 | tail -60
   [ "${PIPESTATUS[0]}" = 0 ] || fehler=$((fehler+1))

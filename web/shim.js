@@ -143,6 +143,14 @@
       const nurVerwalter = ['Benutzer und Rollen', 'Einladen', 'Was die Rollen bedeuten']
         .indexOf(h.textContent) >= 0;
       h.hidden = nurVerwalter && !d.darf;
+      // Seit die Verwaltung in Reiter zerlegt ist, haengt an jeder
+      // Ueberschrift ein ganzer Unterabschnitt. Nur die Ueberschrift zu
+      // verstecken liess die Eingabefelder darunter stehen - fuer jemanden,
+      // der sie gar nicht benutzen darf.
+      const teil = h.parentElement;
+      if (teil && teil !== abschnitt && teil.tagName === 'SECTION') {
+        teil.hidden = nurVerwalter && !d.darf;
+      }
     }
     zweiLaden();
     zeichneProjekte(d);
@@ -471,15 +479,115 @@
     return seite.querySelector('#einstellungen .tafel') || seite;
   }
 
-  function serveroptionen() {
+  /* Eigene Abschnitte kommen vor die der Oberflaeche: was nur dieser Server
+     kann, soll vor Daten, Schriften und Fenster stehen. */
+  function optionAnhaengen(abschnitt) {
     const tafel = optionentafel();
     if (!tafel) return null;
-    let platz = document.getElementById('serveroptionen');
-    if (!platz) {
-      platz = el('div', { id: 'serveroptionen' });
-      tafel.insertBefore(platz, tafel.firstChild);
+    abschnitt.dataset.eigen = 'ja';
+    const fremd = Array.from(tafel.children).find(
+      (k) => k.tagName === 'SECTION' && !k.dataset.eigen);
+    tafel.insertBefore(abschnitt, fremd || null);
+    return abschnitt;
+  }
+
+  /* --------------------------------------------- Reiter in den Einstellungen
+
+     Alles in einer Spalte war ein Band von zwei Metern: Benutzer, zwei
+     Schritte, Einladen, Projekte, Rollen, Mailversand, Daten, Schriften,
+     Fenster - und dazwischen die Hinweise, warum etwas am Server nicht geht.
+     Jetzt steht oben eine Reiterleiste und darunter genau ein Abschnitt.
+
+     Zugedeckt wird mit einer eigenen Klasse, nicht mit hidden. hidden setzen
+     hier mehrere Stellen aus eigenem Grund - die Verwaltung erst, wenn die
+     Rechte da sind, "Mit einem Server verbinden" ueberhaupt nicht. Wer hidden
+     traegt, bekommt keinen Reiter; wer einen bekommt, wird mit der Klasse
+     zugedeckt. So treten sich die beiden nicht gegenseitig weg. */
+  const REITER_WEG = 'reiterzu';
+  const REITER_MERK = 'notizmappe.optionenreiter';
+  // Die Ueberschriften sind Saetze, Reiter muessen kurz sein.
+  const REITERNAMEN = {
+    'Benutzer und Rollen': 'Benutzer',
+    'Zwei Schritte beim Anmelden': 'Zwei Schritte',
+    'Was die Rollen bedeuten': 'Rollen',
+    'Aus OneNote übernehmen': 'OneNote',
+    'Mit einem Server verbinden': 'Server',
+  };
+  let offenerReiter = null;
+  try { offenerReiter = localStorage.getItem(REITER_MERK); } catch (f) { /* ohne eben nicht */ }
+
+  /* Einen langen Abschnitt an seinen Ueberschriften zerlegen, damit jedes
+     Thema einen eigenen Reiter bekommen kann. Was vor der ersten Ueberschrift
+     steht, bleibt stehen - es gehoert zu keinem Thema. */
+  function nachH3Teilen(abschnitt) {
+    const kinder = Array.from(abschnitt.children);
+    if (!kinder.some((k) => k.tagName === 'H3')) return;
+    let teil = null;
+    for (const kind of kinder) {
+      if (kind.tagName === 'H3') {
+        kind.style.marginTop = '';        // der Abstand kam vom langen Band
+        teil = el('section', {});
+        abschnitt.append(teil);
+      }
+      if (teil) teil.append(kind);
     }
-    return platz;
+  }
+
+  /* Ein Blatt ist, was einen Reiter bekommt: ein Abschnitt mit Ueberschrift.
+     Stecken in einem Abschnitt weitere, zaehlen die inneren - so bleibt
+     #serververwaltung als Ganzes abschaltbar und liefert trotzdem fuenf
+     Reiter. */
+  function reiterblaetter(tafel) {
+    const blaetter = [];
+    for (const aussen of Array.from(tafel.children)) {
+      if (aussen.tagName !== 'SECTION' || aussen.hidden) continue;
+      const innen = Array.from(aussen.children).filter((k) => k.tagName === 'SECTION');
+      if (innen.length) {
+        for (const i of innen) if (!i.hidden && i.querySelector('h3')) blaetter.push(i);
+      } else if (aussen.querySelector('h3')) {
+        blaetter.push(aussen);
+      }
+    }
+    return blaetter;
+  }
+
+  function optionenReiterBauen() {
+    const tafel = optionentafel();
+    if (!tafel) return;
+    const blaetter = reiterblaetter(tafel);
+    // Erst alles aufdecken: was gerade keinen Reiter hat - weil es hidden
+    // traegt oder weil ein Abschnitt zerlegt wurde -, darf nicht von einer
+    // alten Runde zugedeckt bleiben.
+    for (const s of tafel.querySelectorAll('section')) s.classList.remove(REITER_WEG);
+
+    let leiste = document.getElementById('optionenreiter');
+    if (!leiste) {
+      leiste = el('div', { id: 'optionenreiter' });
+      leiste.setAttribute('role', 'tablist');
+      tafel.insertBefore(leiste, tafel.children[0] || null);
+    }
+    leiste.textContent = '';
+    leiste.hidden = blaetter.length < 2;
+    if (!blaetter.length) return;
+
+    const wie = (s) => s.querySelector('h3').textContent.trim();
+    if (!blaetter.some((s) => wie(s) === offenerReiter)) offenerReiter = wie(blaetter[0]);
+
+    for (const blatt of blaetter) {
+      const schluessel = wie(blatt);
+      const auf = schluessel === offenerReiter;
+      if (!auf) blatt.classList.add(REITER_WEG);
+      const knopf = el('button', { type: 'button',
+                                   textContent: REITERNAMEN[schluessel] || schluessel });
+      knopf.setAttribute('role', 'tab');
+      knopf.setAttribute('aria-selected', auf ? 'true' : 'false');
+      knopf.addEventListener('click', function () {
+        offenerReiter = schluessel;
+        try { localStorage.setItem(REITER_MERK, schluessel); } catch (f) { /* egal */ }
+        optionenReiterBauen();
+      });
+      leiste.append(knopf);
+    }
   }
 
   function einstellungenAnpassen() {
@@ -1977,8 +2085,7 @@
      sie - fuer alle anderen antwortet /post mit 403, und dann verschwindet
      der ganze Abschnitt wieder. */
   function postBauen() {
-    const wo = serveroptionen();
-    if (!wo || document.getElementById('postteil')) return;
+    if (!optionentafel() || document.getElementById('postteil')) return;
 
     const an = el('input', { type: 'checkbox', id: 'po-an' });
     const server = el('input', { type: 'text', id: 'po-server', placeholder: 'mail.example.de' });
@@ -2025,7 +2132,7 @@
 
     const zeile = (text, feld) => el('p', { className: 'zeile2' },
                                      [el('span', { textContent: text }), feld]);
-    wo.append(el('section', { id: 'postteil' }, [
+    optionAnhaengen(el('section', { id: 'postteil' }, [
       el('h3', { textContent: 'Mailversand' }),
       el('p', { className: 'hinweis', textContent:
         'Nur für eines da: einen Link zum Zurücksetzen des Passworts zu '
@@ -2054,7 +2161,7 @@
     const teil = document.getElementById('postteil');
     if (!teil) return;
     let d;
-    try { d = await hol('/post'); } catch (f) { teil.remove(); return; }
+    try { d = await hol('/post'); } catch (f) { teil.remove(); optionenReiterBauen(); return; }
     document.getElementById('po-an').checked = !!d.an;
     document.getElementById('po-server').value = d.server || '';
     document.getElementById('po-port').value = d.port || 587;
@@ -2066,8 +2173,7 @@
   }
 
   function abschnittBauen() {
-    const wo = serveroptionen();
-    if (!wo || document.getElementById('serververwaltung')) return;
+    if (!optionentafel() || document.getElementById('serververwaltung')) return;
 
     const neuerName = el('input', { type: 'text', placeholder: 'Benutzername', autocapitalize: 'none' });
     const neuesPw = el('input', { type: 'password', placeholder: 'Passwort (mind. 8 Zeichen)' });
@@ -2160,7 +2266,13 @@
         'Die Rechte werden am Server durchgesetzt, nicht nur in der Oberfläche. '
         + 'Ein Zugang zu entfernen löscht keine Notizen - die liegen weiter im Datenordner.' }),
     ]);
-    wo.append(abschnitt);
+    optionAnhaengen(abschnitt);
+    nachH3Teilen(abschnitt);
+    // Die Meldezeile gehoert in keinen Reiter: "Zugang entfernt" soll man auch
+    // dann noch lesen, wenn man weiterschaltet - im letzten Unterabschnitt
+    // steckte sie sonst fest.
+    const meldung = document.getElementById('v-meldung');
+    if (meldung) abschnitt.append(meldung);
 
     // Die Auswahlfelder füllen sich aus dem Stand
     const fuellen = () => {
@@ -2179,7 +2291,13 @@
       }
     };
     const alt = verwaltungLaden;
-    verwaltungLaden = async function () { await alt(); fuellen(); };
+    verwaltungLaden = async function () {
+      await alt();
+      fuellen();
+      // Erst jetzt steht fest, welche Abschnitte dieser Mensch sehen darf -
+      // also erst jetzt stehen die Reiter fest.
+      optionenReiterBauen();
+    };
 
     // Eingesetzte Elemente bringen ihre Gestaltung selbst mit. Sonst nehmen sie
     // die Standarddarstellung des Browsers - weisse Felder und Knoepfe in einer
@@ -2187,8 +2305,24 @@
     const stil = document.createElement('style');
     stil.textContent = `
       #serververwaltung { max-width: 760px; }
-      #serveroptionen { margin-bottom: 18px; }
-      #serveroptionen > section + section { margin-top: 22px; }
+
+      /* Reiterleiste der Einstellungen. Sieht aus wie die Reiter oben im
+         Band - derselbe Handgriff, dieselben Farbnamen. */
+      #optionenreiter {
+        display: flex; flex-wrap: wrap; gap: 2px; margin: 0 0 18px;
+        border-bottom: 1px solid var(--linie);
+      }
+      #optionenreiter button {
+        background: none; border: 1px solid transparent; border-bottom: none;
+        color: var(--matt); padding: 7px 13px; margin-bottom: -1px;
+        border-radius: 8px 8px 0 0; font: inherit; font-size: 13px; cursor: pointer;
+      }
+      #optionenreiter button:hover { color: var(--schrift); background: var(--flaeche); }
+      #optionenreiter button[aria-selected="true"] {
+        color: var(--schrift); background: var(--papier);
+        border-color: var(--linie); border-bottom-color: var(--papier);
+      }
+      .reiterzu { display: none !important; }
 
       /* Profil unten in der Leiste. Alles ueber die Farbnamen der Oberflaeche -
          eigene Farben hier waeren genau der weisse Fleck, der vorher auffiel. */
@@ -2594,6 +2728,7 @@
                                ['Striche markieren', strichMarkierenBauen],
                                ['Mailversand', postBauen],
                                ['Update-Hinweis', updateHinweisBauen],
+                               ['Optionen-Reiter', optionenReiterBauen],
                                ['Bereiche laden', bereicheLaden],
                                ['Verwaltung laden', verwaltungLaden]]) {
       try {
