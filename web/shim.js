@@ -361,7 +361,12 @@
       try {
         await hol('/bereich', { bereich: wahl.value });
         location.reload();          // der ganze Baum ist ein anderer
-      } catch (f) { alert(f.message); }
+      } catch (f) {
+        alert(f.message);
+        // Sonst steht im Kaestchen weiter das Projekt, in das der Server
+        // gerade nicht gewechselt hat - und die Anzeige luegt.
+        bereicheLaden();
+      }
     });
     band.insertBefore(wahl, band.firstChild);
     band.insertBefore(anzeige, band.firstChild);

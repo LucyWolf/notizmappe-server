@@ -92,6 +92,26 @@ pruefe("nach einem geglueckten Start faengt die Zaehlung von vorn an",
 selbst.versuch_gelungen(daten)
 pruefe("eine andere Fassung zaehlt getrennt", selbst.versuch_merken(daten, "1.3.0") == 1)
 
+# Die Nummer aus dem Archiv wird zu einem Ordnernamen und zu einem Stueck
+# URL. Ungeprueft liefe sie aus /daten/.programm heraus - und ausgerechnet in
+# der Datei, die Code nachlaedt.
+print()
+print("Was als Fassungsnummer durchgeht")
+for schlecht in ("1./../../tmp/x", "../1.2.3", "1.2.3/..", "1.2.3; rm -rf /",
+                 "v1.2.3", "", "latest", "1.2.3\n4"):
+    try:
+        selbst.fassung_sauber(schlecht)
+        gut = False
+    except selbst.SelbstFehler:
+        gut = True
+    pruefe(f"abgelehnt: {schlecht!r}", gut)
+pruefe("1.2.17 geht durch", selbst.fassung_sauber("1.2.17") == "1.2.17")
+pruefe("und 2.0 auch", selbst.fassung_sauber(" 2.0 ") == "2.0")
+# _zahlen allein haette den Pfadwechsel nicht gesehen - genau deshalb steht
+# jetzt ein Muster daneben.
+pruefe("_zahlen allein haette das durchgelassen", bool(selbst._zahlen("1./../../tmp/x")))
+
+print()
 erst = selbst.zuruecknehmen(daten)
 pruefe("zuruecknehmen loescht die Marke", selbst.aktive_fassung(daten) == "")
 pruefe("und sagt, dass es etwas zurueckzunehmen gab", erst.get("getan") is True, erst)

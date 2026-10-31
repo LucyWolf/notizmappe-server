@@ -137,6 +137,26 @@ def rechte_richten() -> None:
               "file_mode=0600,dir_mode=0700,uid=<puid>,gid=<pgid>", flush=True)
 
 
+# Wem beim X-Forwarded-For geglaubt wird.
+#
+# Hier stand "*" - und das heisst bei uvicorn: der **erste** Eintrag der
+# Kopfzeile gilt, und den schreibt der Anfragende selbst. Damit war die Bremse
+# gegen Durchprobieren mit einer einzigen Kopfzeile ausgehebelt: jeder Versuch
+# sah nach einem anderen Rechner aus, und gezaehlt wird je Rechner und Name.
+#
+# Jetzt gelten nur private Adressen als Proxy. Dann sucht uvicorn von hinten
+# die erste Adresse, der es nicht traut - und das ist die, die der eigene
+# Proxy angehaengt hat, also die echte. Wer direkt aus dem Netz kommt, kann
+# gar nichts mehr vortaeuschen. Steht der Proxy woanders: NOTIZMAPPE_PROXY.
+PROXY_STANDARD = "127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,fc00::/7"
+
+
+def proxy_liste() -> str:
+    """Welche Absender duerfen X-Forwarded-For setzen?"""
+    eigen = (os.environ.get("NOTIZMAPPE_PROXY") or "").strip()
+    return eigen or PROXY_STANDARD
+
+
 # Hoechstens zwei Anlaeufe mit einer nachgeladenen Fassung. Beim dritten ist
 # klar, dass sie nicht laeuft - und ohne Oberflaeche gaebe es keinen Knopf mehr,
 # mit dem man sie zuruecknimmt.
@@ -192,5 +212,5 @@ if __name__ == "__main__":
     os.environ["NOTIZMAPPE_DESKTOP"] = desktop
     os.execvp("uvicorn", [
         "uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000",
-        "--app-dir", web, "--proxy-headers", "--forwarded-allow-ips", "*",
+        "--app-dir", web, "--proxy-headers", "--forwarded-allow-ips", proxy_liste(),
     ])

@@ -167,8 +167,69 @@ if probe != shimquelle:
 else:
     pruefe("die Gegenprobe findet modellHolen", False, "Funktion heißt anders")
 
+# --- Dasselbe Netz fuer die Python-Seite -------------------------------------
+#
+# Derselbe Fehler kann dort genauso passieren, und er faellt genauso spaet
+# auf: ein Name, der nur in einem Fehlerzweig steht, wird beim Ausprobieren
+# nie angefasst - und dann steht dort eines Tages ein 500er statt einer
+# Meldung. In phobos-bot hat genau das einmal jede Serverseite lahmgelegt.
+import ast                                                      # noqa: E402
+import builtins                                                 # noqa: E402
+
+print("\nUnd die Python-Seite")
+for datei in sorted((WURZEL / "web").glob("*.py")):
+    baum = ast.parse(datei.read_text(encoding="utf-8"), str(datei))
+    gebunden = set(dir(builtins)) | {"__file__", "__name__", "__doc__", "self", "cls"}
+    for k in ast.walk(baum):
+        if isinstance(k, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            gebunden.add(k.name)
+        if isinstance(k, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            a = k.args
+            for p in [*a.posonlyargs, *a.args, *a.kwonlyargs, a.vararg, a.kwarg]:
+                if p:
+                    gebunden.add(p.arg)
+        elif isinstance(k, (ast.Import, ast.ImportFrom)):
+            for n in k.names:
+                gebunden.add((n.asname or n.name).split(".")[0])
+        elif isinstance(k, ast.Name) and isinstance(k.ctx, (ast.Store, ast.Del)):
+            gebunden.add(k.id)
+        elif isinstance(k, ast.ExceptHandler) and k.name:
+            gebunden.add(k.name)
+        elif isinstance(k, (ast.Global, ast.Nonlocal)):
+            gebunden.update(k.names)
+    offen = sorted({k.id for k in ast.walk(baum)
+                    if isinstance(k, ast.Name) and isinstance(k.ctx, ast.Load)
+                    and k.id not in gebunden})
+    pruefe(f"jeder gelesene Name in web/{datei.name} kommt irgendwoher",
+           not offen, ", ".join(offen))
+
+# Gegenprobe, wie oben: ohne einen Import muss es auffallen.
+probe = (WURZEL / "web/server.py").read_text(encoding="utf-8").replace(
+    "import json\n", "", 1)
+pbaum = ast.parse(probe)
+pgebunden = set(dir(builtins)) | {"__file__", "__name__", "__doc__"}
+for k in ast.walk(pbaum):
+    if isinstance(k, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        pgebunden.add(k.name)
+    if isinstance(k, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+        a = k.args
+        for p in [*a.posonlyargs, *a.args, *a.kwonlyargs, a.vararg, a.kwarg]:
+            if p:
+                pgebunden.add(p.arg)
+    elif isinstance(k, (ast.Import, ast.ImportFrom)):
+        for n in k.names:
+            pgebunden.add((n.asname or n.name).split(".")[0])
+    elif isinstance(k, ast.Name) and isinstance(k.ctx, (ast.Store, ast.Del)):
+        pgebunden.add(k.id)
+    elif isinstance(k, ast.ExceptHandler) and k.name:
+        pgebunden.add(k.name)
+pruefe("und ein fehlender Import faellt auf",
+       "json" in {k.id for k in ast.walk(pbaum)
+                  if isinstance(k, ast.Name) and isinstance(k.ctx, ast.Load)
+                  and k.id not in pgebunden})
+
 print()
 if fehler:
     print(f"{len(fehler)} Prüfungen gescheitert")
     sys.exit(1)
-print("Alle Namen in shim.js kommen irgendwoher")
+print("Alle Namen kommen irgendwoher - in shim.js und in web/*.py")

@@ -390,11 +390,22 @@ def geklappt(wer: str) -> None:
 
 # --- Seiten ------------------------------------------------------------------
 
+_PLATZHALTER = re.compile(r"\{\{(\w+)\}\}")
+
+
 def _vorlage(name: str, **werte) -> str:
+    """Platzhalter fuellen - in einem Durchgang.
+
+    Nacheinander zu ersetzen hiesse: was eingesetzt wird, wird gleich wieder
+    durchsucht. Ein Wert, der selbst wie ein Platzhalter aussieht, fuellt sich
+    dann mit dem naechsten - und _text() entschaerft zwar spitze Klammern,
+    geschweifte aber nicht. Heute kommt dabei hoechstens eine Fassungsnummer
+    an der falschen Stelle heraus; einen Schritt weiter waere es eine
+    Ruecksetzmarke.
+    """
     roh = (HIER / name).read_text(encoding="utf-8")
-    for k, v in werte.items():
-        roh = roh.replace("{{" + k + "}}", str(v))
-    return roh
+    return _PLATZHALTER.sub(
+        lambda t: str(werte[t.group(1)]) if t.group(1) in werte else t.group(0), roh)
 
 
 def _text(roh: str) -> str:
@@ -609,9 +620,15 @@ def zweiter_schritt(bitte: Request, code: str = Form("")):
             status_code=303)
     if not nutzer.zweiter_schritt_pruefen(wer, code):
         fehlversuch(bremse)
+        # Ein schon benutzter Code ist kein falscher. Wer das nicht
+        # auseinanderhaelt, schickt jemanden die Uhr seines Telefons
+        # nachstellen, obwohl er nur den naechsten Code abwarten muss.
+        grund = ("Diesen+Code+hast+du+schon+benutzt+-+bitte+den+n%C3%A4chsten+abwarten."
+                 if nutzer.zweiter_schritt_verbraucht(wer, code)
+                 else "Der+Code+stimmt+nicht.")
         # Auch das ist ein Anmeldeversuch - und zwar einer von jemandem, der das
         # Passwort schon hat. Der gehoert erst recht gemeldet.
-        return RedirectResponse("/zweiter-schritt?fehler=Der+Code+stimmt+nicht.",
+        return RedirectResponse(f"/zweiter-schritt?fehler={grund}",
                                 status_code=303,
                                 background=anmeldung_melden(bitte, wer, False))
     geklappt(bremse)

@@ -205,15 +205,30 @@ def totp_geheimnis() -> str:
     return base64.b32encode(os.urandom(20)).decode("ascii").rstrip("=")
 
 
-def totp_stimmt(geheim_b32: str, code: str) -> bool:
+def totp_zaehler(geheim_b32: str, code: str, nach: int = -1) -> int | None:
+    """Welcher Zeitschritt zu diesem Code passt - oder None.
+
+    `nach` ist der zuletzt verbrauchte Schritt: alles bis dahin gilt nicht mehr.
+    Ohne das laesst sich derselbe Code im Fenster von anderthalb Minuten
+    mehrfach einloesen - wer ihn einmal mitliest, kommt damit hinterher. Die
+    Spezifikation sagt dasselbe: ein eingeloester Code darf kein zweites Mal
+    angenommen werden.
+    """
     code = re.sub(r"\s", "", code or "")
     if not code.isdigit() or len(code) != TOTP_STELLEN:
-        return False
+        return None
     jetzt = int(time.time() // TOTP_TAKT)
     for stufe in range(-TOTP_FENSTER, TOTP_FENSTER + 1):
-        if secrets.compare_digest(code, _totp(geheim_b32, jetzt + stufe)):
-            return True
-    return False
+        zaehler = jetzt + stufe
+        if zaehler <= nach:
+            continue
+        if secrets.compare_digest(code, _totp(geheim_b32, zaehler)):
+            return zaehler
+    return None
+
+
+def totp_stimmt(geheim_b32: str, code: str) -> bool:
+    return totp_zaehler(geheim_b32, code) is not None
 
 
 def totp_adresse(name: str, geheim_b32: str) -> str:
@@ -279,9 +294,12 @@ def zwei_schritte_einschalten(name: str, code: str) -> None:
         zwei = (daten["benutzer"].get(name) or {}).get("zwei") or {}
         if not zwei.get("geheim"):
             raise BenutzerFehler("Erst einrichten, dann einschalten")
-        if not totp_stimmt(zwei["geheim"], code):
+        zaehler = totp_zaehler(zwei["geheim"], code, int(zwei.get("zuletzt") or -1))
+        if zaehler is None:
             raise BenutzerFehler("Der Code stimmt nicht - geht die Uhr im Gerät richtig?")
         zwei["an"] = True
+        # Auch der Code, mit dem eingeschaltet wurde, ist verbraucht.
+        zwei["zuletzt"] = zaehler
         _schreiben(daten)
 
 
@@ -294,6 +312,21 @@ def zwei_schritte_aus(name: str) -> None:
             _schreiben(daten)
 
 
+def zweiter_schritt_verbraucht(name: str, code: str) -> bool:
+    """Stimmt der Code zwar, ist aber schon eingeloest?
+
+    Nur fuer die Meldung. "Der Code stimmt nicht" waere hier gelogen und
+    schickt jemanden auf die Suche nach der Uhrzeit seines Telefons, waehrend
+    er in Wahrheit nur den naechsten Code abwarten muss.
+    """
+    zwei = (_lesen()["benutzer"].get((name or "").strip().lower()) or {}).get("zwei") or {}
+    if not zwei.get("an") or not zwei.get("geheim"):
+        return False
+    bis = int(zwei.get("zuletzt") or -1)
+    return bis >= 0 and totp_zaehler(zwei["geheim"], code) is not None \
+        and totp_zaehler(zwei["geheim"], code, bis) is None
+
+
 def zweiter_schritt_pruefen(name: str, code: str) -> bool:
     """Code aus der App - oder einer der Notfallcodes, der dabei verbraucht wird."""
     name = (name or "").strip().lower()
@@ -302,7 +335,14 @@ def zweiter_schritt_pruefen(name: str, code: str) -> bool:
         zwei = (daten["benutzer"].get(name) or {}).get("zwei") or {}
         if not zwei.get("an"):
             return True                         # gar nicht eingeschaltet
-        if totp_stimmt(zwei.get("geheim", ""), code):
+        zaehler = totp_zaehler(zwei.get("geheim", ""), code,
+                               int(zwei.get("zuletzt") or -1))
+        if zaehler is not None:
+            # Verbraucht. Sonst gilt derselbe Code noch anderthalb Minuten
+            # weiter, und das ist genau die Zeit, die jemand braucht, der ihn
+            # mitgelesen hat.
+            zwei["zuletzt"] = zaehler
+            _schreiben(daten)
             return True
         gesucht = _codehash(code)
         if gesucht in (zwei.get("codes") or []):

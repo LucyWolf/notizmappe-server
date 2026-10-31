@@ -18,6 +18,7 @@ import shutil
 import sys
 import tempfile
 import time
+import urllib.parse
 from pathlib import Path
 
 WURZEL = Path(__file__).resolve().parent.parent
@@ -536,10 +537,18 @@ pruefe("Und öffnet noch gar nichts", neu_an.get("/").status_code == 303)
 pruefe("Auch die Brücke bleibt zu", ruf(neu_an, "baum")[0] == 401)
 a = neu_an.post("/zweiter-schritt", data={"code": "000000"})
 pruefe("Falscher Code bringt nichts", "fehler=" in a.headers.get("location", ""))
-a = neu_an.post("/zweiter-schritt",
-                data={"code": server.nutzer._totp(v["geheim"], int(time.time() // 30))})
+# Der naechste Code aus der App - der vorige ist mit dem Einschalten
+# verbraucht. Im Fenster liegt er trotzdem.
+naechster = server.nutzer._totp(v["geheim"], int(time.time() // 30) + 1)
+a = neu_an.post("/zweiter-schritt", data={"code": naechster})
 pruefe("Richtiger Code lässt hinein",
        a.headers.get("location") == "/" and neu_an.get("/").status_code == 200)
+# Und der Code, mit dem eingeschaltet wurde, gilt nicht mehr.
+schon = TestClient(server.app, follow_redirects=False)
+schon.post("/anmelden", data={"name": "zwei", "passwort": "zweipasswort1"})
+a = schon.post("/zweiter-schritt", data={"code": echt})
+pruefe("Der Code vom Einschalten ist verbraucht",
+       "schon+benutzt" in a.headers.get("location", ""), a.headers.get("location"))
 
 mit_code = TestClient(server.app, follow_redirects=False)
 mit_code.post("/anmelden", data={"name": "zwei", "passwort": "zweipasswort1"})
@@ -568,6 +577,29 @@ pruefe("Nach dem Abmelden ist auch die halbe Anmeldung weg",
        a.headers.get("location"))
 pruefe("Und der Notfallcode ist dabei nicht verbraucht worden",
        Z2.get("/zwei-schritte").json()["codes_uebrig"] == 9)
+
+# Ein Code aus der App gilt genau einmal. Ohne das laesst er sich im Fenster
+# von anderthalb Minuten mehrfach einloesen - wer ihn einmal mitliest, kommt
+# damit hinterher noch hinein.
+# Die Uhr laesst sich hier nicht vorstellen, und im Fenster liegen nur drei
+# Schritte - die sind oben schon verbraucht. Also den Zaehler zuruecksetzen,
+# so als waere eine Minute vergangen.
+_d = server.nutzer._lesen()
+_d["benutzer"]["zwei"]["zwei"].pop("zuletzt", None)
+server.nutzer._schreiben(_d)
+
+zweimal = TestClient(server.app, follow_redirects=False)
+zweimal.post("/anmelden", data={"name": "zwei", "passwort": "zweipasswort1"})
+derselbe = server.nutzer._totp(v["geheim"], int(time.time() // 30))
+a = zweimal.post("/zweiter-schritt", data={"code": derselbe})
+pruefe("Ein frischer Code aus der App geht", a.headers.get("location") == "/", a.headers)
+nochmal2 = TestClient(server.app, follow_redirects=False)
+nochmal2.post("/anmelden", data={"name": "zwei", "passwort": "zweipasswort1"})
+a = nochmal2.post("/zweiter-schritt", data={"code": derselbe})
+pruefe("Derselbe Code ein zweites Mal nicht",
+       "fehler=" in a.headers.get("location", ""), a.headers.get("location"))
+pruefe("und die Meldung sagt, warum - nicht 'stimmt nicht'",
+       "schon+benutzt" in a.headers.get("location", ""), a.headers.get("location"))
 
 pruefe("Ohne Zwischenschritt kommt man nicht an die Seite",
        TestClient(server.app, follow_redirects=False).get("/zweiter-schritt").status_code == 303)
@@ -601,6 +633,49 @@ for weg, rumpf in (("/post", {"an": False}),
                    ("/aktualisieren/zurueck", {})):
     a = k.post(weg, json=rumpf)
     pruefe(f"{weg} will den eigenen Kopf sehen", a.status_code == 400, a.status_code)
+
+# Was eingesetzt wird, darf nicht noch einmal durchsucht werden: sonst fuellt
+# sich ein Wert, der wie ein Platzhalter aussieht, mit dem naechsten Wert.
+print("\nVorlagen")
+a = TestClient(server.app, follow_redirects=False).get(
+    "/anmelden?fehler=" + urllib.parse.quote("{{fassung}} und {{fehler}}"))
+pruefe("Ein Wert, der wie ein Platzhalter aussieht, bleibt stehen",
+       "{{fassung}} und {{fehler}}" in a.text, a.text[-400:])
+# Der Platzhalter in der Vorlage selbst ist gefuellt - nur der aus dem Wert
+# steht noch da, als Text.
+pruefe("Die echten Platzhalter sind trotzdem gefüllt",
+       "Notizmappe {{fassung}}" not in a.text
+       and a.text.count("{{fassung}}") == 1,
+       [z for z in a.text.splitlines() if "{{" in z])
+
+# --- Woher eine Anfrage kommt ------------------------------------------------
+#
+# Die Bremse zaehlt je Herkunft und Name. Laesst sich die Herkunft mit einer
+# Kopfzeile faelschen, zaehlt sie nichts: jeder Versuch sieht nach einem
+# anderen Rechner aus. Geprueft wird gegen uvicorns eigene Vertrauensliste -
+# die entscheidet das im Betrieb.
+print("\nWoher die Anfrage kommt")
+import start as _start                                           # noqa: E402
+from uvicorn.middleware.proxy_headers import _TrustedHosts       # noqa: E402
+
+pruefe("Vertraut wird nicht mehr jedem", "*" not in _start.proxy_liste())
+vertrauen = _TrustedHosts(_start.proxy_liste())
+pruefe("Der eigene Proxy im privaten Netz zaehlt als Proxy",
+       "172.18.0.1" in vertrauen and "127.0.0.1" in vertrauen)
+pruefe("Ein Rechner aus dem Netz nicht", "203.0.113.7" not in vertrauen)
+# So sieht der Kopf aus, wenn jemand eine Adresse erfindet und der eigene
+# Proxy seine echte dahinterhaengt.
+echt, _ = vertrauen.get_trusted_client_address("1.2.3.4, 203.0.113.7")
+pruefe("Hinter dem Proxy gilt die echte Adresse, nicht die erfundene",
+       echt == "203.0.113.7", echt)
+offen = _TrustedHosts("*")
+pruefe("Mit '*' galt dagegen die erfundene - genau das war der Fehler",
+       offen.get_trusted_client_address("1.2.3.4, 203.0.113.7")[0] == "1.2.3.4")
+import os as _os                                                 # noqa: E402
+_os.environ["NOTIZMAPPE_PROXY"] = "10.1.2.3"
+pruefe("Wer seinen Proxy woanders stehen hat, kann es sagen",
+       _start.proxy_liste() == "10.1.2.3")
+_os.environ.pop("NOTIZMAPPE_PROXY")
 
 # --- Einladungen -------------------------------------------------------------
 #

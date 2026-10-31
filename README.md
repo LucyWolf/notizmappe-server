@@ -414,6 +414,21 @@ an die Datei kommt, hat das Mailkonto — das sollte man wissen, bevor man dort
 die Zugangsdaten des Hauptpostfachs einträgt. Ein eigenes Konto nur für diesen
 Zweck ist die bessere Wahl.
 
+### Wer darf sagen, woher eine Anfrage kommt
+
+Die Bremse gegen Durchprobieren zählt je **Herkunft und Name**. Steht ein
+Proxy davor, kommt die Herkunft aus `X-Forwarded-For` — und wem der Server
+dabei glaubt, entscheidet `NOTIZMAPPE_PROXY`.
+
+Ohne Angabe gelten private Adressen als Proxy (`127.0.0.1`, `10.x`,
+`172.16–31.x`, `192.168.x`, IPv6-ULA). Dann nimmt der Server die Adresse, die
+der eigene Proxy angehängt hat; was der Anfragende selbst in den Kopf
+schreibt, zählt nicht. Steht der Proxy woanders, hier eintragen.
+
+`NOTIZMAPPE_PROXY: "*"` heißt *jedem glauben* — damit kann sich jeder eine
+Herkunft ausdenken, und die Bremse ist ausgehängt. Das war bis v1.2.17 die
+Voreinstellung.
+
 ### HTTPS
 
 Im Image steckt kein Reverse Proxy. Steht einer davor (nginx, Caddy), dann

@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import io
 import os
+import re
 import shutil
 import tarfile
 import urllib.request
@@ -59,8 +60,22 @@ PFLICHT = ("VERSION", "web/server.py", "web/benutzer.py", "web/start.py", "web/a
            "desktop/app/oberflaeche/stil.css")
 
 
+# Was als Fassung durchgeht. Die Nummer kommt aus dem geladenen Archiv und
+# wird hier zu einem Ordnernamen und zu einem Stueck URL - ungeprueft waere
+# das eine Einladung, aus /daten/.programm herauszulaufen. _zahlen() allein
+# genuegt dafuer nicht: "1./../../tmp" ergibt dort [1] und saehe gut aus.
+FASSUNG_MUSTER = re.compile(r"^\d+(\.\d+){0,3}$")
+
+
 class SelbstFehler(Exception):
     pass
+
+
+def fassung_sauber(wert: str) -> str:
+    wert = (wert or "").strip()
+    if not FASSUNG_MUSTER.match(wert):
+        raise SelbstFehler(f"Das ist keine Fassungsnummer: {wert!r}")
+    return wert
 
 
 def programmordner(daten) -> Path:
@@ -165,8 +180,8 @@ def vorbereiten(daten, image_fassung: str, hier_requirements: Path) -> dict:
             oberflaeche = (quelle / "DESKTOP_VERSION").read_text(encoding="utf-8").strip()
         except OSError:
             raise SelbstFehler("Im Archiv fehlt VERSION oder DESKTOP_VERSION.")
-        if not _zahlen(fassung):
-            raise SelbstFehler(f"VERSION ergibt keine Fassung: {fassung!r}")
+        fassung = fassung_sauber(fassung)
+        oberflaeche = fassung_sauber(oberflaeche)
         if not neuer_als(fassung, image_fassung):
             return {"getan": False, "fassung": fassung,
                     "hinweis": f"Hier läuft {image_fassung}, das ist die neueste."}
