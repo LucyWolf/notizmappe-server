@@ -184,6 +184,15 @@ pruefe("die Meldezeile m-hinweis gibt es noch", 'id="m-hinweis"' in html)
 # an vier Dingen drueben: an der Klasse des Kastens, am Dateinamen im Element,
 # an der offenen Seite und an der Kachel, die als Fusszeile stehenbleibt.
 # Faellt eins davon weg, sieht man wieder nur die Kachel - lautlos.
+# Der Rahmen zum Markieren darf nicht an einem Kasten anfangen: an dessen
+# Griff haengt drueben das Verschieben, und beides zusammen hiess, dass der
+# Kasten wanderte und darueber eine Auswahl aufgezogen wurde.
+pruefe("drueben haengt das Verschieben am Griff im Kasten",
+       bool(re.search(r"griff\.className = 'griff'", js))
+       and bool(re.search(r"ziehen\(griff,", js)))
+pruefe("und der Rahmen faengt nicht auf einem Kasten an",
+       "const BAND_NICHT = " in shim and ".kasten, .text, input" in shim)
+
 pruefe("ein Datei-Kasten heisst drueben kasten-datei",
        bool(re.search(r"'kasten kasten-' \+ e\.typ", js)))
 pruefe("der Anhang merkt sich seinen Dateinamen im Element",
@@ -211,7 +220,8 @@ pruefe("der Klassenfehler .zieht/.schiebt besteht drueben noch",
 # das Blatt keine Zeiger. Deshalb ein eigener Rahmen - der aber nichts anfassen
 # darf, was auf dem Blatt liegt, sonst funkt er dem Werkzeug dazwischen.
 pruefe("der Rahmen laesst das Blatt in Ruhe",
-       bool(re.search(r"closest\('#malblatt, \.text", shim)))
+       bool(re.search(r"BAND_NICHT = '#malblatt,", shim))
+       and bool(re.search(r"if \(!bandErlaubt\(ev\.target\)\) return;", shim)))
 pruefe("der Rahmen nimmt Striche nach ihren Punkten, nicht nach den Grenzen",
        "function strichImKasten" in shim)
 # Strg+A im Text gehoert dem Browser - sonst markiert es statt der Zeilen die

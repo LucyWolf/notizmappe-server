@@ -1260,17 +1260,26 @@
 
        Angefasst wird nur der leere Grund: liegt der Zeiger auf dem Blatt,
        zeichnet drueben das Werkzeug, und dem wird nicht dazwischengefunkt. */
+
+    /* Woran ein Rahmen nicht anfangen darf. Ein ganzer Kasten gehoert dazu:
+       an seinem Griff haengt drueben das Verschieben, und wer ihn anfasste,
+       zog gleichzeitig einen Rahmen auf - der Kasten wanderte, und darueber
+       lag eine gestrichelte Auswahl. Auch sonst faengt man auf einem Kasten
+       keine Auswahl an: Bild, Tabelle und Modell sind Dinge, nicht Grund. */
+    const BAND_NICHT = '#malblatt, .kasten, .text, input, select, textarea, button, '
+      + '#band, #dateischirm, #malrahmen, #minileiste, #rechtsmenue';
+
+    function bandErlaubt(ziel) {
+      if (!ziel || !ziel.closest) return true;
+      return !ziel.closest(BAND_NICHT);
+    }
     let band = null;
     let bandkasten = null;
 
     document.addEventListener('pointerdown', function (ev) {
       if (ev.button !== 0 || ev.pointerType !== 'mouse') return;
       if (!malZeichnung() || !malWahl()) return;
-      if (ev.target && ev.target.closest
-          && ev.target.closest('#malblatt, .text, input, select, textarea, button, '
-                               + '#band, #dateischirm, #malrahmen, #minileiste, #rechtsmenue')) {
-        return;
-      }
+      if (!bandErlaubt(ev.target)) return;
       const grund = document.getElementById('flaeche');
       if (!grund || !grund.contains(ev.target)) return;
       const p = stelleHier(ev);
