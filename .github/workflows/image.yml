@@ -40,6 +40,7 @@ jobs:
           python tests/test_post.py
           python tests/test_reiter.py
           python tests/test_modell.py
+          python tests/test_namen.py
 
   bauen:
     needs: pruefen

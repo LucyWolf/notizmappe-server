@@ -2746,17 +2746,55 @@
     return MODELL_ARTEN.indexOf(art) >= 0 ? art : null;
   }
 
+  /* Die Bytes kommen ueber dieselbe Stelle wie der Download: /anhang prueft
+     die Anmeldung und liefert rohe Bytes. */
+  async function modellHolen(datei) {
+    const felder = new URLSearchParams({
+      notizbuch: offen.notizbuch, abschnitt: offen.abschnitt,
+      name: offen.name, datei: datei,
+    });
+    const antwort = await fetch('/anhang?' + felder.toString(), { credentials: 'same-origin' });
+    if (!antwort.ok) {
+      let text = 'Der Server antwortet mit ' + antwort.status;
+      try {
+        const d = await antwort.json();
+        if (d && d.fehler) text = d.fehler;
+      } catch (f) { /* dann der Satz von oben */ }
+      throw new Error(text);
+    }
+    return antwort.arrayBuffer();
+  }
+
   /* --- Einlesen ----------------------------------------------------------- */
 
   function stlLesen(puffer) {
-    /* Binaer oder Text? Die Laenge entscheidet und nicht das Wort "solid" am
-       Anfang: binaere Dateien aus manchen Programmen fangen auch damit an. */
+    /* Binaer oder Text? Nicht nach dem Wort "solid" am Anfang - binaere
+       Dateien aus manchen Programmen fangen auch damit an. Zuerst die Laenge:
+       passt sie aufs Byte, ist die Sache klar. Tut sie das nicht, hat eine
+       binaere Datei hinten etwas angehaengt oder ihr Kopf zaehlt falsch;
+       dann entscheidet, ob im Anfang ueberhaupt STL-Text steht. */
     if (puffer.byteLength >= 84) {
       const sicht = new DataView(puffer);
       const zahl = sicht.getUint32(80, true);
       if (84 + zahl * 50 === puffer.byteLength) return stlBinaer(sicht, zahl);
+      const probe = new TextDecoder('utf-8', { fatal: false }).decode(puffer.slice(0, 1024));
+      if (!/facet\s+normal|outer\s+loop|vertex\s/.test(probe) && zahl > 0) {
+        // Was wirklich da ist, zaehlt - nicht, was im Kopf steht.
+        const passen = Math.floor((puffer.byteLength - 84) / 50);
+        return stlBinaer(sicht, Math.min(zahl, passen));
+      }
     }
     return stlText(new TextDecoder().decode(puffer));
+  }
+
+  /* Fuer die Fehlerzeile. Ohne diese drei Angaben heisst es "geht nicht", und
+     dann wird geraten statt nachgesehen. */
+  function kopfschau(puffer) {
+    const anfang = new TextDecoder('utf-8', { fatal: false })
+      .decode(puffer.slice(0, 12)).replace(/[^ -~]/g, '.');
+    const zahl = puffer.byteLength >= 84
+      ? new DataView(puffer).getUint32(80, true) : '?';
+    return puffer.byteLength + ' Byte, Anfang „' + anfang + '", Kopfzahl ' + zahl;
   }
 
   function stlBinaer(sicht, zahl) {
@@ -3024,12 +3062,18 @@
     const bild = el('canvas', {});
     z.bild.replaceWith(bild);
     z.bild = bild;
+    let klage = '';
     try {
       z.glz = glBauen(bild);
     } catch (f) {
       z.glz = null;
+      klage = f.message;
     }
-    if (!z.glz) { kachelBehalten(z, 'Dieser Browser zeichnet kein 3D.'); return; }
+    if (!z.glz) {
+      kachelBehalten(z, klage ? 'Die 3D-Fläche ging nicht auf: ' + klage
+                              : 'Dieser Browser zeichnet kein 3D (WebGL fehlt oder ist aus).');
+      return;
+    }
     netzHochladen(z);
     drehenAnbieten(z);
     MODELL_LEBENDIG.push(z);
@@ -3085,12 +3129,20 @@
   /* --- Aufbau ------------------------------------------------------------- */
 
   function kachelBehalten(z, warum) {
-    // Keine Meldung in die Notiz schreiben, die nur sagt, dass etwas nicht
-    // geht: die Kachel tut, was sie immer getan hat, und der Grund steht im
-    // Tooltip.
+    // Die Kachel tut weiter, was sie immer getan hat - herunterladen. Der
+    // Grund steht aber sichtbar darunter und nicht nur im Tooltip: sonst
+    // steht da eine Kachel wie frueher und niemand weiss, warum kein Modell
+    // kommt. In der Notiz gespeichert wird davon nichts.
     if (z.wo && z.wo.parentElement) z.wo.remove();
     z.kasten.classList.remove('kasten-3d');
-    if (warum) z.kasten.title = warum;
+    const zaehler = z.kasten.querySelector('.dzahl');
+    if (zaehler) zaehler.remove();
+    if (!warum) return;
+    z.kasten.title = warum;
+    const alt = z.kasten.querySelector('.modellfehler');
+    if (alt) alt.remove();
+    z.kasten.append(el('p', { className: 'modellfehler', textContent: warum }));
+    console.error('[notizmappe] 3D: ' + warum);
   }
 
   async function modellStarten(z) {
@@ -3107,12 +3159,18 @@
     try {
       punkte = z.art === 'obj' ? objLesen(puffer) : stlLesen(puffer);
     } catch (f) {
-      kachelBehalten(z, 'Modell ließ sich nicht lesen: ' + f.message);
+      kachelBehalten(z, 'Modell ließ sich nicht lesen: ' + f.message
+                        + ' (' + kopfschau(puffer) + ')');
       return;
     }
-    if (!punkte.length || punkte.length / 9 > MODELL_MAX_DREIECKE) {
-      kachelBehalten(z, punkte.length ? 'Modell ist zu groß zum Anzeigen.'
-                                      : 'In der Datei stehen keine Dreiecke.');
+    if (!punkte.length) {
+      kachelBehalten(z, 'Keine Dreiecke gefunden (' + kopfschau(puffer) + ')');
+      return;
+    }
+    if (punkte.length / 9 > MODELL_MAX_DREIECKE) {
+      kachelBehalten(z, 'Zu groß zum Anzeigen: '
+                        + Math.round(punkte.length / 9).toLocaleString('de-DE')
+                        + ' Dreiecke.');
       return;
     }
     z.netz = netzBauen(punkte);
@@ -3193,6 +3251,9 @@
       .kasten-3d .datei { margin-top: 6px; }
       .kasten-3d .datei .zeichen { display: none; }
       .kasten-3d .dzahl { color: var(--matt); font-size: 11px; white-space: nowrap; }
+      .kasten .modellfehler {
+        margin: 4px 0 0; color: var(--warnung); font-size: 11px; line-height: 1.4;
+      }
     `;
     document.head.append(stil);
     modelleNachsehen();

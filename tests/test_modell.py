@@ -104,6 +104,14 @@ f 1/1/1 2/2/2 3/3/3
 f -4 -3 -2
 """.encode()
 
+# Zwei Faelle aus dem echten Leben: hinten haengt noch etwas dran, und der
+# Kopf zaehlt mehr Dreiecke, als wirklich in der Datei stehen. Beides ist
+# haeufig - wer nur auf die genaue Laenge prueft, landet im Textzweig und
+# findet dort kein einziges "vertex".
+ANHANG = stl_binaer([[(0, 0, 0), (1, 0, 0), (0, 1, 0)]]) + b"Kommentar vom Slicer"
+ZU_VIEL = bytearray(stl_binaer([[(0, 0, 0), (1, 0, 0), (0, 1, 0)]]))
+ZU_VIEL[80:84] = struct.pack("<I", 99)
+
 ECKEN = [(x, y, z) for x in (0, 10) for y in (0, 10) for z in (0, 10)]
 WUERFEL = stl_binaer([
     [(0, 0, 0), (10, 0, 0), (10, 10, 0)], [(0, 0, 0), (10, 10, 0), (0, 10, 0)],
@@ -164,6 +172,13 @@ const obj = netzBauen(objLesen(bytes(AUFGABE.obj)));
 ergebnis.obj_dreiecke = obj.dreiecke;
 ergebnis.obj_punkte = Array.from(obj.punkte);
 
+/* 3b. Binaer, aber die Laenge passt nicht aufs Byte */
+const angehaengt = netzBauen(stlLesen(bytes(AUFGABE.anhang)));
+ergebnis.anhang_dreiecke = angehaengt.dreiecke;
+ergebnis.anhang_punkte = Array.from(angehaengt.punkte);
+const zuviel = netzBauen(stlLesen(bytes(AUFGABE.zuviel)));
+ergebnis.zuviel_dreiecke = zuviel.dreiecke;
+
 /* 4. Namen */
 ergebnis.arten = ['teil.stl', 'TEIL.STL', 'ding.obj', 'plan.3mf', 'bild.png', 'ohne']
   .map((n) => modellArt(n));
@@ -215,6 +230,8 @@ aufgabe = json.dumps({
     "text": base64.b64encode(TEXT_STL).decode(),
     "obj": base64.b64encode(OBJ).decode(),
     "wuerfel": base64.b64encode(WUERFEL).decode(),
+    "anhang": base64.b64encode(ANHANG).decode(),
+    "zuviel": base64.b64encode(bytes(ZU_VIEL)).decode(),
     "ecken": ECKEN,
 })
 
@@ -250,6 +267,14 @@ pruefe("sie wird aus den Ecken gerechnet - vorne (0,0,1)",
        d["zwei_normalen"][0:9] == [0, 0, 1] * 3, d["zwei_normalen"][0:9])
 pruefe("und beim verkehrt herum gewickelten Dreieck (0,0,-1)",
        d["zwei_normalen"][9:18] == [0, 0, -1] * 3, d["zwei_normalen"][9:18])
+
+print("\nWenn die Laenge nicht aufs Byte passt")
+pruefe("hinten angehaengter Text macht die Datei nicht zu Text",
+       d["anhang_dreiecke"] == 1, d["anhang_dreiecke"])
+pruefe("die Ecken stimmen trotzdem",
+       d["anhang_punkte"] == [0, 0, 0, 1, 0, 0, 0, 1, 0], d["anhang_punkte"])
+pruefe("zaehlt der Kopf zu viel, gilt was wirklich dasteht",
+       d["zuviel_dreiecke"] == 1, d["zuviel_dreiecke"])
 
 print("\nSTL als Text")
 pruefe("ein Dreieck", d["text_dreiecke"] == 1, d["text_dreiecke"])
