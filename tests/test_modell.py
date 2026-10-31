@@ -21,6 +21,7 @@ import json
 import re
 import shutil
 import struct
+import zlib
 import subprocess
 import sys
 import tempfile
@@ -47,6 +48,27 @@ for muster, name in ((r"^  const MODELL_ARTEN = [^\n]*$", "MODELL_ARTEN"),
                      (r"^  function stlBinaer\(.*?^  \}", "stlBinaer"),
                      (r"^  function stlText\(.*?^  \}", "stlText"),
                      (r"^  function objLesen\(.*?^  \}", "objLesen"),
+                     (r"^  const FBX_MAGIE = [^\n]*$", "FBX_MAGIE"),
+                     (r"^  async function fbxLesen\(.*?^  \}", "fbxLesen"),
+                     (r"^  async function auspacken\(.*?^  \}", "auspacken"),
+                     (r"^  async function fbxBinaer\(.*?^  \}", "fbxBinaer"),
+                     (r"^  async function fbxKnoten\(.*?^  \}", "fbxKnoten"),
+                     (r"^  async function fbxWert\(.*?^  \}", "fbxWert"),
+                     (r"^  function fbxFeld\(.*?^  \}", "fbxFeld"),
+                     (r"^  function fbxText\(.*?^  \}", "fbxText"),
+                     (r"^  function fbxWerteText\(.*?^  \}", "fbxWerteText"),
+                     (r"^  function fbxKind\(.*?^  \}", "fbxKind"),
+                     (r"^  function fbxFeldVon\(.*?^  \}", "fbxFeldVon"),
+                     (r"^  function fbxEigenschaft\(.*?^  \}", "fbxEigenschaft"),
+                     (r"^  function matDrehZ\(.*?^  \}", "matDrehZ"),
+                     (r"^  function matSkalaXYZ\(.*?^  \}", "matSkalaXYZ"),
+                     (r"^  function matDrehGrad\(.*?^  \}", "matDrehGrad"),
+                     (r"^  function fbxModellLage\(.*?^  \}", "fbxModellLage"),
+                     (r"^  function fbxGeoLage\(.*?^  \}", "fbxGeoLage"),
+                     (r"^  function fbxLage\(.*?^  \}", "fbxLage"),
+                     (r"^  function punkteWandeln\(.*?^  \}", "punkteWandeln"),
+                     (r"^  function fbxGeometrie\(.*?^  \}", "fbxGeometrie"),
+                     (r"^  function fbxNetz\(.*?^  \}", "fbxNetz"),
                      (r"^  function netzBauen\(.*?^  \}", "netzBauen"),
                      (r"^  function matEinheit\(.*?^  \}", "matEinheit"),
                      (r"^  function matMal\(.*?^  \}", "matMal"),
@@ -111,6 +133,152 @@ f -4 -3 -2
 ANHANG = stl_binaer([[(0, 0, 0), (1, 0, 0), (0, 1, 0)]]) + b"Kommentar vom Slicer"
 ZU_VIEL = bytearray(stl_binaer([[(0, 0, 0), (1, 0, 0), (0, 1, 0)]]))
 ZU_VIEL[80:84] = struct.pack("<I", 99)
+
+# --- FBX: Szenen zum Prüfen selbst bauen -------------------------------------
+#
+# Es gibt hier keine echte FBX zum Mitliefern, und eine aus dem Netz zu holen
+# hieße, gegen etwas zu prüfen, das sich ändern kann. Also werden die Dateien
+# hier geschrieben - binär (mit zlib-gepackten Feldern, 32- und 64-Bit-Zeiger)
+# und als Text.
+def fbx_prop_l(v):
+    return b"L" + struct.pack("<q", v)
+
+
+def fbx_prop_s(s):
+    b = s.encode("utf-8")
+    return b"S" + struct.pack("<I", len(b)) + b
+
+
+def fbx_prop_d(v):
+    return b"D" + struct.pack("<d", v)
+
+
+def fbx_feld_d(werte, packen=True):
+    roh = struct.pack("<%dd" % len(werte), *werte)
+    daten = zlib.compress(roh) if packen else roh
+    return b"d" + struct.pack("<III", len(werte), 1 if packen else 0, len(daten)) + daten
+
+
+def fbx_feld_i(werte, packen=False):
+    roh = struct.pack("<%di" % len(werte), *werte)
+    daten = zlib.compress(roh) if packen else roh
+    return b"i" + struct.pack("<III", len(werte), 1 if packen else 0, len(daten)) + daten
+
+
+def fbx_knoten(name, props=(), kinder=(), breit=False):
+    """Gibt eine Funktion zurück: der Datensatz kennt seine Endstelle erst,
+    wenn er weiß, wo er anfängt."""
+    def schreiben(start):
+        nameb = name.encode("utf-8")
+        pb = b"".join(props)
+        kopf = 25 if breit else 13
+        pos = start + kopf + len(nameb) + len(pb)
+        kb = b""
+        for k in kinder:
+            stueck = k(pos)
+            kb += stueck
+            pos += len(stueck)
+        if kinder:
+            kb += b"\0" * kopf
+            pos += kopf
+        marke = (struct.pack("<QQQ", pos, len(props), len(pb)) if breit
+                 else struct.pack("<III", pos, len(props), len(pb)))
+        return marke + bytes([len(nameb)]) + nameb + pb + kb
+    return schreiben
+
+
+def fbx_datei(knoten, fassung=7400):
+    breit = fassung >= 7500
+    daten = b"Kaydara FBX Binary  \x00\x1a\x00" + struct.pack("<I", fassung)
+    pos = len(daten)
+    for k in knoten:
+        stueck = k(pos)
+        daten += stueck
+        pos += len(stueck)
+    return daten + b"\0" * (25 if breit else 13)
+
+
+def fbx_modell(nummer, name, eigenschaften, breit=False):
+    p70 = []
+    for wie, werte in eigenschaften:
+        p70.append(fbx_knoten("P", [fbx_prop_s(wie), fbx_prop_s(wie), fbx_prop_s(""),
+                                    fbx_prop_s("A")] + [fbx_prop_d(w) for w in werte],
+                              breit=breit))
+    return fbx_knoten("Model", [fbx_prop_l(nummer), fbx_prop_s(name), fbx_prop_s("Mesh")],
+                      [fbx_knoten("Properties70", [], p70, breit=breit)], breit=breit)
+
+
+VIERECK = [0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0]
+STREIFEN = [0, 1, 2, -4]
+
+
+def fbx_geometrie(nummer, ecken=None, breit=False, packen=True):
+    return fbx_knoten("Geometry", [fbx_prop_l(nummer), fbx_prop_s("Geometry::"),
+                                   fbx_prop_s("Mesh")],
+                      [fbx_knoten("Vertices", [fbx_feld_d(ecken or VIERECK, packen)], breit=breit),
+                       fbx_knoten("PolygonVertexIndex", [fbx_feld_i(STREIFEN)], breit=breit)],
+                      breit=breit)
+
+
+def fbx_c(kind, eltern, breit=False):
+    return fbx_knoten("C", [fbx_prop_s("OO"), fbx_prop_l(kind), fbx_prop_l(eltern)], breit=breit)
+
+
+# Szene A, 32-Bit-Zeiger: ein Viereck, verschoben um 10 in x. Die Ecken sind
+# gepackt, die Nummern nicht - beide Wege kommen vor.
+FBX_A = fbx_datei([
+    fbx_knoten("Objects", [], [
+        fbx_geometrie(100),
+        fbx_modell(200, "Model::teil", [("Lcl Translation", [10, 0, 0])]),
+    ]),
+    fbx_knoten("Connections", [], [fbx_c(100, 200)]),
+])
+
+# Szene B, 64-Bit-Zeiger (Fassung 7500): um 90 Grad um z gedreht, und das
+# Modell haengt an einem zweiten, das um 5 in z steht. Beides muss sich
+# aufmultiplizieren.
+FBX_B = fbx_datei([
+    fbx_knoten("Objects", [], [
+        fbx_geometrie(100, breit=True),
+        fbx_modell(200, "Model::teil", [("Lcl Rotation", [0, 0, 90])], breit=True),
+        fbx_modell(300, "Model::oben", [("Lcl Translation", [0, 0, 5])], breit=True),
+    ], breit=True),
+    fbx_knoten("Connections", [], [fbx_c(100, 200, breit=True),
+                                   fbx_c(200, 300, breit=True)], breit=True),
+], fassung=7500)
+
+# Szene C: zwei Vierecke, eins ohne Modell daran - das muss liegen bleiben,
+# wo es steht, und darf nicht verschwinden.
+FBX_C = fbx_datei([
+    fbx_knoten("Objects", [], [
+        fbx_geometrie(100),
+        fbx_geometrie(101, ecken=[2, 0, 0, 3, 0, 0, 3, 1, 0, 2, 1, 0]),
+        fbx_modell(200, "Model::teil", [("Lcl Scaling", [2, 2, 2])]),
+    ]),
+    fbx_knoten("Connections", [], [fbx_c(100, 200)]),
+])
+
+FBX_TEXT = """; FBX 7.4.0 project file
+Objects:  {
+\tGeometry: 100, "Geometry::", "Mesh" {
+\t\tVertices: *12 {
+\t\t\ta: 0,0,0,1,0,0,1,1,0,
+\t\t\t0,1,0
+\t\t}
+\t\tPolygonVertexIndex: *4 {
+\t\t\ta: 0,1,2,-4
+\t\t}
+\t}
+\tModel: 200, "Model::teil", "Mesh" {
+\t\tProperties70:  {
+\t\t\tP: "Lcl Translation", "Lcl Translation", "", "A",0,0,7
+\t\t}
+\t}
+}
+Connections:  {
+\tC: "OO",100,200
+}
+""".encode("utf-8")
 
 ECKEN = [(x, y, z) for x in (0, 10) for y in (0, 10) for z in (0, 10)]
 WUERFEL = stl_binaer([
@@ -180,7 +348,7 @@ const zuviel = netzBauen(stlLesen(bytes(AUFGABE.zuviel)));
 ergebnis.zuviel_dreiecke = zuviel.dreiecke;
 
 /* 4. Namen */
-ergebnis.arten = ['teil.stl', 'TEIL.STL', 'ding.obj', 'plan.3mf', 'bild.png', 'ohne']
+ergebnis.arten = ['teil.stl', 'TEIL.STL', 'ding.obj', 'teil.fbx', 'plan.3mf', 'bild.png', 'ohne']
   .map((n) => modellArt(n));
 
 /* 5. Der Wuerfel durch die echte Matrix */
@@ -222,7 +390,15 @@ const laengen = [0, 1, 2].map((s) => {
 });
 ergebnis.drehlaengen = laengen;
 
-console.log(JSON.stringify(ergebnis));
+/* 7. FBX - das muss warten, das Entpacken laeuft ueber einen Strom. */
+(async () => {
+  const rund = (f) => Array.from(f).map((w) => Math.round(w * 1000) / 1000);
+  ergebnis.fbx_a = rund(await fbxLesen(bytes(AUFGABE.fbx_a)));
+  ergebnis.fbx_b = rund(await fbxLesen(bytes(AUFGABE.fbx_b)));
+  ergebnis.fbx_c = rund(await fbxLesen(bytes(AUFGABE.fbx_c)));
+  ergebnis.fbx_text = rund(await fbxLesen(bytes(AUFGABE.fbx_text)));
+  console.log(JSON.stringify(ergebnis));
+})();
 """
 
 aufgabe = json.dumps({
@@ -231,6 +407,10 @@ aufgabe = json.dumps({
     "obj": base64.b64encode(OBJ).decode(),
     "wuerfel": base64.b64encode(WUERFEL).decode(),
     "anhang": base64.b64encode(ANHANG).decode(),
+    "fbx_a": base64.b64encode(FBX_A).decode(),
+    "fbx_b": base64.b64encode(FBX_B).decode(),
+    "fbx_c": base64.b64encode(FBX_C).decode(),
+    "fbx_text": base64.b64encode(FBX_TEXT).decode(),
     "zuviel": base64.b64encode(bytes(ZU_VIEL)).decode(),
     "ecken": ECKEN,
 })
@@ -293,8 +473,31 @@ pruefe("negative Nummern zaehlen vom Ende",
        d["obj_punkte"][27:36] == [0, 0, 0, 1, 0, 0, 1, 1, 0], d["obj_punkte"][27:36])
 
 print("\nWelche Dateien ueberhaupt")
-pruefe("stl und obj, gross oder klein geschrieben",
-       d["arten"] == ["stl", "stl", "obj", None, None, None], d["arten"])
+pruefe("stl, obj und fbx, gross oder klein geschrieben",
+       d["arten"] == ["stl", "stl", "obj", "fbx", None, None, None], d["arten"])
+
+print("\nFBX")
+# Ein Viereck wird zu zwei Dreiecken, die letzte Ecke steht negativ da.
+VIERECK_ROH = [0, 0, 0, 1, 0, 0, 1, 1, 0,
+               0, 0, 0, 1, 1, 0, 0, 1, 0]
+pruefe("binaer 7400, gepacktes Feld, Viereck zu zwei Dreiecken",
+       len(d["fbx_a"]) == 18, len(d["fbx_a"]))
+pruefe("die Lage des Modells wird angewendet (10 nach x)",
+       d["fbx_a"] == [w + (10 if i % 3 == 0 else 0) for i, w in enumerate(VIERECK_ROH)],
+       d["fbx_a"])
+# 90 Grad um z: aus (1,0) wird (0,1). Dazu das Elternmodell: 5 nach oben.
+pruefe("binaer 7500 mit 64-Bit-Zeigern wird gelesen", len(d["fbx_b"]) == 18, d["fbx_b"])
+pruefe("Drehung und Elternmodell multiplizieren sich auf",
+       d["fbx_b"][0:9] == [0, 0, 5, 0, 1, 5, -1, 1, 5], d["fbx_b"][0:9])
+pruefe("zwei Geometrien kommen beide mit, auch die ohne Modell",
+       len(d["fbx_c"]) == 36, len(d["fbx_c"]))
+pruefe("die skalierte liegt doppelt so weit draussen",
+       d["fbx_c"][0:9] == [0, 0, 0, 2, 0, 0, 2, 2, 0], d["fbx_c"][0:9])
+pruefe("die ohne Modell bleibt, wo sie ist",
+       d["fbx_c"][18:27] == [2, 0, 0, 3, 0, 0, 3, 1, 0], d["fbx_c"][18:27])
+pruefe("die Textfassung ergibt dasselbe, ueber mehrere Zeilen verteilt",
+       d["fbx_text"] == [w + (7 if i % 3 == 2 else 0) for i, w in enumerate(VIERECK_ROH)],
+       d["fbx_text"])
 
 print("\nDie Matrix")
 pruefe("die Mitte des Wuerfels ist seine Mitte",
@@ -320,4 +523,4 @@ print()
 if fehler:
     print(f"{len(fehler)} Prüfungen gescheitert")
     sys.exit(1)
-print("STL und OBJ werden richtig gelesen")
+print("STL, OBJ und FBX werden richtig gelesen")

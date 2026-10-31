@@ -2727,7 +2727,7 @@
      Dreieck, OBJ sind Zeilen mit v und f. Fuer "graues Modell drehen" braucht
      es Matrizen, ein Licht von oben und sonst nichts. */
 
-  const MODELL_ARTEN = ['stl', 'obj'];
+  const MODELL_ARTEN = ['stl', 'obj', 'fbx'];
   // Mehr als eine Handvoll 3D-Flaechen gibt der Browser pro Seite nicht her.
   // Also leben nur die zuletzt benutzten; die anderen stehen als Standbild da
   // und wachen beim Klick wieder auf.
@@ -2844,6 +2844,304 @@
       }
     }
     return new Float32Array(punkte);
+  }
+
+  /* --- FBX ---------------------------------------------------------------
+
+     FBX ist keine Datei mit einem Teil, sondern eine Szene: mehrere Objekte,
+     jedes mit eigener Lage, Drehung und Groesse, dazu ein Elternbaum. Wer das
+     weglaesst, legt bei einem Avatar alle Teile uebereinander in den
+     Nullpunkt.
+
+     Zwei Fassungen, ein Baum: binaer sind es geschachtelte Datensaetze mit
+     zlib-gepackten Zahlenfeldern (das entpackt der Browser selbst), Text ist
+     derselbe Baum in geschweiften Klammern. Danach arbeitet alles weitere auf
+     derselben Form {name, werte, kinder}.
+
+     Herausgeholt werden nur Vertices und PolygonVertexIndex. Nicht gelesen:
+     Materialien, Texturen, Knochen, Animation, und von den Lagen die
+     Exoten - andere Drehreihenfolgen als XYZ, Dreh- und Skalierpunkte,
+     Vererbungsarten. Bei einem normalen Export aus Blender oder Fusion steht
+     das Teil damit richtig; bei einer Szene aus Maya kann etwas schief
+     stehen. */
+
+  const FBX_MAGIE = 'Kaydara FBX Binary';
+
+  async function fbxLesen(puffer) {
+    const kopf = new TextDecoder('utf-8', { fatal: false }).decode(puffer.slice(0, 20));
+    const baum = kopf.indexOf(FBX_MAGIE) === 0
+      ? await fbxBinaer(puffer)
+      : fbxText(new TextDecoder('utf-8', { fatal: false }).decode(puffer));
+    return fbxNetz(baum);
+  }
+
+  async function auspacken(roh) {
+    if (typeof DecompressionStream !== 'function') {
+      throw new Error('dieser Browser kann FBX nicht entpacken (DecompressionStream fehlt)');
+    }
+    const strom = new Blob([roh]).stream().pipeThrough(new DecompressionStream('deflate'));
+    return new Uint8Array(await new Response(strom).arrayBuffer());
+  }
+
+  async function fbxBinaer(puffer) {
+    const sicht = new DataView(puffer);
+    // Ab Fassung 7500 sind die Zeiger 64 Bit breit.
+    const breit = sicht.getUint32(23, true) >= 7500;
+    const wurzel = { name: '', werte: [], kinder: [] };
+    let stelle = 27;
+    while (stelle + (breit ? 25 : 13) <= puffer.byteLength) {
+      const k = await fbxKnoten(sicht, puffer, stelle, breit);
+      if (!k) break;
+      wurzel.kinder.push(k.knoten);
+      stelle = k.ende;
+    }
+    return wurzel;
+  }
+
+  async function fbxKnoten(sicht, puffer, stelle, breit) {
+    const lang = (p) => (breit ? Number(sicht.getBigUint64(p, true)) : sicht.getUint32(p, true));
+    const kopf = breit ? 25 : 13;
+    const ende = lang(stelle);
+    if (!ende) return null;                       // Schlussmarke
+    const zahl = lang(stelle + (breit ? 8 : 4));
+    const wertebytes = lang(stelle + (breit ? 16 : 8));
+    const namelaenge = sicht.getUint8(stelle + (breit ? 24 : 12));
+    let p = stelle + kopf;
+    const name = new TextDecoder().decode(new Uint8Array(puffer, p, namelaenge));
+    p += namelaenge;
+    const werte = [];
+    for (let i = 0; i < zahl; i++) {
+      const w = await fbxWert(sicht, puffer, p);
+      werte.push(w.wert);
+      p = w.ende;
+    }
+    // Nicht mitzaehlen, sondern ausrechnen: so bringt ein Wert, den wir nicht
+    // kennen, nicht den ganzen Baum durcheinander.
+    p = stelle + kopf + namelaenge + wertebytes;
+    const kinder = [];
+    while (p + kopf <= ende) {
+      const k = await fbxKnoten(sicht, puffer, p, breit);
+      if (!k) break;
+      kinder.push(k.knoten);
+      p = k.ende;
+    }
+    return { knoten: { name, werte, kinder }, ende };
+  }
+
+  async function fbxWert(sicht, puffer, p) {
+    const art = String.fromCharCode(sicht.getUint8(p));
+    p += 1;
+    if (art === 'Y') return { wert: sicht.getInt16(p, true), ende: p + 2 };
+    if (art === 'C') return { wert: !!sicht.getUint8(p), ende: p + 1 };
+    if (art === 'I') return { wert: sicht.getInt32(p, true), ende: p + 4 };
+    if (art === 'F') return { wert: sicht.getFloat32(p, true), ende: p + 4 };
+    if (art === 'D') return { wert: sicht.getFloat64(p, true), ende: p + 8 };
+    if (art === 'L') return { wert: Number(sicht.getBigInt64(p, true)), ende: p + 8 };
+    if (art === 'S' || art === 'R') {
+      const n = sicht.getUint32(p, true);
+      const roh = new Uint8Array(puffer, p + 4, n);
+      return { wert: art === 'S' ? new TextDecoder().decode(roh) : roh, ende: p + 4 + n };
+    }
+    const laenge = sicht.getUint32(p, true);
+    const packung = sicht.getUint32(p + 4, true);
+    const bytes = sicht.getUint32(p + 8, true);
+    let roh = new Uint8Array(puffer, p + 12, bytes);
+    if (packung === 1) roh = await auspacken(roh);
+    return { wert: fbxFeld(art, roh, laenge), ende: p + 12 + bytes };
+  }
+
+  function fbxFeld(art, roh, laenge) {
+    // Eine frische Kopie: ein Feld mitten im Puffer liegt sonst schief fuer
+    // 8-Byte-Zahlen, und dann wirft der Browser.
+    const b = roh.slice().buffer;
+    if (art === 'd') return new Float64Array(b, 0, laenge);
+    if (art === 'f') return new Float32Array(b, 0, laenge);
+    if (art === 'i') return new Int32Array(b, 0, laenge);
+    if (art === 'l') return Array.from(new BigInt64Array(b, 0, laenge), Number);
+    if (art === 'b') return new Uint8Array(b, 0, laenge);
+    return [];
+  }
+
+  function fbxText(text) {
+    const wurzel = { name: '', werte: [], kinder: [] };
+    const stapel = [wurzel];
+    for (let zeile of text.split('\n')) {
+      const strich = zeile.indexOf(';');
+      if (strich >= 0) zeile = zeile.slice(0, strich);
+      zeile = zeile.trim();
+      if (!zeile) continue;
+      if (zeile.charAt(0) === '}') { if (stapel.length > 1) stapel.pop(); continue; }
+      const auf = zeile.charAt(zeile.length - 1) === '{';
+      if (auf) zeile = zeile.slice(0, -1).trim();
+      const jetzt = stapel[stapel.length - 1];
+      const doppel = zeile.indexOf(':');
+      if (doppel < 0) {
+        // Lange Zahlenreihen stehen ueber mehrere Zeilen - die Fortsetzung
+        // gehoert zum zuletzt angefangenen Knoten.
+        const letzte = jetzt.kinder[jetzt.kinder.length - 1];
+        if (letzte) for (const w of fbxWerteText(zeile)) letzte.werte.push(w);
+        continue;
+      }
+      const knoten = { name: zeile.slice(0, doppel).trim(),
+                       werte: fbxWerteText(zeile.slice(doppel + 1)), kinder: [] };
+      jetzt.kinder.push(knoten);
+      if (auf) stapel.push(knoten);
+    }
+    return wurzel;
+  }
+
+  function fbxWerteText(stueck) {
+    const werte = [];
+    const muster = /"([^"]*)"|(-?\d[\d.eE+-]*)/g;
+    let t;
+    while ((t = muster.exec(stueck))) {
+      if (t[1] !== undefined) { werte.push(t[1]); continue; }
+      const zahl = Number(t[2]);
+      werte.push(Number.isNaN(zahl) ? t[2] : zahl);
+    }
+    return werte;
+  }
+
+  function fbxKind(knoten, name) {
+    return knoten ? knoten.kinder.find(function (k) { return k.name === name; }) : null;
+  }
+
+  function fbxFeldVon(knoten) {
+    if (!knoten) return null;
+    for (const w of knoten.werte) {
+      if (w && typeof w === 'object' && typeof w.length === 'number') return w;
+    }
+    const a = fbxKind(knoten, 'a');      // so steht ein Feld in der Textfassung
+    return a ? a.werte : null;
+  }
+
+  function fbxEigenschaft(modell, wie, standard) {
+    const p = fbxKind(modell, 'Properties70') || fbxKind(modell, 'Properties60');
+    if (!p) return standard;
+    for (const e of p.kinder) {
+      if ((e.name !== 'P' && e.name !== 'Property') || e.werte[0] !== wie) continue;
+      const zahlen = e.werte.filter(function (w) { return typeof w === 'number'; });
+      if (zahlen.length >= 3) return zahlen.slice(-3);
+    }
+    return standard;
+  }
+
+  function matDrehZ(w) {
+    const c = Math.cos(w), s = Math.sin(w), m = matEinheit();
+    m[0] = c; m[1] = s; m[4] = -s; m[5] = c; return m;
+  }
+  function matSkalaXYZ(s) {
+    const m = matEinheit(); m[0] = s[0]; m[5] = s[1]; m[10] = s[2]; return m;
+  }
+  // Eulerwinkel in Grad, Reihenfolge XYZ - zuerst um X, zuletzt um Z.
+  function matDrehGrad(g) {
+    const b = Math.PI / 180;
+    return matMal(matDrehZ(g[2] * b), matMal(matDrehY(g[1] * b), matDrehX(g[0] * b)));
+  }
+
+  function fbxModellLage(modell) {
+    const t = fbxEigenschaft(modell, 'Lcl Translation', [0, 0, 0]);
+    const r = fbxEigenschaft(modell, 'Lcl Rotation', [0, 0, 0]);
+    const s = fbxEigenschaft(modell, 'Lcl Scaling', [1, 1, 1]);
+    const vor = fbxEigenschaft(modell, 'PreRotation', [0, 0, 0]);
+    return matMal(matSchieben(t[0], t[1], t[2]),
+                  matMal(matDrehGrad(vor), matMal(matDrehGrad(r), matSkalaXYZ(s))));
+  }
+
+  function fbxGeoLage(modell) {
+    const t = fbxEigenschaft(modell, 'GeometricTranslation', [0, 0, 0]);
+    const r = fbxEigenschaft(modell, 'GeometricRotation', [0, 0, 0]);
+    const s = fbxEigenschaft(modell, 'GeometricScaling', [1, 1, 1]);
+    return matMal(matSchieben(t[0], t[1], t[2]),
+                  matMal(matDrehGrad(r), matSkalaXYZ(s)));
+  }
+
+  /* Von der Geometrie zum Modell, von dort nach oben: jede Lage multipliziert
+     sich auf. Die Geometrie-Lage gilt nur am eigenen Modell, sie wird nicht
+     vererbt. */
+  function fbxLage(nummer, eltern, modelle) {
+    let m = null;
+    let id = eltern.get(nummer);
+    let tiefe = 0;
+    while (id !== undefined && tiefe++ < 64) {
+      const modell = modelle.get(id);
+      if (modell) {
+        const lage = m === null ? matMal(fbxModellLage(modell), fbxGeoLage(modell))
+                                : fbxModellLage(modell);
+        m = m === null ? lage : matMal(lage, m);
+      }
+      id = eltern.get(id);
+    }
+    return m;
+  }
+
+  function punkteWandeln(punkte, m) {
+    const raus = new Float32Array(punkte.length);
+    for (let i = 0; i < punkte.length; i += 3) {
+      const x = punkte[i], y = punkte[i + 1], z = punkte[i + 2];
+      raus[i] = m[0] * x + m[4] * y + m[8] * z + m[12];
+      raus[i + 1] = m[1] * x + m[5] * y + m[9] * z + m[13];
+      raus[i + 2] = m[2] * x + m[6] * y + m[10] * z + m[14];
+    }
+    return raus;
+  }
+
+  function fbxGeometrie(g) {
+    const ecken = fbxFeldVon(fbxKind(g, 'Vertices'));
+    const liste = fbxFeldVon(fbxKind(g, 'PolygonVertexIndex'));
+    if (!ecken || !liste || !ecken.length) return null;
+    const raus = [];
+    let vieleck = [];
+    for (let i = 0; i < liste.length; i++) {
+      let n = liste[i];
+      const schluss = n < 0;
+      // Die letzte Ecke eines Vielecks steht negativ da - so merkt man, wo es
+      // aufhoert.
+      if (schluss) n = -n - 1;
+      vieleck.push(n);
+      if (!schluss) continue;
+      for (let k = 1; k + 1 < vieleck.length; k++) {
+        for (const e of [vieleck[0], vieleck[k], vieleck[k + 1]]) {
+          raus.push(ecken[e * 3], ecken[e * 3 + 1], ecken[e * 3 + 2]);
+        }
+      }
+      vieleck = [];
+    }
+    return new Float32Array(raus);
+  }
+
+  function fbxNetz(baum) {
+    const objekte = fbxKind(baum, 'Objects');
+    if (!objekte) return new Float32Array(0);
+
+    const eltern = new Map();
+    const verbindungen = fbxKind(baum, 'Connections');
+    for (const c of (verbindungen ? verbindungen.kinder : [])) {
+      if (c.name !== 'C' && c.name !== 'Connect') continue;
+      if (c.werte[0] !== 'OO') continue;      // nur Objekt an Objekt
+      eltern.set(Number(c.werte[1]), Number(c.werte[2]));
+    }
+    const modelle = new Map();
+    for (const k of objekte.kinder) {
+      if (k.name === 'Model') modelle.set(Number(k.werte[0]), k);
+    }
+
+    const stuecke = [];
+    let laenge = 0;
+    for (const g of objekte.kinder) {
+      if (g.name !== 'Geometry') continue;
+      let punkte = fbxGeometrie(g);
+      if (!punkte || !punkte.length) continue;
+      const lage = fbxLage(Number(g.werte[0]), eltern, modelle);
+      if (lage) punkte = punkteWandeln(punkte, lage);
+      stuecke.push(punkte);
+      laenge += punkte.length;
+    }
+    if (stuecke.length === 1) return stuecke[0];
+    const alles = new Float32Array(laenge);
+    let p = 0;
+    for (const s of stuecke) { alles.set(s, p); p += s.length; }
+    return alles;
   }
 
   /* Normalen je Dreieck aus den Ecken, dazu Mitte und Groesse. Flach
@@ -3157,7 +3455,8 @@
     }
     let punkte;
     try {
-      punkte = z.art === 'obj' ? objLesen(puffer) : stlLesen(puffer);
+      punkte = z.art === 'fbx' ? await fbxLesen(puffer)
+             : z.art === 'obj' ? objLesen(puffer) : stlLesen(puffer);
     } catch (f) {
       kachelBehalten(z, 'Modell ließ sich nicht lesen: ' + f.message
                         + ' (' + kopfschau(puffer) + ')');

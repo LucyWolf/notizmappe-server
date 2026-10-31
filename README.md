@@ -454,8 +454,9 @@ scheinbar zu laufen.
 
 ## 3D-Dateien in der Notiz
 
-Ein Anhang mit `.stl` oder `.obj` wird nicht als Kachel gezeichnet, sondern als
-Modell: **ziehen dreht, Rad zoomt, Doppelklick stellt die Ansicht zurück**.
+Ein Anhang mit `.stl`, `.obj` oder `.fbx` wird nicht als Kachel gezeichnet,
+sondern als Modell: **ziehen dreht, Rad zoomt, Doppelklick stellt die Ansicht
+zurück**.
 Darunter bleibt die Zeile mit Name, Größe und Dreieckszahl — ein Klick darauf
 lädt die Datei weiterhin herunter.
 
@@ -468,6 +469,17 @@ Gezeichnet wird mit WebGL, ohne fremde Bibliothek — STL ist Kopf, Anzahl und
 50 Byte je Dreieck, OBJ sind Zeilen mit `v` und `f`. Entsprechend gibt es ein
 graues Modell wie im Slicer: keine Farben, keine Materialien.
 
+**FBX** ist der Sonderfall: keine Datei mit einem Teil, sondern eine Szene aus
+mehreren Objekten, jedes mit eigener Lage, Drehung und Größe an einem
+Elternbaum. Beide Fassungen werden gelesen — binär (die Zahlenfelder sind
+zlib-gepackt, das entpackt der Browser selbst) und Text. Die Lagen werden
+mitgerechnet, sonst läge bei einem Avatar alles übereinander im Nullpunkt.
+
+* **Von FBX kommt nur die Form.** Keine Materialien, keine Texturen, keine
+  Knochen, keine Animation. Von den Lagen fehlen die Exoten: andere
+  Drehreihenfolgen als XYZ, Dreh- und Skalierpunkte, Vererbungsarten. Ein
+  normaler Export aus Blender oder Fusion steht richtig; bei einer Szene aus
+  Maya kann etwas schief stehen.
 * **3MF und STEP gehen nicht.** 3MF ist ein ZIP, STEP ist Kurvenmathematik und
   braucht einen eigenen Kern.
 * **Geladen wird erst, wenn das Modell ins Bild rollt** — zehn Anhänge auf
