@@ -226,14 +226,24 @@ def aufraeumen(daten, behalten: str) -> None:
         shutil.rmtree(p, ignore_errors=True)
 
 
-def zuruecknehmen(daten) -> str:
-    """Die Ueberlagerung fallen lassen: ab dem naechsten Start gilt das Image."""
+def zuruecknehmen(daten) -> dict:
+    """Die Ueberlagerung fallen lassen: ab dem naechsten Start gilt das Image.
+
+    Sagt dazu, ob es ueberhaupt etwas zurueckzunehmen gab. Der Aufrufer startet
+    nur dann neu - sonst flog bei jedem Druck auf den Knopf jeder aus seiner
+    Sitzung, auch wenn hier laengst die Fassung aus dem Image lief.
+    """
     try:
         (programmordner(daten) / "aktiv").unlink()
-    except OSError:
-        pass
-    return ("Die nachgeladene Fassung ist abgeschaltet. Nach dem Neustart läuft "
-            "wieder die aus dem Image.")
+    except FileNotFoundError:
+        return {"getan": False,
+                "hinweis": "Hier läuft schon die Fassung aus dem Image - es gab "
+                           "nichts zurückzunehmen."}
+    except OSError as f:
+        raise SelbstFehler(f"Die Marke ließ sich nicht entfernen: {f}") from f
+    return {"getan": True,
+            "hinweis": "Die nachgeladene Fassung ist abgeschaltet. Nach dem "
+                       "Neustart läuft wieder die aus dem Image."}
 
 
 # -- Der Rueckfall ------------------------------------------------------------

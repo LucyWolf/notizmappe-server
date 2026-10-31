@@ -81,6 +81,9 @@ for muster, name in ((r"^  const MODELL_ARTEN = [^\n]*$", "MODELL_ARTEN"),
                      (r"^  const MODELL_WINKEL = [^\n]*$", "MODELL_WINKEL"),
                      (r"^  const MODELL_SCHIEB_MAX = [^\n]*$", "MODELL_SCHIEB_MAX"),
                      (r"^  function punktSchieben\(.*?^  \}", "punktSchieben"),
+                     (r"^  const MODELL_LEBENDIG = [^\n]*$", "MODELL_LEBENDIG"),
+                     (r"^  const MODELL_MAX_LEBENDIG = [^\n]*$", "MODELL_MAX_LEBENDIG"),
+                     (r"^  function platzSchaffen\(.*?^  \}", "platzSchaffen"),
                      (r"^  function modellZeichnen\(.*?^  \}", "modellZeichnen")):
     treffer = re.search(muster, shim, re.S | re.M)
     pruefe(f"{name} steht in shim.js", bool(treffer))
@@ -416,6 +419,22 @@ ergebnis.weitest = Math.round(Math.sqrt(z.punkt[0] ** 2 + z.punkt[1] ** 2
 ergebnis.grenze = MODELL_SCHIEB_MAX;
 z.seite = 0.6; z.hoehe = -0.5; z.punkt = [0, 0, 0];
 
+/* 5c. Platz machen, bevor die naechste Flaeche aufgeht */
+const eingefroren = [];
+function modellEinfrieren(m) {      // im Harnisch nur das, worauf es ankommt
+  const i = MODELL_LEBENDIG.indexOf(m);
+  if (i >= 0) MODELL_LEBENDIG.splice(i, 1);
+  eingefroren.push(m.name);
+}
+for (const name of ['a', 'b', 'c', 'd']) MODELL_LEBENDIG.push({ name });
+const neues = { name: 'e' };
+platzSchaffen(neues);
+ergebnis.platz_frei = MODELL_LEBENDIG.length < MODELL_MAX_LEBENDIG;
+ergebnis.eingefroren = eingefroren.slice();
+MODELL_LEBENDIG.push(neues);
+ergebnis.danach = MODELL_LEBENDIG.map((m) => m.name);
+ergebnis.grenze = MODELL_MAX_LEBENDIG;
+
 /* 6. Die Drehmatrix fuer die Normalen muss die Laengen lassen */
 const laengen = [0, 1, 2].map((s) => {
   const d = attrappe.notiert.dreh;
@@ -548,6 +567,16 @@ for dr in d["drehungen"]:
 pruefe("das Teil fuellt das Bild auch aus (nicht winzig in der Mitte)",
        max(dr["rand"] for dr in d["drehungen"]) > 0.45,
        [dr["rand"] for dr in d["drehungen"]])
+print("\nPlatz fuer die naechste Flaeche")
+# Der Browser gibt nur eine Handvoll 3D-Flaechen je Seite her. Wer erst
+# aufmacht und dann aufraeumt, bekommt beim einen zu viel gar keine mehr -
+# und dann waere das Modell endgueltig weg, obwohl es eben noch lief.
+pruefe("vor dem Aufmachen ist wieder Platz", d["platz_frei"], d)
+pruefe("eingefroren wird das aelteste, nicht das neue",
+       d["eingefroren"] == ["a"], d["eingefroren"])
+pruefe("und danach leben genau so viele, wie erlaubt sind",
+       len(d["danach"]) == d["grenze"] and d["danach"][-1] == "e", d["danach"])
+
 print("\nDen Drehpunkt schieben")
 pruefe("ohne Schieben sitzt die Mitte in der Mitte",
        d["vor_dem_schieben"] == [0, 0], d["vor_dem_schieben"])
@@ -566,6 +595,21 @@ pruefe("die Drehmatrix der Normalen laesst die Laengen",
        all(abs(w - 1) < 0.002 for w in d["drehlaengen"]), d["drehlaengen"])
 
 shutil.rmtree(ordner, ignore_errors=True)
+# Zwei Sachen, die sich hier ohne Browser nicht laufen lassen - geprueft wird
+# deshalb nur, dass sie dastehen.
+print("\nStatisch geprueft")
+pruefe("auch ohne Standbild bleibt etwas Anklickbares stehen",
+       "className: 'standbild leerbild'" in shim
+       and "ruhig.addEventListener('click'" in shim)
+# Einmal fuer das Modell, einmal fuer den Markierrahmen, einmal fuer das
+# Gummiband: ohne das zieht ein abgebrochener Zeiger weiter, ohne dass noch
+# eine Taste gedrueckt ist.
+for wer, muster in (("das Modell", r"bild\.addEventListener\('pointercancel'"),
+                    ("der Markierrahmen", r"kasten\.addEventListener\('pointercancel'"),
+                    ("das Gummiband", r"document\.addEventListener\('pointercancel'")):
+    pruefe(f"abgebrochener Zeiger: {wer} hoert auf",
+           bool(re.search(muster, shim)))
+
 print()
 if fehler:
     print(f"{len(fehler)} Prüfungen gescheitert")

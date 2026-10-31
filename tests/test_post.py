@@ -100,6 +100,44 @@ except post.PostFehler:
     pruefe("eine kaputte Empfängeradresse wird abgelehnt", True)
 
 # Ab hier wird nichts mehr wirklich verschickt.
+# Eine offene Verbindung, die nie geschlossen wird: scheitert STARTTLS,
+# kommt sie nie in das with des Aufrufers. Mit einer Meldung je Fehlanmeldung
+# haengen davon schnell viele herum.
+import smtplib as _smtplib
+
+
+class _LahmerServer:
+    offen = []
+
+    def __init__(self, wirt, port, timeout=0):
+        _LahmerServer.offen.append(self)
+        self.zu = False
+
+    def starttls(self, context=None):
+        raise _smtplib.SMTPNotSupportedError("kein STARTTLS")
+
+    def close(self):
+        self.zu = True
+
+    def quit(self):
+        self.zu = True
+
+
+_echt_smtp = post.smtplib.SMTP
+post.smtplib.SMTP = _LahmerServer
+try:
+    try:
+        post.senden("wer@example.de", "Betreff", "egal")
+        geworfen = False
+    except post.PostFehler:
+        geworfen = True
+finally:
+    post.smtplib.SMTP = _echt_smtp
+pruefe("Ein Mailserver ohne STARTTLS gibt einen Fehler", geworfen)
+pruefe("und die angefangene Verbindung bleibt nicht offen liegen",
+       len(_LahmerServer.offen) == 1 and _LahmerServer.offen[0].zu,
+       [v.zu for v in _LahmerServer.offen])
+
 post.senden = lambda empfaenger, betreff, text: verschickt.append(
     {"an": empfaenger, "betreff": betreff, "text": text})
 

@@ -92,8 +92,17 @@ pruefe("nach einem geglueckten Start faengt die Zaehlung von vorn an",
 selbst.versuch_gelungen(daten)
 pruefe("eine andere Fassung zaehlt getrennt", selbst.versuch_merken(daten, "1.3.0") == 1)
 
-selbst.zuruecknehmen(daten)
+erst = selbst.zuruecknehmen(daten)
 pruefe("zuruecknehmen loescht die Marke", selbst.aktive_fassung(daten) == "")
+pruefe("und sagt, dass es etwas zurueckzunehmen gab", erst.get("getan") is True, erst)
+# Nur dann startet der Server neu. Vorher flog bei jedem Druck auf den Knopf
+# jeder aus seiner Sitzung - auch wenn hier laengst die Fassung aus dem Image
+# lief.
+nochmal = selbst.zuruecknehmen(daten)
+pruefe("beim zweiten Mal gab es nichts mehr zurueckzunehmen",
+       nochmal.get("getan") is False, nochmal)
+pruefe("und es steht ein Satz dabei, der das sagt",
+       "nichts" in nochmal.get("hinweis", "").lower(), nochmal)
 pruefe("der Ordner bleibt aber liegen", (daten / ".programm" / "1.2.0").is_dir())
 
 print()

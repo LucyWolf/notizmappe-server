@@ -198,6 +198,14 @@ def schreiben(neu: dict, passwort: str = "") -> None:
                 f.write(f"username={neu['benutzer']}\npassword={passwort}\n")
         elif not zugangsdatei().is_file():
             raise AblageFehler("Für eine neue Freigabe wird das Passwort gebraucht.")
+    else:
+        # Keine SMB-Freigabe mehr: dann hat hier auch kein Passwort mehr zu
+        # liegen. Vorher blieb die Zugangsdatei im Klartext stehen - wer die
+        # NAS abhaengt, rechnet damit nicht.
+        try:
+            zugangsdatei().unlink()
+        except OSError:
+            pass
     p = datei()
     vorlaeufig = p.with_name(".ablage.neu")
     fd = os.open(vorlaeufig, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)

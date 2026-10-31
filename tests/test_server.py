@@ -396,6 +396,21 @@ server._fassung_geholt[1] = {"laeuft": "0.0.2", "neueste": "0.0.2", "neuer": Fal
                              "fehler": "", "oberflaeche": "0.0.2"}
 pruefe("aber nicht oefter als alle 10 Sekunden",
        k.get("/fassung?frisch=1").json().get("laeuft") == "0.0.2")
+# Ein Aussetzer bei GitHub darf nicht aus "es gibt eine neue Fassung" ein
+# "alles aktuell" machen - und das vier Minuten lang.
+server._fassung_geholt[0] = 0.0
+server._fassung_geholt[1] = {"laeuft": server.FASSUNG, "neueste": "99.9.9",
+                             "neuer": True, "fehler": "", "oberflaeche": "x"}
+echt = server.urllib.request.urlopen
+server.urllib.request.urlopen = lambda *a, **b: (_ for _ in ()).throw(OSError("kein Netz"))
+try:
+    aus = k.get("/fassung?frisch=1").json()
+finally:
+    server.urllib.request.urlopen = echt
+pruefe("Ohne GitHub bleibt die letzte gute Auskunft stehen",
+       aus.get("neueste") == "99.9.9" and aus.get("neuer") is True, aus)
+pruefe("Und der Aussetzer steht trotzdem dabei", "GitHub" in aus.get("fehler", ""), aus)
+
 server._fassung_geholt[0], server._fassung_geholt[1] = 0.0, {}
 k.get("/fassung")
 
@@ -456,6 +471,38 @@ pruefe("Vorher drin", abmelder.get("/").status_code == 200)
 pruefe("Abmelden funktioniert", abmelder.get("/abmelden").status_code == 303)
 pruefe("Und danach draußen", abmelder.get("/").status_code == 303)
 
+# Ein Fehler bei der Ersteinrichtung landet in einer Adresse - und gehoert
+# dort adress-kodiert, nicht HTML-kodiert. Sonst stand auf der Anmeldeseite
+# &quot; statt eines Anfuehrungszeichens: die escapet selbst noch einmal.
+print("\nErsteinrichtung")
+import server as _s
+_echt_leer, _echt_schon = _s.nutzer.leer, _s.nutzer.war_schon_eingerichtet
+_echt_anlegen = _s.nutzer.anlegen
+_s.nutzer.leer = lambda: True
+_s.nutzer.war_schon_eingerichtet = lambda: False
+
+
+def _meckern(*a, **b):
+    # Eine Meldung mit Zeichen, die HTML- und Adress-Kodierung unterscheiden.
+    raise _s.nutzer.BenutzerFehler('Die Rolle "A&B" gibt es nicht')
+
+
+_s.nutzer.anlegen = _meckern
+try:
+    a = TestClient(server.app, follow_redirects=False).post(
+        "/einrichten", data={"name": "lucy2", "passwort": "langgenug1",
+                             "passwort2": "langgenug1"})
+finally:
+    _s.nutzer.leer, _s.nutzer.war_schon_eingerichtet = _echt_leer, _echt_schon
+    _s.nutzer.anlegen = _echt_anlegen
+ort = a.headers.get("location", "")
+pruefe("Die Meldung steht adress-kodiert in der Umleitung",
+       "fehler=" in ort and "&quot;" not in ort and "&amp;B" not in ort, ort)
+seite = TestClient(server.app).get(ort).text
+pruefe("Und die Anmeldeseite zeigt sie als Text, nicht als Kodierung",
+       'Die Rolle &quot;A&amp;B&quot; gibt es nicht' in seite,
+       [z for z in seite.splitlines() if "Rolle" in z][:1])
+
 # --- Zwei Schritte beim Anmelden ---------------------------------------------
 #
 # Worauf es ankommt: der Zwischenzustand oeffnet nichts, die Notfallcodes gelten
@@ -506,6 +553,22 @@ pruefe("Derselbe Notfallcode kein zweites Mal",
        "fehler=" in nochmal.post("/zweiter-schritt",
                                  data={"code": v["codes"][0]}).headers.get("location", ""))
 
+# Abmelden muss auch die halbe Anmeldung beenden. Sonst reicht der Halbkeks
+# plus ein gueltiger Code, um daraus eine volle Sitzung zu machen - abgemeldet
+# hin oder her.
+halb = TestClient(server.app, follow_redirects=False)
+halb.post("/anmelden", data={"name": "zwei", "passwort": "zweipasswort1"})
+pruefe("Nach dem Passwort steht die halbe Anmeldung",
+       halb.post("/zweiter-schritt", data={"code": "000000"}
+                 ).headers.get("location", "").startswith("/zweiter-schritt"))
+halb.get("/abmelden")
+a = halb.post("/zweiter-schritt", data={"code": v["codes"][1]})
+pruefe("Nach dem Abmelden ist auch die halbe Anmeldung weg",
+       a.headers.get("location") == "/anmelden?fehler=Bitte+neu+anmelden.",
+       a.headers.get("location"))
+pruefe("Und der Notfallcode ist dabei nicht verbraucht worden",
+       Z2.get("/zwei-schritte").json()["codes_uebrig"] == 9)
+
 pruefe("Ohne Zwischenschritt kommt man nicht an die Seite",
        TestClient(server.app, follow_redirects=False).get("/zweiter-schritt").status_code == 303)
 pruefe("Einrichten für jemand anderen geht nicht - auch nicht als Verwalter",
@@ -522,6 +585,23 @@ pruefe("Ein Benutzer darf das nicht bei anderen",
        gast2.post("/zwei-schritte", json={"was": "aus", "benutzer": "lucy"},
                   headers={"X-Notizmappe": "1"}).status_code == 403)
 
+# Ein eigener Kopf laesst sich von einer fremden Seite nicht mitschicken. Die
+# Bruecke prueft das laengst - die Routen, an denen die Zugangsdaten fuer Mail
+# und NAS haengen, taten es nicht.
+print("\nEigener Aufruf")
+for weg, rumpf in (("/post", {"an": False}),
+                   ("/ablage", {"art": "lokal"}),
+                   ("/ablage/pruefen", {"pfad": "/tmp"}),
+                   ("/post/probe", {}),
+                   ("/aussehen", {"thema": "hell"}),
+                   ("/profil/email", {"email": ""}),
+                   ("/profil/meldung", {"art": "aus"}),
+                   ("/profil/passwort", {"alt": "x", "neu": "y"}),
+                   ("/aktualisieren", {}),
+                   ("/aktualisieren/zurueck", {})):
+    a = k.post(weg, json=rumpf)
+    pruefe(f"{weg} will den eigenen Kopf sehen", a.status_code == 400, a.status_code)
+
 # --- Einladungen -------------------------------------------------------------
 #
 # Der Link ist das Geheimnis. Also: jedes Mal ein anderer, nur kurz gueltig,
@@ -537,6 +617,24 @@ pruefe("Jeder Link ist ein anderer", erste["marke"] != zweite["marke"])
 pruefe("Und lang genug, um nicht geraten zu werden", len(erste["marke"]) >= 30, len(erste["marke"]))
 pruefe("Wer nichts verwalten darf, bekommt keinen",
        verwalte(gast2, "/verwaltung/einladung", {"rolle": "Verwalter"}).status_code == 403)
+
+# Die Adresse im Link kommt aus den Einstellungen, nicht aus dem Host-Kopf:
+# sonst laesst sich ein Einladungslink auf einen fremden Rechner zeigen, und
+# wer ihn oeffnet, legt dort Name und Passwort an.
+server.post.setzen(an=True, server="mail.example.de", port=587, sicherheit="starttls",
+                   benutzer="u", passwort="p", absender="n@example.de",
+                   stelle="https://notizen.example.de")
+mit_stelle = verwalte(k, "/verwaltung/einladung", {"rolle": "Benutzer"}).json()
+pruefe("Der Link nimmt die eingestellte Adresse",
+       mit_stelle.get("link", "").startswith("https://notizen.example.de/einladung/"),
+       mit_stelle.get("link"))
+gefaelscht = k.post("/verwaltung/einladung", json={"rolle": "Benutzer"},
+                    headers={"X-Notizmappe": "1", "Host": "boeser-rechner.example"})
+pruefe("Auch wenn der Host-Kopf etwas anderes behauptet",
+       gefaelscht.json().get("link", "").startswith("https://notizen.example.de/"),
+       gefaelscht.json().get("link"))
+server.post.setzen(an=False, server="", port=587, sicherheit="starttls", benutzer="",
+                   passwort="", absender="", stelle="")
 
 anonym3 = TestClient(server.app, follow_redirects=False)
 seite = anonym3.get(f"/einladung/{erste['marke']}")

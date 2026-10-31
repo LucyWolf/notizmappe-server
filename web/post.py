@@ -147,7 +147,18 @@ def _verbinden(d: dict):
                                 context=ssl.create_default_context())
     post = smtplib.SMTP(d["server"], d["port"], timeout=ZEIT)
     if d.get("sicherheit") != "keine":
-        post.starttls(context=ssl.create_default_context())
+        try:
+            post.starttls(context=ssl.create_default_context())
+        except BaseException:
+            # Scheitert hier etwas - kein STARTTLS, abgelaufenes Zertifikat -,
+            # kommt die offene Verbindung nie in das with des Aufrufers und
+            # wird nie geschlossen. Bei einer Meldung je Fehlanmeldung summiert
+            # sich das zu einem Haufen haengender Verbindungen.
+            try:
+                post.close()
+            except OSError:
+                pass
+            raise
     return post
 
 

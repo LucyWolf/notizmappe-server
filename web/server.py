@@ -640,7 +640,11 @@ def einrichten(name: str = Form(""), passwort: str = Form(""), passwort2: str = 
     try:
         nutzer.anlegen(name, passwort, verwalter=True)
     except nutzer.BenutzerFehler as f:
-        return RedirectResponse(f"/anmelden?fehler={_text(str(f))}", status_code=303)
+        # In eine Adresse gehoert eine Adress-Kodierung, keine HTML-Kodierung:
+        # die Anmeldeseite escapet selbst noch einmal, und dann stand da
+        # &quot; statt eines Anfuehrungszeichens.
+        return RedirectResponse(f"/anmelden?fehler={urllib.parse.quote_plus(str(f))}",
+                                status_code=303)
     nutzer.einrichtung_merken()
     antwort = RedirectResponse("/", status_code=303)
     keks_setzen(antwort, (name or "").strip().lower())
@@ -652,6 +656,11 @@ def einrichten(name: str = Form(""), passwort: str = Form(""), passwort2: str = 
 def abmelden():
     antwort = RedirectResponse("/anmelden", status_code=303)
     antwort.delete_cookie(KEKS, path="/")
+    # Den halben auch. Wer beim zweiten Schritt stand und dann abmeldet, liess
+    # sonst eine halbe Anmeldung liegen: mit dem Halbkeks allein reicht ein
+    # gueltiger Code, um daraus eine volle Sitzung zu machen - abgemeldet hin
+    # oder her.
+    antwort.delete_cookie(HALBKEKS, path="/")
     return antwort
 
 
@@ -714,6 +723,18 @@ def anhang(bitte: Request, notizbuch: str = "", abschnitt: str = "",
 # beiden Fassungen gleich aussehen, und einen Benutzerknopf gibt es am Desktop
 # nicht.
 
+def _eigener_aufruf(bitte: Request) -> bool:
+    """Kommt der Aufruf aus der eigenen Oberflaeche?
+
+    Einen eigenen Kopf kann eine fremde Seite nicht mitschicken, ohne dass der
+    Browser vorher um Erlaubnis fragt. SameSite am Keks ist die zweite Reihe -
+    aber eben nur die zweite, und sie haengt am Browser. Die Bruecke und die
+    Verwaltung pruefen das laengst; die Routen, an denen die Zugangsdaten
+    fuer Mail und NAS haengen, taten es nicht.
+    """
+    return bitte.headers.get("x-notizmappe") == "1"
+
+
 def _verwalter(bitte: Request) -> str | None:
     """Wer darf Benutzer und Rollen verwalten?"""
     wer = angemeldet(bitte)
@@ -739,6 +760,8 @@ async def aktualisieren(bitte: Request):
     niemand wuesste, ob es geklappt hat.
     """
     _nur_verwalter(bitte)
+    if not _eigener_aufruf(bitte):
+        return JSONResponse({"fehler": "Falscher Aufruf"}, status_code=400)
     hier = Path(__file__).resolve().parent.parent / "requirements.txt"
     try:
         ergebnis = await run_in_threadpool(selbst.vorbereiten, DATEN,
@@ -757,9 +780,15 @@ async def aktualisieren(bitte: Request):
 def aktualisieren_zurueck(bitte: Request):
     """Die nachgeladene Fassung fallen lassen - zurueck auf die aus dem Image."""
     _nur_verwalter(bitte)
-    text = selbst.zuruecknehmen(DATEN)
-    threading.Timer(1.5, lambda: os._exit(0)).start()
-    return {"hinweis": text}
+    if not _eigener_aufruf(bitte):
+        return JSONResponse({"fehler": "Falscher Aufruf"}, status_code=400)
+    ergebnis = selbst.zuruecknehmen(DATEN)
+    # Nur neu starten, wenn es auch etwas zurueckzunehmen gab. Vorher flog bei
+    # jedem Druck auf den Knopf jeder aus seiner Sitzung - auch dann, wenn hier
+    # laengst die Fassung aus dem Image lief.
+    if ergebnis.get("getan"):
+        threading.Timer(1.5, lambda: os._exit(0)).start()
+    return ergebnis
 
 
 @app.get("/ablage")
@@ -811,6 +840,8 @@ async def aussehen_setzen(bitte: Request):
     wer = angemeldet(bitte)
     if not wer:
         return JSONResponse({"fehler": "Nicht angemeldet"}, status_code=401)
+    if not _eigener_aufruf(bitte):
+        return JSONResponse({"fehler": "Falscher Aufruf"}, status_code=400)
     rumpf = _rumpf(await bitte.json())
     gewaehlt = (rumpf.get("thema") or "").strip()
     if gewaehlt not in AUSSEHEN:
@@ -880,6 +911,8 @@ async def profil_email(bitte: Request):
     wer = angemeldet(bitte)
     if not wer:
         return JSONResponse({"fehler": "Nicht angemeldet"}, status_code=401)
+    if not _eigener_aufruf(bitte):
+        return JSONResponse({"fehler": "Falscher Aufruf"}, status_code=400)
     rumpf = _rumpf(await bitte.json())
     try:
         nutzer.email_setzen(wer, rumpf.get("email") or "")
@@ -897,6 +930,8 @@ async def profil_meldung(bitte: Request):
     wer = angemeldet(bitte)
     if not wer:
         return JSONResponse({"fehler": "Nicht angemeldet"}, status_code=401)
+    if not _eigener_aufruf(bitte):
+        return JSONResponse({"fehler": "Falscher Aufruf"}, status_code=400)
     rumpf = _rumpf(await bitte.json())
     try:
         nutzer.meldung_setzen(wer, rumpf.get("art") or "")
@@ -924,6 +959,8 @@ async def post_setzen(bitte: Request):
     wer = angemeldet(bitte)
     if not wer or "benutzer" not in nutzer.rechte_von(wer):
         return JSONResponse({"fehler": "Dafür fehlt das Recht"}, status_code=403)
+    if not _eigener_aufruf(bitte):
+        return JSONResponse({"fehler": "Falscher Aufruf"}, status_code=400)
     rumpf = _rumpf(await bitte.json())
     # Kein Passwort im Rumpf heisst "das bisherige behalten" - sonst muesste
     # man es bei jeder Kleinigkeit neu eintippen.
@@ -948,6 +985,8 @@ async def post_probe(bitte: Request):
     wer = angemeldet(bitte)
     if not wer or "benutzer" not in nutzer.rechte_von(wer):
         return JSONResponse({"fehler": "Dafür fehlt das Recht"}, status_code=403)
+    if not _eigener_aufruf(bitte):
+        return JSONResponse({"fehler": "Falscher Aufruf"}, status_code=400)
     ziel = nutzer.email_von(wer)
     if not ziel:
         return JSONResponse({"fehler": "Erst im eigenen Profil eine Adresse eintragen - "
@@ -971,6 +1010,8 @@ async def profil_passwort(bitte: Request):
     wer = angemeldet(bitte)
     if not wer:
         return JSONResponse({"fehler": "Nicht angemeldet"}, status_code=401)
+    if not _eigener_aufruf(bitte):
+        return JSONResponse({"fehler": "Falscher Aufruf"}, status_code=400)
     rumpf = _rumpf(await bitte.json())
     alt = rumpf.get("alt") or ""
     neu = rumpf.get("neu") or ""
@@ -991,6 +1032,8 @@ async def profil_passwort(bitte: Request):
 async def ablage_pruefen(bitte: Request):
     """Taugt dieser Ordner? Antwort, bevor etwas gespeichert wird."""
     _nur_verwalter(bitte)
+    if not _eigener_aufruf(bitte):
+        return JSONResponse({"fehler": "Falscher Aufruf"}, status_code=400)
     rumpf = _rumpf(await bitte.json())
     gut, text = ablage.ordner_pruefen((rumpf.get("pfad") or "").strip())
     return {"gut": gut, "text": text}
@@ -1005,6 +1048,8 @@ async def ablage_setzen(bitte: Request):
     in dem Moment, in dem er noch root ist.
     """
     _nur_verwalter(bitte)
+    if not _eigener_aufruf(bitte):
+        return JSONResponse({"fehler": "Falscher Aufruf"}, status_code=400)
     rumpf = _rumpf(await bitte.json())
     try:
         neu = ablage.pruefen(rumpf)
@@ -1083,6 +1128,13 @@ def fassung(bitte: Request):
         stand["neuer"] = selbst.neuer_als(stand["neueste"], FASSUNG)
     except Exception as f:                                  # noqa: BLE001
         stand["fehler"] = f"GitHub nicht erreichbar: {f}"
+        # Was wir schon wussten, bleibt stehen. Sonst macht ein einziger
+        # Aussetzer aus "es gibt eine neue Fassung" ein "alles aktuell" - und
+        # das vier Minuten lang, in denen der Hinweis verschwindet.
+        vorher = _fassung_geholt[1].get("neueste") if _fassung_geholt[1] else ""
+        if vorher:
+            stand["neueste"] = vorher
+            stand["neuer"] = selbst.neuer_als(vorher, FASSUNG)
     _fassung_geholt[0], _fassung_geholt[1] = jetzt, stand
     return stand
 
@@ -1179,9 +1231,11 @@ async def verwaltung_einladung(bitte: Request):
             int(d.get("minuten") or nutzer.EINLADUNG_MINUTEN))
     except (nutzer.BenutzerFehler, ValueError, TypeError) as f:
         return JSONResponse({"fehler": str(f)}, status_code=400)
-    # Die Adresse so bauen, wie der Browser sie gerade benutzt - hinter einem
-    # Proxy ist das nicht dieselbe, die der Server von sich kennt.
-    grund = str(bitte.base_url).rstrip("/")
+    # Wenn eine Adresse eingestellt ist, gilt die. Der Host-Kopf der Anfrage
+    # ist nur der Rueckfall: ueber ihn liesse sich ein Einladungslink auf einen
+    # fremden Rechner zeigen lassen, und wer ihn oeffnet, legt dort Name und
+    # Passwort an. Beim Zuruecksetzen wird aus demselben Grund nie geraten.
+    grund = (post.stand().get("stelle") or "").rstrip("/") or str(bitte.base_url).rstrip("/")
     return {**e, "link": f"{grund}/einladung/{e['marke']}"}
 
 

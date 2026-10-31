@@ -1307,6 +1307,15 @@
       bandkasten.style.height = Math.abs(p.y - band.y) + 'px';
     });
 
+    // Derselbe Grund wie beim Rahmen: ohne das bleibt ein abgebrochener
+    // Zeiger als angefangener Rahmen stehen und zieht beim naechsten
+    // Mausweg einen auf, den niemand angefangen hat.
+    document.addEventListener('pointercancel', function () {
+      if (!band) return;
+      band = null;
+      if (bandkasten) bandkasten.hidden = true;
+    });
+
     document.addEventListener('pointerup', function (ev) {
       if (!band) return;
       const auf = band.auf, dazu = band.dazu, start = band;
@@ -1539,13 +1548,19 @@
       neuMalen();
       rahmenZeichnen();
     });
-    kasten.addEventListener('pointerup', function () {
+    function losgelassen() {
       if (!zieht && !zerrt) return;
       zieht = null;
       zerrt = null;
       letzteStelle = null;
       gemerkt();
-    });
+    }
+    kasten.addEventListener('pointerup', losgelassen);
+    // Bricht der Zeiger ab - der Browser nimmt den Fang weg, ein Stift wird
+    // abgesetzt, ein Fenster kommt dazwischen -, kommt nie ein pointerup. Der
+    // Rahmen zog danach ohne gedrueckte Taste weiter, und das Verschobene war
+    // nicht gemerkt.
+    kasten.addEventListener('pointercancel', losgelassen);
 
     function groesseZiehen(p) {
       const { x: sx, y: sy } = zerrfaktor(zerrt.griff, zerrt.g0, p);
@@ -3380,17 +3395,27 @@
     z.glz = null; z.pufferOrt = null; z.pufferNorm = null;
     const i = MODELL_LEBENDIG.indexOf(z);
     if (i >= 0) MODELL_LEBENDIG.splice(i, 1);
-    if (standbild) {
-      const ruhig = el('img', { className: 'standbild', src: standbild, alt: z.datei,
-                                title: 'Angehalten - zum Drehen anklicken' });
-      z.bild.replaceWith(ruhig);
-      z.bild = ruhig;
-      ruhig.addEventListener('click', function () { modellWecken(z); });
-    }
+    // Auch wenn kein Standbild herauskam, muss hier etwas Anklickbares
+    // stehen. Vorher blieb in dem Fall die Flaeche mit verlorenem Zeichner
+    // liegen: ein schwarzes Feld, das sich nicht mehr dreht und aus dem es
+    // keinen Weg zurueck gab.
+    const ruhig = standbild
+      ? el('img', { className: 'standbild', src: standbild, alt: z.datei,
+                    title: 'Angehalten - zum Drehen anklicken' })
+      : el('div', { className: 'standbild leerbild',
+                    textContent: 'Angehalten - zum Drehen anklicken',
+                    title: 'Angehalten - zum Drehen anklicken' });
+    z.bild.replaceWith(ruhig);
+    z.bild = ruhig;
+    ruhig.addEventListener('click', function () { modellWecken(z); });
   }
 
   function platzSchaffen(ausser) {
-    while (MODELL_LEBENDIG.length > MODELL_MAX_LEBENDIG) {
+    // Vorher, nicht hinterher: ein Browser gibt nur eine Handvoll 3D-Flaechen
+    // je Seite her. Wer erst aufmacht und dann aufraeumt, bekommt beim einen
+    // zu viel gar keine mehr - und dann war das Modell endgueltig weg, obwohl
+    // es eben noch lief.
+    while (MODELL_LEBENDIG.length >= MODELL_MAX_LEBENDIG) {
       const alt = MODELL_LEBENDIG.find(function (z) { return z !== ausser; });
       if (!alt) return;
       modellEinfrieren(alt);
@@ -3399,6 +3424,7 @@
 
   function modellWecken(z) {
     if (z.glz || !z.netz) return;
+    platzSchaffen(z);
     const bild = el('canvas', {});
     z.bild.replaceWith(bild);
     z.bild = bild;
@@ -3417,7 +3443,6 @@
     netzHochladen(z);
     drehenAnbieten(z);
     MODELL_LEBENDIG.push(z);
-    platzSchaffen(z);
     modellZeichnen(z);
   }
 
@@ -3594,6 +3619,10 @@
       }
       .kasten-3d .modell.dreht canvas { cursor: grabbing; }
       .kasten-3d .modell.schiebt canvas { cursor: move; }
+      .kasten-3d .modell .leerbild {
+        display: flex; align-items: center; justify-content: center;
+        text-align: center; color: var(--matt); font-size: 12px; padding: 8px;
+      }
       .kasten-3d .modell .lade {
         position: absolute; inset: 0; margin: 0; display: flex;
         align-items: center; justify-content: center;

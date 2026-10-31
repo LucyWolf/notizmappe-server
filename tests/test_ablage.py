@@ -84,6 +84,17 @@ pruefe("und die Einstellung haelt es nicht fest", "passwort" not in ablage.lesen
 pruefe("die Einstellung selbst ist auch 0600",
        oct(ablage.datei().stat().st_mode & 0o777) == "0o600")
 
+# Wer die NAS wieder abhaengt, rechnet nicht damit, dass sein Passwort im
+# Klartext liegenbleibt. Vorher tat es das - fuer immer.
+ablage.schreiben({"art": "lokal"})
+pruefe("beim Umstellen auf lokal ist die Zugangsdatei weg",
+       not ablage.zugangsdatei().exists())
+ablage.schreiben(gut, "ge,hei=m")
+pruefe("und bei SMB kommt sie wieder", ablage.zugangsdatei().is_file())
+ablage.schreiben({"art": "nfs", "wirt": "nas.fritz.box", "pfad": "/volume1/notiz"})
+pruefe("auch beim Wechsel auf NFS ist sie weg", not ablage.zugangsdatei().exists())
+ablage.schreiben(gut, "ge,hei=m")
+
 print()
 print("Ohne Rechte wird nichts geraten")
 konnte, text = ablage.einhaengen({"art": "smb", "wirt": "x", "freigabe": "y",
