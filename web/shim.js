@@ -2712,6 +2712,499 @@
     setInterval(nachsehen, 5 * 60 * 1000);
   }
 
+  /* ----------------------------------------------------------- 3D-Anhaenge
+
+     Eine .stl kam bisher als 📎-Kachel in die Notiz: man sah den Namen und
+     musste sie herunterladen, um zu wissen, was drin ist. Jetzt steht das
+     Modell da und laesst sich drehen.
+
+     Bewusst kein neuer Elementtyp: der Kasten bleibt ein Datei-Kasten, nur
+     sein Inhalt wird ausgetauscht. Am Format der Notizen aendert sich damit
+     nichts - dieselbe Seite zeigt im Fenster-Programm weiter die Kachel, und
+     eine alte Fassung stolpert nicht ueber etwas Unbekanntes.
+
+     Und bewusst ohne fremde Bibliothek: STL ist Kopf, Anzahl, 50 Byte je
+     Dreieck, OBJ sind Zeilen mit v und f. Fuer "graues Modell drehen" braucht
+     es Matrizen, ein Licht von oben und sonst nichts. */
+
+  const MODELL_ARTEN = ['stl', 'obj'];
+  // Mehr als eine Handvoll 3D-Flaechen gibt der Browser pro Seite nicht her.
+  // Also leben nur die zuletzt benutzten; die anderen stehen als Standbild da
+  // und wachen beim Klick wieder auf.
+  const MODELL_LEBENDIG = [];
+  const MODELL_MAX_LEBENDIG = 4;
+  // Darueber bleibt die Kachel stehen, statt den Browser minutenlang
+  // einzulesen.
+  const MODELL_MAX_DREIECKE = 3000000;
+  // So weit weg, dass die Kugel um das Teil (Radius 1 nach dem Skalieren) in
+  // jeder Drehung ins Bild passt: 1 / sin(halber Oeffnungswinkel), plus Luft.
+  const MODELL_WEG = 3.6;
+
+  function modellArt(name) {
+    const m = /\.([a-z0-9]+)$/i.exec(name || '');
+    const art = m ? m[1].toLowerCase() : '';
+    return MODELL_ARTEN.indexOf(art) >= 0 ? art : null;
+  }
+
+  /* --- Einlesen ----------------------------------------------------------- */
+
+  function stlLesen(puffer) {
+    /* Binaer oder Text? Die Laenge entscheidet und nicht das Wort "solid" am
+       Anfang: binaere Dateien aus manchen Programmen fangen auch damit an. */
+    if (puffer.byteLength >= 84) {
+      const sicht = new DataView(puffer);
+      const zahl = sicht.getUint32(80, true);
+      if (84 + zahl * 50 === puffer.byteLength) return stlBinaer(sicht, zahl);
+    }
+    return stlText(new TextDecoder().decode(puffer));
+  }
+
+  function stlBinaer(sicht, zahl) {
+    const punkte = new Float32Array(zahl * 9);
+    let z = 0;
+    for (let d = 0; d < zahl; d++) {
+      // 12 Byte Normale ueberspringen: sie steht oft auf 0 oder zeigt falsch.
+      // Gerechnet wird sie gleich sowieso aus den Ecken.
+      let p = 84 + d * 50 + 12;
+      for (let i = 0; i < 9; i++, p += 4) punkte[z++] = sicht.getFloat32(p, true);
+    }
+    return punkte;
+  }
+
+  function stlText(text) {
+    const zahlen = [];
+    const muster = /vertex\s+(-?[\d.eE+]+)\s+(-?[\d.eE+]+)\s+(-?[\d.eE+]+)/g;
+    let t;
+    while ((t = muster.exec(text))) {
+      zahlen.push(Number(t[1]), Number(t[2]), Number(t[3]));
+      if (zahlen.length > MODELL_MAX_DREIECKE * 9) break;
+    }
+    return new Float32Array(zahlen.slice(0, Math.floor(zahlen.length / 9) * 9));
+  }
+
+  function objLesen(puffer) {
+    const ecken = [];
+    const punkte = [];
+    for (const zeile of new TextDecoder().decode(puffer).split('\n')) {
+      const z = zeile.trim();
+      if (z.charCodeAt(0) === 118 && z.charCodeAt(1) === 32) {          // "v "
+        const t = z.split(/\s+/);
+        ecken.push(Number(t[1]), Number(t[2]), Number(t[3]));
+      } else if (z.charCodeAt(0) === 102 && z.charCodeAt(1) === 32) {   // "f "
+        const t = z.split(/\s+/).slice(1).map(function (s) {
+          // "7", "7/3", "7//2" - gebraucht wird nur die erste Zahl. Negative
+          // Nummern zaehlen vom Ende her.
+          const n = parseInt(s.split('/')[0], 10);
+          return n < 0 ? ecken.length / 3 + n : n - 1;
+        });
+        // Vielecke als Faecher: ein n-Eck wird zu n-2 Dreiecken.
+        for (let i = 1; i + 1 < t.length; i++) {
+          for (const k of [t[0], t[i], t[i + 1]]) {
+            punkte.push(ecken[k * 3], ecken[k * 3 + 1], ecken[k * 3 + 2]);
+          }
+        }
+      }
+    }
+    return new Float32Array(punkte);
+  }
+
+  /* Normalen je Dreieck aus den Ecken, dazu Mitte und Groesse. Flach
+     schattiert: jede Ecke bekommt die Normale ihres Dreiecks, damit Kanten
+     Kanten bleiben - bei einem gedruckten Teil will man sie sehen. */
+  function netzBauen(punkte) {
+    const dreiecke = Math.floor(punkte.length / 9);
+    const normalen = new Float32Array(dreiecke * 9);
+    let xa = Infinity, ya = Infinity, za = Infinity;
+    let xb = -Infinity, yb = -Infinity, zb = -Infinity;
+    for (let d = 0; d < dreiecke; d++) {
+      const i = d * 9;
+      const ux = punkte[i + 3] - punkte[i], uy = punkte[i + 4] - punkte[i + 1],
+            uz = punkte[i + 5] - punkte[i + 2];
+      const vx = punkte[i + 6] - punkte[i], vy = punkte[i + 7] - punkte[i + 1],
+            vz = punkte[i + 8] - punkte[i + 2];
+      let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+      const l = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
+      nx /= l; ny /= l; nz /= l;
+      for (let k = 0; k < 3; k++) {
+        normalen[i + k * 3] = nx; normalen[i + k * 3 + 1] = ny; normalen[i + k * 3 + 2] = nz;
+        const x = punkte[i + k * 3], y = punkte[i + k * 3 + 1], z = punkte[i + k * 3 + 2];
+        if (x < xa) xa = x; if (x > xb) xb = x;
+        if (y < ya) ya = y; if (y > yb) yb = y;
+        if (z < za) za = z; if (z > zb) zb = z;
+      }
+    }
+    if (!dreiecke) return { punkte, normalen, dreiecke: 0, mitte: [0, 0, 0], radius: 1 };
+    const mitte = [(xa + xb) / 2, (ya + yb) / 2, (za + zb) / 2];
+    // Der Radius der Kugel um das Teil, nicht die laengste Kante: sonst haengt
+    // beim Drehen eine Ecke aus dem Bild.
+    const kugel = Math.sqrt((xb - xa) * (xb - xa) + (yb - ya) * (yb - ya)
+                            + (zb - za) * (zb - za)) / 2;
+    return { punkte, normalen, dreiecke, mitte, radius: Math.max(kugel, 1e-6) };
+  }
+
+  /* --- Matrizen (spaltenweise, so wie WebGL sie will) --------------------- */
+
+  function matEinheit() {
+    return new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+  }
+  function matMal(a, b) {
+    const m = new Float32Array(16);
+    for (let s = 0; s < 4; s++) {
+      for (let z = 0; z < 4; z++) {
+        let w = 0;
+        for (let i = 0; i < 4; i++) w += a[i * 4 + z] * b[s * 4 + i];
+        m[s * 4 + z] = w;
+      }
+    }
+    return m;
+  }
+  function matPerspektive(winkel, seite, nah, fern) {
+    const f = 1 / Math.tan(winkel / 2);
+    const m = new Float32Array(16);
+    m[0] = f / seite; m[5] = f;
+    m[10] = (fern + nah) / (nah - fern); m[11] = -1;
+    m[14] = (2 * fern * nah) / (nah - fern);
+    return m;
+  }
+  function matSchieben(x, y, z) {
+    const m = matEinheit(); m[12] = x; m[13] = y; m[14] = z; return m;
+  }
+  function matSkala(s) {
+    const m = matEinheit(); m[0] = s; m[5] = s; m[10] = s; return m;
+  }
+  function matDrehX(w) {
+    const c = Math.cos(w), s = Math.sin(w), m = matEinheit();
+    m[5] = c; m[6] = s; m[9] = -s; m[10] = c; return m;
+  }
+  function matDrehY(w) {
+    const c = Math.cos(w), s = Math.sin(w), m = matEinheit();
+    m[0] = c; m[2] = -s; m[8] = s; m[10] = c; return m;
+  }
+  // Der 3x3-Teil fuer die Normalen. Drehen allein veraendert ihre Richtung
+  // nicht ungleichmaessig, also reicht die Drehung selbst.
+  function mat3Von(m) {
+    return new Float32Array([m[0], m[1], m[2], m[4], m[5], m[6], m[8], m[9], m[10]]);
+  }
+
+  /* --- Zeichnen ----------------------------------------------------------- */
+
+  const MODELL_ECKPUNKT = [
+    'attribute vec3 aOrt;',
+    'attribute vec3 aNorm;',
+    'uniform mat4 uMvp;',
+    'uniform mat3 uDreh;',
+    'varying vec3 vNorm;',
+    'void main() {',
+    '  vNorm = uDreh * aNorm;',
+    '  gl_Position = uMvp * vec4(aOrt, 1.0);',
+    '}',
+  ].join('\n');
+
+  const MODELL_FLAECHE = [
+    'precision mediump float;',
+    'varying vec3 vNorm;',
+    'void main() {',
+    // Viele STL-Dateien haben Dreiecke verkehrt herum. Statt sie zu
+    // reparieren, wird die Normale zum Betrachter gedreht - dann sieht die
+    // Flaeche von beiden Seiten richtig aus.
+    '  vec3 n = normalize(vNorm);',
+    '  if (!gl_FrontFacing) n = -n;',
+    '  vec3 licht = normalize(vec3(0.35, 0.75, 0.55));',
+    '  float hell = 0.30 + 0.70 * max(dot(n, licht), 0.0);',
+    '  float kante = 0.10 * pow(1.0 - abs(n.z), 3.0);',
+    '  gl_FragColor = vec4(vec3(0.63, 0.64, 0.70) * hell + kante, 1.0);',
+    '}',
+  ].join('\n');
+
+  function glBauen(bild) {
+    // alpha: die Flaeche bleibt hinter dem Modell durchsichtig, damit der
+    // Kasten seine eigene Farbe behaelt - hell wie dunkel, ohne dass hier
+    // eine Farbe nachgebaut wird.
+    const gl = bild.getContext('webgl', { alpha: true, antialias: true,
+                                          premultipliedAlpha: true });
+    if (!gl) return null;
+    const bauen = (art, quelle) => {
+      const t = gl.createShader(art);
+      gl.shaderSource(t, quelle);
+      gl.compileShader(t);
+      if (!gl.getShaderParameter(t, gl.COMPILE_STATUS)) {
+        throw new Error(gl.getShaderInfoLog(t) || 'Shader ging nicht');
+      }
+      return t;
+    };
+    const programm = gl.createProgram();
+    gl.attachShader(programm, bauen(gl.VERTEX_SHADER, MODELL_ECKPUNKT));
+    gl.attachShader(programm, bauen(gl.FRAGMENT_SHADER, MODELL_FLAECHE));
+    gl.linkProgram(programm);
+    if (!gl.getProgramParameter(programm, gl.LINK_STATUS)) {
+      throw new Error(gl.getProgramInfoLog(programm) || 'Programm ging nicht');
+    }
+    gl.useProgram(programm);
+    gl.enable(gl.DEPTH_TEST);
+    gl.clearColor(0, 0, 0, 0);
+    return {
+      gl,
+      ort: gl.getAttribLocation(programm, 'aOrt'),
+      norm: gl.getAttribLocation(programm, 'aNorm'),
+      mvp: gl.getUniformLocation(programm, 'uMvp'),
+      dreh: gl.getUniformLocation(programm, 'uDreh'),
+    };
+  }
+
+  function netzHochladen(z) {
+    const gl = z.glz.gl;
+    z.pufferOrt = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, z.pufferOrt);
+    gl.bufferData(gl.ARRAY_BUFFER, z.netz.punkte, gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(z.glz.ort);
+    gl.vertexAttribPointer(z.glz.ort, 3, gl.FLOAT, false, 0, 0);
+
+    z.pufferNorm = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, z.pufferNorm);
+    gl.bufferData(gl.ARRAY_BUFFER, z.netz.normalen, gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(z.glz.norm);
+    gl.vertexAttribPointer(z.glz.norm, 3, gl.FLOAT, false, 0, 0);
+  }
+
+  function modellZeichnen(z) {
+    if (!z.glz || !z.netz) return;
+    const gl = z.glz.gl;
+    const breit = Math.max(1, Math.round(z.bild.clientWidth * (window.devicePixelRatio || 1)));
+    const hoch = Math.max(1, Math.round(z.bild.clientHeight * (window.devicePixelRatio || 1)));
+    if (z.bild.width !== breit || z.bild.height !== hoch) {
+      z.bild.width = breit; z.bild.height = hoch;
+    }
+    gl.viewport(0, 0, breit, hoch);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+    const grund = matMal(matSkala(1 / z.netz.radius),
+                         matSchieben(-z.netz.mitte[0], -z.netz.mitte[1], -z.netz.mitte[2]));
+    const dreh = matMal(matDrehX(z.hoehe), matDrehY(z.seite));
+    const sicht = matSchieben(0, 0, -z.weg);
+    const ferne = matPerspektive(0.6, breit / hoch, 0.05, 100);
+    gl.uniformMatrix4fv(z.glz.mvp, false,
+                        matMal(ferne, matMal(sicht, matMal(dreh, grund))));
+    gl.uniformMatrix3fv(z.glz.dreh, false, mat3Von(dreh));
+    gl.drawArrays(gl.TRIANGLES, 0, z.netz.dreiecke * 3);
+  }
+
+  /* --- Am Leben halten ---------------------------------------------------- */
+
+  function modellEinfrieren(z) {
+    if (!z.glz) return;
+    // Erst zeichnen, dann abfotografieren: ohne preserveDrawingBuffer ist das
+    // Bild sonst leer.
+    modellZeichnen(z);
+    let standbild = null;
+    try { standbild = z.bild.toDataURL('image/png'); } catch (f) { /* dann eben nicht */ }
+    const verlust = z.glz.gl.getExtension('WEBGL_lose_context');
+    if (verlust) verlust.loseContext();
+    z.glz = null; z.pufferOrt = null; z.pufferNorm = null;
+    const i = MODELL_LEBENDIG.indexOf(z);
+    if (i >= 0) MODELL_LEBENDIG.splice(i, 1);
+    if (standbild) {
+      const ruhig = el('img', { className: 'standbild', src: standbild, alt: z.datei,
+                                title: 'Angehalten - zum Drehen anklicken' });
+      z.bild.replaceWith(ruhig);
+      z.bild = ruhig;
+      ruhig.addEventListener('click', function () { modellWecken(z); });
+    }
+  }
+
+  function platzSchaffen(ausser) {
+    while (MODELL_LEBENDIG.length > MODELL_MAX_LEBENDIG) {
+      const alt = MODELL_LEBENDIG.find(function (z) { return z !== ausser; });
+      if (!alt) return;
+      modellEinfrieren(alt);
+    }
+  }
+
+  function modellWecken(z) {
+    if (z.glz || !z.netz) return;
+    const bild = el('canvas', {});
+    z.bild.replaceWith(bild);
+    z.bild = bild;
+    try {
+      z.glz = glBauen(bild);
+    } catch (f) {
+      z.glz = null;
+    }
+    if (!z.glz) { kachelBehalten(z, 'Dieser Browser zeichnet kein 3D.'); return; }
+    netzHochladen(z);
+    drehenAnbieten(z);
+    MODELL_LEBENDIG.push(z);
+    platzSchaffen(z);
+    modellZeichnen(z);
+  }
+
+  /* --- Bedienung ---------------------------------------------------------- */
+
+  function drehenAnbieten(z) {
+    const bild = z.bild;
+    bild.addEventListener('pointerdown', function (ev) {
+      if (ev.button !== 0) return;
+      // Sonst faengt die Flaeche darunter an, einen Rahmen zu ziehen, und der
+      // Kasten wandert.
+      ev.stopPropagation();
+      ev.preventDefault();
+      bild.setPointerCapture(ev.pointerId);
+      z.wo.classList.add('dreht');
+      let x = ev.clientX, y = ev.clientY;
+      const bewegen = function (e2) {
+        z.seite += (e2.clientX - x) * 0.01;
+        z.hoehe += (e2.clientY - y) * 0.01;
+        // Nicht ueber den Kopf: sonst steht das Teil kopf und man findet nicht
+        // zurueck.
+        z.hoehe = Math.max(-1.5, Math.min(1.5, z.hoehe));
+        x = e2.clientX; y = e2.clientY;
+        modellZeichnen(z);
+      };
+      const los = function () {
+        bild.removeEventListener('pointermove', bewegen);
+        bild.removeEventListener('pointerup', los);
+        bild.removeEventListener('pointercancel', los);
+        z.wo.classList.remove('dreht');
+      };
+      bild.addEventListener('pointermove', bewegen);
+      bild.addEventListener('pointerup', los);
+      bild.addEventListener('pointercancel', los);
+    });
+    bild.addEventListener('wheel', function (ev) {
+      ev.preventDefault();
+      ev.stopPropagation();          // nicht die ganze Seite zoomen
+      z.weg = Math.max(1.3, Math.min(14, z.weg * (ev.deltaY > 0 ? 1.12 : 0.89)));
+      modellZeichnen(z);
+    }, { passive: false });
+    bild.addEventListener('dblclick', function (ev) {
+      ev.stopPropagation();
+      z.seite = 0.6; z.hoehe = -0.5; z.weg = MODELL_WEG;
+      modellZeichnen(z);
+    });
+  }
+
+  /* --- Aufbau ------------------------------------------------------------- */
+
+  function kachelBehalten(z, warum) {
+    // Keine Meldung in die Notiz schreiben, die nur sagt, dass etwas nicht
+    // geht: die Kachel tut, was sie immer getan hat, und der Grund steht im
+    // Tooltip.
+    if (z.wo && z.wo.parentElement) z.wo.remove();
+    z.kasten.classList.remove('kasten-3d');
+    if (warum) z.kasten.title = warum;
+  }
+
+  async function modellStarten(z) {
+    if (z.laeuft) return;
+    z.laeuft = true;
+    let puffer;
+    try {
+      puffer = await modellHolen(z.datei);
+    } catch (f) {
+      kachelBehalten(z, 'Modell ließ sich nicht holen: ' + f.message);
+      return;
+    }
+    let punkte;
+    try {
+      punkte = z.art === 'obj' ? objLesen(puffer) : stlLesen(puffer);
+    } catch (f) {
+      kachelBehalten(z, 'Modell ließ sich nicht lesen: ' + f.message);
+      return;
+    }
+    if (!punkte.length || punkte.length / 9 > MODELL_MAX_DREIECKE) {
+      kachelBehalten(z, punkte.length ? 'Modell ist zu groß zum Anzeigen.'
+                                      : 'In der Datei stehen keine Dreiecke.');
+      return;
+    }
+    z.netz = netzBauen(punkte);
+    const zaehler = z.kasten.querySelector('.dzahl');
+    if (zaehler) {
+      zaehler.textContent = z.netz.dreiecke.toLocaleString('de-DE') + ' Dreiecke';
+    }
+    modellWecken(z);
+  }
+
+  function modellKasten(kasten) {
+    if (kasten.dataset.modell || !offen) return;
+    const eintrag = (elemente || []).find(function (x) { return x.id === kasten.dataset.id; });
+    const datei = eintrag ? eintrag.datei : '';
+    const art = modellArt(datei);
+    if (!art) { kasten.dataset.modell = 'nein'; return; }
+    kasten.dataset.modell = 'ja';
+    kasten.classList.add('kasten-3d');
+
+    const bild = el('canvas', {});
+    const lade = el('p', { className: 'lade', textContent: 'Modell wird geladen …' });
+    const wo = el('div', { className: 'modell' }, [bild, lade]);
+    // Vor die Kachel: die bleibt als Fusszeile stehen und kann weiter
+    // herunterladen.
+    const kachel = kasten.querySelector('.datei');
+    if (kachel) {
+      kachel.before(wo);
+      kachel.append(el('span', { className: 'dzahl', textContent: '…' }));
+    } else {
+      kasten.append(wo);
+    }
+
+    const z = { kasten, wo, bild, datei, art, netz: null, glz: null,
+                seite: 0.6, hoehe: -0.5, weg: MODELL_WEG, laeuft: false };
+
+    // Erst laden, wenn das Modell ins Bild rollt: zehn Anhaenge auf einer
+    // Seite waeren sonst zehn Dateien auf einmal.
+    const sehen = new IntersectionObserver(function (treffer) {
+      for (const t of treffer) {
+        if (!t.isIntersecting) continue;
+        sehen.disconnect();
+        modellStarten(z).then(function () { lade.remove(); },
+                              function () { lade.remove(); });
+      }
+    }, { rootMargin: '200px' });
+    sehen.observe(wo);
+
+    if (window.ResizeObserver) {
+      new ResizeObserver(function () { modellZeichnen(z); }).observe(wo);
+    }
+  }
+
+  function modelleNachsehen() {
+    for (const k of document.querySelectorAll('.kasten-datei:not([data-modell])')) {
+      try { modellKasten(k); } catch (f) { console.error('[notizmappe] 3D:', f); }
+    }
+  }
+
+  function modelleBauen() {
+    if (!window.WebGLRenderingContext || !window.IntersectionObserver) return;
+    const stil = document.createElement('style');
+    stil.textContent = `
+      .kasten-3d .modell {
+        position: relative; width: 100%; aspect-ratio: 4 / 3;
+        background: var(--flaeche); border: 1px solid var(--kasten-rand);
+        border-radius: 6px; overflow: hidden;
+      }
+      .kasten-3d .modell canvas, .kasten-3d .modell .standbild {
+        position: absolute; inset: 0; width: 100%; height: 100%;
+        display: block; touch-action: none; cursor: grab;
+      }
+      .kasten-3d .modell.dreht canvas { cursor: grabbing; }
+      .kasten-3d .modell .lade {
+        position: absolute; inset: 0; margin: 0; display: flex;
+        align-items: center; justify-content: center;
+        color: var(--matt); font-size: 12px; pointer-events: none;
+      }
+      .kasten-3d .datei { margin-top: 6px; }
+      .kasten-3d .datei .zeichen { display: none; }
+      .kasten-3d .dzahl { color: var(--matt); font-size: 11px; white-space: nowrap; }
+    `;
+    document.head.append(stil);
+    modelleNachsehen();
+    // Die Kaesten entstehen erst, wenn eine Seite geladen ist - und bei jedem
+    // Seitenwechsel neu.
+    // Nur die Kaesten selbst, ohne subtree: die haengen direkt an der
+    // Flaeche. Mit subtree liefe das bei jedem Tastendruck in einem Textkasten
+    // mit - contenteditable aendert dabei staendig Knoten.
+    const beobachter = new MutationObserver(modelleNachsehen);
+    beobachter.observe(flaeche || document.body, { childList: true });
+  }
+
   // Beim Öffnen der Einstellungen neu laden - Rollen können sich geändert haben.
   window.addEventListener('DOMContentLoaded', function () {
     // Jeder Schritt fuer sich. Vorher lief das als eine Kette: ein Fehler im
@@ -2729,6 +3222,7 @@
                                ['Mailversand', postBauen],
                                ['Update-Hinweis', updateHinweisBauen],
                                ['Optionen-Reiter', optionenReiterBauen],
+                               ['3D-Anhänge', modelleBauen],
                                ['Bereiche laden', bereicheLaden],
                                ['Verwaltung laden', verwaltungLaden]]) {
       try {

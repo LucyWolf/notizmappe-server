@@ -180,6 +180,22 @@ pruefe("stelle() rechnet gegen #flaeche und den Zoom",
        and bool(re.search(r'id="flaeche"', html)))
 pruefe("die Meldezeile m-hinweis gibt es noch", 'id="m-hinweis"' in html)
 
+# Die 3D-Anzeige tauscht den Inhalt eines Datei-Kastens aus. Sie haengt damit
+# an vier Dingen drueben: an der Klasse des Kastens, am Dateinamen im Element,
+# an der offenen Seite und an der Kachel, die als Fusszeile stehenbleibt.
+# Faellt eins davon weg, sieht man wieder nur die Kachel - lautlos.
+pruefe("ein Datei-Kasten heisst drueben kasten-datei",
+       bool(re.search(r"'kasten kasten-' \+ e\.typ", js)))
+pruefe("der Anhang merkt sich seinen Dateinamen im Element",
+       bool(re.search(r"datei: r\.datei", js)))
+pruefe("die offene Seite steht in offen", bool(re.search(r"^let offen\b", js, re.M)))
+pruefe("die Flaeche gibt es als flaeche", bool(re.search(r"^const flaeche = ", js, re.M)))
+pruefe("die Kachel heisst datei und hat Namen und Groesse",
+       bool(re.search(r"kachel\.className = 'datei'", js))
+       and "className: 'dname'" in js and "className: 'dgroesse'" in js)
+pruefe("und sie ist eine Zeile, in die die Dreieckszahl passt",
+       ".kasten-datei .datei {" in stil and "display: flex" in stil)
+
 # Ein Fehler drueben, der hier geradegerueckt wird: die Klasse fuers Schieben
 # heisst im Stil .schiebt, gesetzt wird .zieht. Faellt das hier um, war es
 # drueben behoben - dann kann der Ausgleich raus.

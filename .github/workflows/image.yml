@@ -39,6 +39,7 @@ jobs:
           python tests/test_balken.py
           python tests/test_post.py
           python tests/test_reiter.py
+          python tests/test_modell.py
 
   bauen:
     needs: pruefen

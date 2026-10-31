@@ -3,7 +3,7 @@
 Die [Notizmappe](https://github.com/LucyWolf/notizmappe) über eine Webadresse,
 mit Anmeldung, in Docker. Jeder Benutzer hat seinen eigenen Notizordner.
 
-Stand: 14.10.2026
+Stand: 31.10.2026
 
 ## Das Wichtigste zuerst: es gibt nur **eine** Oberfläche
 
@@ -451,6 +451,33 @@ Seite ganz normal hoch, die Anmeldung sieht richtig aus — und gespeichert wird
 **stumm nichts**. Genau so ist es beim ersten Probelauf passiert. Deshalb macht
 der Start jetzt eine Schreibprobe und bricht mit einer klaren Zeile ab, statt
 scheinbar zu laufen.
+
+## 3D-Dateien in der Notiz
+
+Ein Anhang mit `.stl` oder `.obj` wird nicht als Kachel gezeichnet, sondern als
+Modell: **ziehen dreht, Rad zoomt, Doppelklick stellt die Ansicht zurück**.
+Darunter bleibt die Zeile mit Name, Größe und Dreieckszahl — ein Klick darauf
+lädt die Datei weiterhin herunter.
+
+Das ist **kein neuer Elementtyp**. Der Kasten bleibt ein Datei-Kasten, nur sein
+Inhalt wird ausgetauscht. Am Format der Notizen ändert sich dadurch nichts:
+dieselbe Seite im Desktop-Programm zeigt weiter die Kachel, und eine ältere
+Fassung stolpert nicht über etwas Unbekanntes.
+
+Gezeichnet wird mit WebGL, ohne fremde Bibliothek — STL ist Kopf, Anzahl und
+50 Byte je Dreieck, OBJ sind Zeilen mit `v` und `f`. Entsprechend gibt es ein
+graues Modell wie im Slicer: keine Farben, keine Materialien.
+
+* **3MF und STEP gehen nicht.** 3MF ist ein ZIP, STEP ist Kurvenmathematik und
+  braucht einen eigenen Kern.
+* **Geladen wird erst, wenn das Modell ins Bild rollt** — zehn Anhänge auf
+  einer Seite wären sonst zehn Dateien auf einmal.
+* **Gleichzeitig leben vier Modelle.** Mehr 3D-Flächen gibt ein Browser pro
+  Seite nicht her; die übrigen stehen als Standbild da und wachen beim Klick
+  wieder auf.
+* Die Grenze für Anhänge (25 MB) gilt auch hier. Darüber, oder wenn in der
+  Datei keine Dreiecke stehen, bleibt die Kachel stehen — der Grund steht im
+  Tooltip des Kastens.
 
 ## Was der Server nicht kann (und warum)
 
