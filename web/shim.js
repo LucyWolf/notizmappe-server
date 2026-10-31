@@ -457,25 +457,55 @@
     );
   }
 
-  function kontoseite() {
+  function systemseite() {
     return document.querySelector('.dateiseite[data-punkt="konto"]');
   }
 
+  /* Die Server-Einstellungen gehoeren in die Tafel der Optionen - dorthin, wo
+     auch "Daten", "Schriften" und "Fenster" stehen. Sie stehen oben in einem
+     eigenen Kasten: was nur dieser Server kann, soll man zuerst sehen und
+     nicht unter den Hinweisen suchen, die am Server nichts tun. */
+  function optionentafel() {
+    const seite = document.querySelector('.dateiseite[data-punkt="optionen"]');
+    if (!seite) return null;
+    return seite.querySelector('#einstellungen .tafel') || seite;
+  }
+
+  function serveroptionen() {
+    const tafel = optionentafel();
+    if (!tafel) return null;
+    let platz = document.getElementById('serveroptionen');
+    if (!platz) {
+      platz = el('div', { id: 'serveroptionen' });
+      tafel.insertBefore(platz, tafel.firstChild);
+    }
+    return platz;
+  }
+
   function einstellungenAnpassen() {
-    // "Konto" ist am Server die Benutzerseite. Was dort für den eigenen
-    // Rechner steht - "Verbindung einrichten", "hier gibt es kein Konto" -
-    // ist hier sinnlos; es verschwindet, bleibt aber im Gerüst stehen, damit
-    // die gemeinsame Oberfläche weiter darauf zeigen darf.
-    const konto = kontoseite();
+    // Aus "Konto" wird "System": hier steht nicht der eigene Zugang - der
+    // steht im Profil -, sondern die Installation. Was auf der Seite für den
+    // eigenen Rechner steht - "Verbindung einrichten", "hier gibt es kein
+    // Konto" - ist hier sinnlos; es verschwindet, bleibt aber im Gerüst
+    // stehen, damit die gemeinsame Oberfläche weiter darauf zeigen darf.
+    const system = systemseite();
     // Die Sperre gegen ein zweites Durchlaufen hing vorher an einem Abschnitt
     // "Angemeldet", der hier stand. Der ist weg - wer angemeldet ist und was
     // er darf, steht unten im Profil, und zweimal braucht das niemand. Also
     // eine eigene Marke, statt die Sperre an etwas Sichtbares zu haengen.
-    if (!konto || konto.dataset.angepasst === 'ja') return;
-    konto.dataset.angepasst = 'ja';
-    for (const kind of Array.from(konto.children)) {
+    if (!system || system.dataset.angepasst === 'ja') return;
+    system.dataset.angepasst = 'ja';
+    for (const kind of Array.from(system.children)) {
       if (kind.tagName !== 'H2') kind.hidden = true;
     }
+
+    // Umbenannt wird nur die Beschriftung. Der Schlüssel data-punkt bleibt
+    // "konto" - daran findet die Umschaltung der Datei-Ebene die Seite, und
+    // die kommt aus der gemeinsamen Oberfläche.
+    const kopf = system.querySelector('h2');
+    if (kopf) kopf.textContent = 'System';
+    const reiter = document.querySelector('#dateileiste .dateipunkt[data-punkt="konto"]');
+    if (reiter) reiter.textContent = 'System';
 
     stattdessen(abschnittSuchen('Aus OneNote übernehmen'),
       'Geht nur am eigenen Rechner: zum Einlesen muss die Datei über einen '
@@ -1751,38 +1781,17 @@
     if (zweck && !d.post_an) {
       zweck.textContent = 'Auf diesem Server ist noch kein Mailversand eingerichtet - '
         + 'bis dahin kann auch mit Adresse nichts zurückgesetzt werden. '
-        + (d.darf_verwalten ? 'Einrichten lässt sich das unter Konto.'
+        + (d.darf_verwalten ? 'Einrichten lässt sich das unter Optionen.'
                             : 'Das kann nur ein Verwalter einrichten.');
     }
     themaLaden();
   }
 
-  function speicherseite() {
-    /* Einen eigenen Reiter in der Datei-Ebene anlegen. Die Umschaltung drueben
-       arbeitet ueber die Klassen und data-punkt, nicht ueber eine feste Liste -
-       ein zusaetzlicher Reiter fuegt sich damit von allein ein. */
-    const vorhanden = document.querySelector('.dateiseite[data-punkt="speicher"]');
-    if (vorhanden) return vorhanden;
-    const leiste = document.getElementById('dateileiste');
-    const konto = kontoseite();
-    if (!leiste || !konto) return null;
-
-    const reiter = el('button', { type: 'button', className: 'dateipunkt',
-                                  textContent: 'Speicher' });
-    reiter.dataset.punkt = 'speicher';
-    const optionen = leiste.querySelector('.dateipunkt[data-punkt="optionen"]');
-    leiste.insertBefore(reiter, optionen || null);
-
-    const seite = el('section', { className: 'dateiseite', hidden: true }, [
-      el('h2', { textContent: 'Speicher' }),
-    ]);
-    seite.dataset.punkt = 'speicher';
-    konto.parentElement.insertBefore(seite, konto.nextSibling);
-    return seite;
-  }
-
+  /* Wo die Notizen liegen, steht unter System. Vorher war das ein eigener
+     Reiter "Speicher" - einer zu viel: es ist dieselbe Frage wie "was ist das
+     hier fuer eine Installation", und die Seite dafuer gibt es schon. */
   function ablageBauen() {
-    const seite = speicherseite();
+    const seite = systemseite();
     if (!seite || document.getElementById('ablageteil')) return;
 
     const art = el('select', { id: 'ablage-art' });
@@ -1912,7 +1921,7 @@
     const kreis = el('span', { id: 'profilbild', textContent: '·' });
     const name = el('span', { id: 'profilname', textContent: 'angemeldet' });
     const knopf = el('button', { type: 'button', id: 'profilknopf',
-                                 title: 'Konto und Einstellungen' }, [kreis, name]);
+                                 title: 'Profil und Einstellungen' }, [kreis, name]);
     const menue = el('div', { id: 'profilmenue', hidden: true });
 
     function punkt(text, tun) {
@@ -1922,8 +1931,8 @@
     }
 
     // Nur das Eigene. Die Benutzerverwaltung steht in der Datei-Ebene unter
-    // "Konto" und nur dort - sie gehoert zum Server, nicht zum eigenen Zugang,
-    // und zwei Wege zur selben Seite sind einer zu viel.
+    // "Optionen" und nur dort - sie gehoert zum Server, nicht zum eigenen
+    // Zugang, und zwei Wege zur selben Seite sind einer zu viel.
     menue.append(
       el('p', { id: 'profilkopf' }, [
         el('strong', { id: 'profilwer', textContent: '…' }),
@@ -1963,13 +1972,13 @@
         : (rechte.indexOf('schreiben') >= 0 ? 'Benutzer' : 'Gast');
   }
 
-  /* Mailversand. Steht bei der Verwaltung, nicht im Profil: es ist eine
-     Einstellung des Servers, keine des eigenen Zugangs. Nur Verwalter sehen
+  /* Mailversand. Steht unter Optionen bei der Verwaltung, nicht im Profil: es
+     ist eine Einstellung des Servers, keine des eigenen Zugangs. Nur Verwalter sehen
      sie - fuer alle anderen antwortet /post mit 403, und dann verschwindet
      der ganze Abschnitt wieder. */
   function postBauen() {
-    const konto = kontoseite();
-    if (!konto || document.getElementById('postteil')) return;
+    const wo = serveroptionen();
+    if (!wo || document.getElementById('postteil')) return;
 
     const an = el('input', { type: 'checkbox', id: 'po-an' });
     const server = el('input', { type: 'text', id: 'po-server', placeholder: 'mail.example.de' });
@@ -2016,8 +2025,8 @@
 
     const zeile = (text, feld) => el('p', { className: 'zeile2' },
                                      [el('span', { textContent: text }), feld]);
-    konto.append(el('section', { id: 'postteil' }, [
-      el('h3', { textContent: 'Mailversand', style: 'margin-top:22px' }),
+    wo.append(el('section', { id: 'postteil' }, [
+      el('h3', { textContent: 'Mailversand' }),
       el('p', { className: 'hinweis', textContent:
         'Nur für eines da: einen Link zum Zurücksetzen des Passworts zu '
         + 'verschicken. Das Passwort des Mailkontos liegt dabei im Klartext im '
@@ -2057,8 +2066,8 @@
   }
 
   function abschnittBauen() {
-    const konto = kontoseite();
-    if (!konto || document.getElementById('serververwaltung')) return;
+    const wo = serveroptionen();
+    if (!wo || document.getElementById('serververwaltung')) return;
 
     const neuerName = el('input', { type: 'text', placeholder: 'Benutzername', autocapitalize: 'none' });
     const neuesPw = el('input', { type: 'password', placeholder: 'Passwort (mind. 8 Zeichen)' });
@@ -2151,7 +2160,7 @@
         'Die Rechte werden am Server durchgesetzt, nicht nur in der Oberfläche. '
         + 'Ein Zugang zu entfernen löscht keine Notizen - die liegen weiter im Datenordner.' }),
     ]);
-    konto.append(abschnitt);
+    wo.append(abschnitt);
 
     // Die Auswahlfelder füllen sich aus dem Stand
     const fuellen = () => {
@@ -2178,6 +2187,8 @@
     const stil = document.createElement('style');
     stil.textContent = `
       #serververwaltung { max-width: 760px; }
+      #serveroptionen { margin-bottom: 18px; }
+      #serveroptionen > section + section { margin-top: 22px; }
 
       /* Profil unten in der Leiste. Alles ueber die Farbnamen der Oberflaeche -
          eigene Farben hier waeren genau der weisse Fleck, der vorher auffiel. */
@@ -2579,7 +2590,7 @@
                                ['Profil', profilBauen],
                                ['Mein Profil', profilBearbeitenBauen],
                                ['Aussehen', themaLaden],
-                               ['Speicher', ablageBauen],
+                               ['Ablage', ablageBauen],
                                ['Striche markieren', strichMarkierenBauen],
                                ['Mailversand', postBauen],
                                ['Update-Hinweis', updateHinweisBauen],

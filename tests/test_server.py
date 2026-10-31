@@ -423,9 +423,21 @@ d = gast2.get("/verwaltung").json()
 pruefe("Auch wer nichts verwalten darf, erfährt wer er ist",
        d.get("ich") == "nurlesen" and isinstance(d.get("meine_rechte"), list), d)
 shimtext = (WURZEL / "web/shim.js").read_text(encoding="utf-8")
-pruefe("Benutzer und Rollen stehen unter Konto, nicht in den Optionen",
-       "kontoseite()" in shimtext and "konto.append(abschnitt)" in shimtext)
-pruefe("Die Desktop-Sachen auf der Kontoseite verschwinden dort",
+pruefe("Benutzer, Rollen und Mailversand stehen unter Optionen",
+       "const wo = serveroptionen();" in shimtext
+       and "wo.append(abschnitt);" in shimtext
+       and "wo.append(el('section', { id: 'postteil' }" in shimtext)
+pruefe("Der Reiter Konto heißt System",
+       "kopf.textContent = 'System'" in shimtext
+       and "reiter.textContent = 'System'" in shimtext)
+# Umbenannt wird nur die Beschriftung: an data-punkt haengt die Umschaltung
+# der Datei-Ebene, und die kommt aus der gemeinsamen Oberflaeche.
+pruefe("Der Schlüssel data-punkt bleibt konto",
+       'data-punkt="konto"' in shimtext)
+pruefe("Wo die Notizen liegen, steht unter System statt auf eigenem Reiter",
+       "const seite = systemseite();" in shimtext
+       and 'data-punkt="speicher"' not in shimtext)
+pruefe("Die Desktop-Sachen auf der Systemseite verschwinden dort",
        "kind.hidden = true" in shimtext)
 pruefe("Aber sie bleiben im Gerüst stehen",
        "kind.remove()" not in shimtext.split("function einstellungenAnpassen")[1].split("function abschnittBauen")[0])

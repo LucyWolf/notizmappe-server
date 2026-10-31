@@ -38,9 +38,9 @@ Einrichtungsseite: der erste Zugang wird gleich der **Verwalter**.
 
 ## Benutzer und Rollen
 
-Unter **Datei → Konto**: wer angemeldet ist, was diese Rolle darf, Abmelden —
-und für Verwalter darunter Benutzer anlegen, einladen, Projekte, Rollen
-zuweisen.
+Wer angemeldet ist und was diese Rolle darf, steht im **Profil** — unten
+links auf den Namen klicken. Für Verwalter steht unter **Datei → Optionen**
+alles andere: Benutzer anlegen, einladen, Projekte, Rollen zuweisen.
 
 Es gibt **drei Rollen**, mehr nicht:
 
@@ -72,7 +72,7 @@ Notizbüchern, an dem mehrere arbeiten.
 
 Oben im Band steht, wo man gerade ist, und daneben die Auswahl zum Umschalten:
 *Meine Notizen* oder eines der Projekte. Angelegt und besetzt werden sie unter
-**Datei → Konto**.
+**Datei → Optionen**.
 
 Jedes Mitglied hat im Projekt ein eigenes Recht:
 
@@ -111,7 +111,7 @@ auskommentieren und `build: .` setzen.
 
 ## Zwei Schritte beim Anmelden
 
-Unter **Datei → Konto → Zwei Schritte beim Anmelden** richtet sich jeder für
+Unter **Datei → Optionen → Zwei Schritte beim Anmelden** richtet sich jeder für
 seinen eigenen Zugang ein. Die Reihenfolge ist Absicht:
 
 1. **QR-Code** in eine Authenticator-App einlesen (oder das Geheimnis abtippen).
@@ -219,7 +219,7 @@ Rechner selbst oder von Docker.
 
 ### Weg 0: in der Oberfläche einstellen
 
-Unter **Datei → Konto → Wo die Notizen liegen** lässt sich die Freigabe direkt
+Unter **Datei → System → Wo die Notizen liegen** lässt sich die Freigabe direkt
 eintragen: Art (Volume / SMB / NFS), Rechnername, Freigabe, Benutzer, Passwort.
 Nur Verwalter sehen den Abschnitt.
 
@@ -367,7 +367,7 @@ eng gebaut:
 
 1. **E-Mail im eigenen Profil** eintragen (Profilfenster, freiwillig). Ohne
    Adresse geht nichts zurückzusetzen; dann hilft nur ein Verwalter.
-2. **Mailversand einrichten**: Datei → Konto → *Mailversand* (nur Verwalter).
+2. **Mailversand einrichten**: Datei → Optionen → *Mailversand* (nur Verwalter).
    Server, Port, Verschlüsselung, Anmeldung, Absender und die **Adresse dieses
    Servers**. Daneben steht ein Knopf für eine Testnachricht an die eigene
    Adresse — sonst merkt man den Tippfehler erst, wenn jemand sein Passwort

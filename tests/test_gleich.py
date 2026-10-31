@@ -126,6 +126,7 @@ html = (DESKTOP / "app/oberflaeche/index.html").read_text(encoding="utf-8")
 for anker in ('id="zahnrad"', 'class="fussrechts"',
               'id="dateileiste"', 'class="dateipunkt"', 'class="dateiseite"',
               'data-punkt="konto"', 'data-punkt="optionen"',
+              'id="einstellungen"', 'class="tafel"',
               'id="e-version"', 'id="e-verfuegbar"', 'id="e-updatehinweis"'):
     pruefe(f"die Oberflaeche hat noch {anker}", anker in html)
 
@@ -225,12 +226,21 @@ pruefe("drueben steigt Entf bei versteckter Malleiste aus",
 # das Menue unten gehoert die Verwaltung nicht - sonst gibt es zwei Wege zur
 # selben Seite, und einer davon fuehrt an der Datei-Ebene vorbei.
 pruefe("das Profil ist ein Fenster", "el('dialog', { id: 'profilfenster' }" in shim)
+# Die Serveroptionen - Benutzer, Mailversand - werden in die Tafel der
+# Optionen gehaengt. Faellt die dort drueben weg, baut der Stellvertreter
+# lautlos nichts mehr: ein nicht gefundener Platz meldet sich nicht.
+pruefe("die Optionen-Seite hat noch die Tafel zum Einhaengen",
+       bool(re.search(r'data-punkt="optionen"[^>]*>\s*<h2>Optionen</h2>\s*'
+                      r'<div id="einstellungen">\s*<div class="tafel">', html)))
+pruefe("und die Datei-Leiste hat den Punkt, der hier System heisst",
+       'class="dateipunkt" data-punkt="konto"' in html)
+
 pruefe("der Menuepunkt oeffnet es", "punkt('Mein Profil', profilOeffnen)" in shim)
 pruefe("und legt keinen Reiter mehr an", 'data-punkt="profil"' not in shim)
 pruefe("die Benutzerverwaltung steht nicht im Profilmenue",
        "Benutzer verwalten" not in shim)
-pruefe("sie haengt weiter an der Konto-Seite der Datei-Ebene",
-       bool(re.search(r"function abschnittBauen\(\) \{\s*const konto = kontoseite\(\);", shim)))
+pruefe("sie haengt unter Optionen in der Datei-Ebene",
+       bool(re.search(r"function abschnittBauen\(\) \{\s*const wo = serveroptionen\(\);", shim)))
 # Das Design hing am Profil: als Reiter wurde es beim Start mitgebaut, als
 # Fenster erst beim Oeffnen - bis dahin saesse man im Standarddesign.
 pruefe("das Design wird beim Start geladen, nicht erst mit dem Profil",
