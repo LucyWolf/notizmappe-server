@@ -78,6 +78,9 @@ for muster, name in ((r"^  const MODELL_ARTEN = [^\n]*$", "MODELL_ARTEN"),
                      (r"^  function matDrehX\(.*?^  \}", "matDrehX"),
                      (r"^  function matDrehY\(.*?^  \}", "matDrehY"),
                      (r"^  function mat3Von\(.*?^  \}", "mat3Von"),
+                     (r"^  const MODELL_WINKEL = [^\n]*$", "MODELL_WINKEL"),
+                     (r"^  const MODELL_SCHIEB_MAX = [^\n]*$", "MODELL_SCHIEB_MAX"),
+                     (r"^  function punktSchieben\(.*?^  \}", "punktSchieben"),
                      (r"^  function modellZeichnen\(.*?^  \}", "modellZeichnen")):
     treffer = re.search(muster, shim, re.S | re.M)
     pruefe(f"{name} steht in shim.js", bool(treffer))
@@ -360,7 +363,7 @@ const attrappe = glAttrappe();
 const z = {
   bild: { clientWidth: 320, clientHeight: 240, width: 0, height: 0 },
   glz: { gl: attrappe.gl, mvp: 'mvp', dreh: 'dreh' },
-  netz: wuerfel, seite: 0.6, hoehe: -0.5, weg: MODELL_WEG,
+  netz: wuerfel, seite: 0.6, hoehe: -0.5, weg: MODELL_WEG, punkt: [0, 0, 0],
 };
 modellZeichnen(z);
 ergebnis.puffergroesse = [z.bild.width, z.bild.height];
@@ -382,6 +385,36 @@ for (const [seite, hoehe] of [[0.6, -0.5], [0, 0], [1.5, 1.5], [3.1, -1.5], [-2.
   }
   ergebnis.drehungen.push({ seite, hoehe, drin, vorne, rand: Math.round(rand * 100) / 100 });
 }
+
+/* 5b. Umschalt-Ziehen schiebt den Drehpunkt */
+function mitteAufDemSchirm() {
+  modellZeichnen(z);
+  const o = werfen(attrappe.notiert.mvp, wuerfel.mitte);
+  return [Math.round((o.x / o.w) * 1000) / 1000, Math.round((o.y / o.w) * 1000) / 1000];
+}
+z.seite = 0; z.hoehe = 0; z.punkt = [0, 0, 0];
+ergebnis.vor_dem_schieben = mitteAufDemSchirm();
+punktSchieben(z, 60, 0, 240);
+ergebnis.nach_rechts = mitteAufDemSchirm();
+punktSchieben(z, -60, 40, 240);        // zurueck und nach unten
+ergebnis.nach_unten = mitteAufDemSchirm();
+
+// Der Beweis, dass wirklich der Drehpunkt gewandert ist und nicht nur das
+// Bild: nach einer halben Drehung muss die Mitte auf die andere Seite.
+z.punkt = [0, 0, 0];
+punktSchieben(z, 60, 0, 240);
+const links = mitteAufDemSchirm();
+z.seite = Math.PI;
+const rechts = mitteAufDemSchirm();
+ergebnis.halbe_drehung = [links[0], rechts[0]];
+
+// Und nicht beliebig weit weg.
+z.seite = 0; z.punkt = [0, 0, 0];
+punktSchieben(z, 100000, -100000, 240);
+ergebnis.weitest = Math.round(Math.sqrt(z.punkt[0] ** 2 + z.punkt[1] ** 2
+                                        + z.punkt[2] ** 2) * 1000) / 1000;
+ergebnis.grenze = MODELL_SCHIEB_MAX;
+z.seite = 0.6; z.hoehe = -0.5; z.punkt = [0, 0, 0];
 
 /* 6. Die Drehmatrix fuer die Normalen muss die Laengen lassen */
 const laengen = [0, 1, 2].map((s) => {
@@ -515,6 +548,20 @@ for dr in d["drehungen"]:
 pruefe("das Teil fuellt das Bild auch aus (nicht winzig in der Mitte)",
        max(dr["rand"] for dr in d["drehungen"]) > 0.45,
        [dr["rand"] for dr in d["drehungen"]])
+print("\nDen Drehpunkt schieben")
+pruefe("ohne Schieben sitzt die Mitte in der Mitte",
+       d["vor_dem_schieben"] == [0, 0], d["vor_dem_schieben"])
+pruefe("nach rechts gezogen steht das Teil rechts, nicht hoeher",
+       d["nach_rechts"][0] > 0.1 and abs(d["nach_rechts"][1]) < 0.001, d["nach_rechts"])
+pruefe("nach unten gezogen steht es unten",
+       d["nach_unten"][1] < -0.1 and abs(d["nach_unten"][0]) < 0.001, d["nach_unten"])
+# Waere nur das Bild verschoben, bliebe die Mitte nach der halben Drehung an
+# derselben Stelle stehen.
+pruefe("nach einer halben Drehung liegt die Mitte auf der anderen Seite",
+       d["halbe_drehung"][0] > 0.1 and d["halbe_drehung"][1] < -0.1, d["halbe_drehung"])
+pruefe("der Drehpunkt laeuft nicht beliebig weit weg",
+       abs(d["weitest"] - d["grenze"]) < 0.001, d)
+
 pruefe("die Drehmatrix der Normalen laesst die Laengen",
        all(abs(w - 1) < 0.002 for w in d["drehlaengen"]), d["drehlaengen"])
 

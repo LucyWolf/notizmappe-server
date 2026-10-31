@@ -2748,6 +2748,8 @@
   // So weit weg, dass die Kugel um das Teil (Radius 1 nach dem Skalieren) in
   // jeder Drehung ins Bild passt: 1 / sin(halber Oeffnungswinkel), plus Luft.
   const MODELL_WEG = 3.6;
+  const MODELL_WINKEL = 0.6;        // Oeffnungswinkel der Kamera, im Bogenmass
+  const MODELL_SCHIEB_MAX = 4;      // so weit darf der Drehpunkt hoechstens weg
 
   function modellArt(name) {
     const m = /\.([a-z0-9]+)$/i.exec(name || '');
@@ -3322,15 +3324,46 @@
     gl.viewport(0, 0, breit, hoch);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-    const grund = matMal(matSkala(1 / z.netz.radius),
-                         matSchieben(-z.netz.mitte[0], -z.netz.mitte[1], -z.netz.mitte[2]));
+    // Der Drehpunkt sitzt normalerweise in der Mitte des Teils. Mit
+    // Umschalt-Ziehen wandert er - und weil er vor der Drehung abgezogen
+    // wird, dreht sich danach wirklich um den neuen Punkt.
+    const grund = matMal(matSchieben(-z.punkt[0], -z.punkt[1], -z.punkt[2]),
+                  matMal(matSkala(1 / z.netz.radius),
+                         matSchieben(-z.netz.mitte[0], -z.netz.mitte[1], -z.netz.mitte[2])));
     const dreh = matMal(matDrehX(z.hoehe), matDrehY(z.seite));
     const sicht = matSchieben(0, 0, -z.weg);
-    const ferne = matPerspektive(0.6, breit / hoch, 0.05, 100);
+    const ferne = matPerspektive(MODELL_WINKEL, breit / hoch, 0.05, 100);
     gl.uniformMatrix4fv(z.glz.mvp, false,
                         matMal(ferne, matMal(sicht, matMal(dreh, grund))));
     gl.uniformMatrix3fv(z.glz.dreh, false, mat3Von(dreh));
     gl.drawArrays(gl.TRIANGLES, 0, z.netz.dreiecke * 3);
+  }
+
+  /* Umschalt-Ziehen schiebt den Drehpunkt, nicht nur das Bild: sonst sieht
+     man das Teil zwar von der Seite, dreht aber weiter um seine alte Mitte
+     und kommt an eine Ecke nie heran.
+
+     Gerechnet wird in Bildpunkten: wie weit ist bei diesem Abstand eine
+     Bildschirmhoehe? So viel wandert das Teil, wenn man ueber die ganze
+     Flaeche zieht. Die Verschiebung steht in der Sicht, der Drehpunkt im
+     Modell - dazwischen liegt die Drehung, also wird sie zurueckgerechnet
+     (bei einer Drehung heisst umgekehrt: vertauscht). */
+  function punktSchieben(z, dx, dy, hoehePx) {
+    const sichtbar = 2 * Math.tan(MODELL_WINKEL / 2) * z.weg;
+    const vx = (dx / hoehePx) * sichtbar;
+    const vy = -(dy / hoehePx) * sichtbar;
+    const m = matMal(matDrehX(z.hoehe), matDrehY(z.seite));
+    z.punkt = [z.punkt[0] - (m[0] * vx + m[1] * vy),
+               z.punkt[1] - (m[4] * vx + m[5] * vy),
+               z.punkt[2] - (m[8] * vx + m[9] * vy)];
+    // Nicht beliebig weit: sonst ist das Teil aus dem Bild geschoben und man
+    // findet es ohne Doppelklick nicht wieder.
+    const weit = Math.sqrt(z.punkt[0] * z.punkt[0] + z.punkt[1] * z.punkt[1]
+                           + z.punkt[2] * z.punkt[2]);
+    if (weit > MODELL_SCHIEB_MAX) {
+      const f = MODELL_SCHIEB_MAX / weit;
+      z.punkt = [z.punkt[0] * f, z.punkt[1] * f, z.punkt[2] * f];
+    }
   }
 
   /* --- Am Leben halten ---------------------------------------------------- */
@@ -3399,14 +3432,21 @@
       ev.stopPropagation();
       ev.preventDefault();
       bild.setPointerCapture(ev.pointerId);
-      z.wo.classList.add('dreht');
+      // Umschalt entscheidet beim Anfassen, nicht waehrenddessen: sonst
+      // springt die Bewegung, wenn man die Taste mitten im Ziehen loslaesst.
+      const schieben = ev.shiftKey;
+      z.wo.classList.add(schieben ? 'schiebt' : 'dreht');
       let x = ev.clientX, y = ev.clientY;
       const bewegen = function (e2) {
-        z.seite += (e2.clientX - x) * 0.01;
-        z.hoehe += (e2.clientY - y) * 0.01;
-        // Nicht ueber den Kopf: sonst steht das Teil kopf und man findet nicht
-        // zurueck.
-        z.hoehe = Math.max(-1.5, Math.min(1.5, z.hoehe));
+        if (schieben) {
+          punktSchieben(z, e2.clientX - x, e2.clientY - y, z.bild.clientHeight || 1);
+        } else {
+          z.seite += (e2.clientX - x) * 0.01;
+          z.hoehe += (e2.clientY - y) * 0.01;
+          // Nicht ueber den Kopf: sonst steht das Teil kopf und man findet
+          // nicht zurueck.
+          z.hoehe = Math.max(-1.5, Math.min(1.5, z.hoehe));
+        }
         x = e2.clientX; y = e2.clientY;
         modellZeichnen(z);
       };
@@ -3415,6 +3455,7 @@
         bild.removeEventListener('pointerup', los);
         bild.removeEventListener('pointercancel', los);
         z.wo.classList.remove('dreht');
+        z.wo.classList.remove('schiebt');
       };
       bild.addEventListener('pointermove', bewegen);
       bild.addEventListener('pointerup', los);
@@ -3428,7 +3469,7 @@
     }, { passive: false });
     bild.addEventListener('dblclick', function (ev) {
       ev.stopPropagation();
-      z.seite = 0.6; z.hoehe = -0.5; z.weg = MODELL_WEG;
+      z.seite = 0.6; z.hoehe = -0.5; z.weg = MODELL_WEG; z.punkt = [0, 0, 0];
       modellZeichnen(z);
     });
   }
@@ -3512,7 +3553,8 @@
     }
 
     const z = { kasten, wo, bild, datei, art, netz: null, glz: null,
-                seite: 0.6, hoehe: -0.5, weg: MODELL_WEG, laeuft: false };
+                seite: 0.6, hoehe: -0.5, weg: MODELL_WEG, punkt: [0, 0, 0],
+                laeuft: false };
 
     // Erst laden, wenn das Modell ins Bild rollt: zehn Anhaenge auf einer
     // Seite waeren sonst zehn Dateien auf einmal.
@@ -3551,6 +3593,7 @@
         display: block; touch-action: none; cursor: grab;
       }
       .kasten-3d .modell.dreht canvas { cursor: grabbing; }
+      .kasten-3d .modell.schiebt canvas { cursor: move; }
       .kasten-3d .modell .lade {
         position: absolute; inset: 0; margin: 0; display: flex;
         align-items: center; justify-content: center;

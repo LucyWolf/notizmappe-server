@@ -455,8 +455,11 @@ scheinbar zu laufen.
 ## 3D-Dateien in der Notiz
 
 Ein Anhang mit `.stl`, `.obj` oder `.fbx` wird nicht als Kachel gezeichnet,
-sondern als Modell: **ziehen dreht, Rad zoomt, Doppelklick stellt die Ansicht
-zurück**.
+sondern als Modell: **ziehen dreht, Umschalt-ziehen schiebt den Drehpunkt, Rad zoomt,
+Doppelklick stellt die Ansicht zurück**. Geschoben wird dabei nicht nur das
+Bild — der Punkt, um den gedreht wird, wandert mit. Sonst sieht man das Teil
+zwar von der Seite, dreht aber weiter um seine alte Mitte und kommt an eine
+Ecke nie heran.
 Darunter bleibt die Zeile mit Name, Größe und Dreieckszahl — ein Klick darauf
 lädt die Datei weiterhin herunter.
 
