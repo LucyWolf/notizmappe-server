@@ -17,6 +17,7 @@ import os
 import shutil
 import sys
 import tempfile
+import json
 import time
 import urllib.parse
 from pathlib import Path
@@ -173,6 +174,49 @@ pruefe("Download wird nicht im Browser angezeigt",
        a.headers["content-type"] == "application/octet-stream"
        and a.headers.get("x-content-type-options") == "nosniff")
 pruefe("Der Inhalt stimmt", b"INHALT" in a.content)
+
+# --- Quer in fremde Notizen? -------------------------------------------------
+#
+# Die Trennung oben prueft den geraden Weg. Hier der krumme: Namen mit "..",
+# mit Schraegstrichen, mit absolutem Pfad. Am Desktop waere das egal - dort
+# gehoert alles demselben Menschen. Hier liegen die Ordner nebeneinander, und
+# ein Name ist das einzige, was zwischen ihnen steht.
+print("\nKrumme Wege")
+lage, _ = ruf(k, "seite_speichern", {"notizbuch": buch, "abschnitt": absch, "name": seite,
+                                     "rev": 1, "titel": seite,
+                                     "elemente": [{"id": "x", "typ": "text", "x": 0, "y": 0,
+                                                   "b": 100, "html": "PASSWORT=hunter2"}]})
+pruefe("lucy legt etwas Geheimes ab", lage == 200, _)
+lage, zurueck = ruf(k, "seite_lesen", buch, absch, seite)
+pruefe("und liest es selbst wieder", "hunter2" in json.dumps(zurueck))
+
+TRICKS = [
+    (f"../lucy/{buch}", absch, seite),
+    (f"../../notizen/lucy/{buch}", absch, seite),
+    (buch, f"../../../lucy/{buch}/{absch}", seite),
+    (buch, absch, f"../../../lucy/{buch}/{absch}/{seite}"),
+    (f"/daten/notizen/lucy/{buch}", absch, seite),
+    ("..", "..", f"lucy/{buch}/{absch}/{seite}"),
+    (f"./../lucy/{buch}", f"./{absch}", f"./{seite}"),
+    (f"{buch}\x00", absch, seite),
+]
+gelesen, geschrieben, geholt = [], [], []
+for b_, s_, z_ in TRICKS:
+    lage, d = ruf(g, "seite_lesen", b_, s_, z_)
+    if "hunter2" in json.dumps(d):
+        gelesen.append((b_, s_, z_))
+    r = g.get("/anhang", params={"notizbuch": b_, "abschnitt": s_, "name": z_,
+                                 "datei": ab["datei"]})
+    if r.status_code == 200 and b"INHALT" in r.content:
+        geholt.append((b_, s_, z_))
+    ruf(g, "seite_speichern", {"notizbuch": b_, "abschnitt": s_, "name": z_,
+                               "rev": 2, "titel": "weg", "elemente": []})
+lage, danach = ruf(k, "seite_lesen", buch, absch, seite)
+pruefe("Kein krummer Name liest fremde Notizen", not gelesen, str(gelesen))
+pruefe("Keiner holt einen fremden Anhang", not geholt, str(geholt))
+pruefe("Und keiner schreibt in fremde Notizen",
+       "hunter2" in json.dumps(danach), danach)
+
 a = g.get("/anhang", params={"notizbuch": buch, "abschnitt": absch, "name": seite,
                              "datei": ab["datei"]})
 pruefe("Der Gast bekommt den Anhang nicht", a.status_code == 404)
