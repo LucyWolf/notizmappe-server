@@ -39,6 +39,7 @@ import ablage
 import benutzer as nutzer
 import post
 import selbst
+import verlauf
 
 HIER = Path(__file__).resolve().parent
 DESKTOP = Path(os.environ.get("NOTIZMAPPE_DESKTOP", "/desktop")).resolve()
@@ -54,6 +55,11 @@ if str(DESKTOP / "app") not in sys.path:
 
 import bruecke as bruecke_modul                                    # noqa: E402
 import speicher                                                    # noqa: E402
+
+# Der Verlauf gilt hier anders als am Desktop: jede Aenderung bleibt, ein Jahr
+# lang. Eingerichtet wird das, bevor die Bruecke steht - sonst liefe das erste
+# Speichern noch nach der alten Regel. Siehe web/verlauf.py.
+verlauf.einrichten(speicher)
 
 BRUECKE = bruecke_modul.Bruecke()
 DESKTOP_FASSUNG = bruecke_modul.VERSION

@@ -42,6 +42,7 @@ jobs:
           python tests/test_modell.py
           python tests/test_namen.py
           python tests/test_unsinn.py
+          python tests/test_verlauf.py
 
   bauen:
     needs: pruefen

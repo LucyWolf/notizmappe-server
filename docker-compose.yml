@@ -36,6 +36,8 @@ services:
       # ausdenken. Steht der Proxy woanders, hier eintragen; "*" heisst
       # "jedem glauben" und haengt die Bremse gegen Durchprobieren aus.
       # NOTIZMAPPE_PROXY: "192.168.1.5"
+      # Wie lange der Verlauf jede Aenderung haelt. Ohne Angabe ein Jahr.
+      # NOTIZMAPPE_VERLAUF_TAGE: "365"
       # Nur noetig, wenn die Rechte am Ordner ./daten nicht passen. Ohne Angabe
       # richtet sich der Server nach dem Eigentuemer des Ordners.
       # PUID: "1000"

@@ -195,6 +195,34 @@ Größengrenze, ohne `../` oder Symlinks beim Auspacken, und jede `.py` wird
 übersetzt, bevor die Fassung überhaupt gilt. Auslösen darf das nur, wer Benutzer
 verwalten kann.
 
+## Verlauf: jede Änderung, ein Jahr lang
+
+Am Desktop wird der Verlauf ausgedünnt — höchstens alle zehn Minuten eine
+Fassung, nach einem Tag nur noch eine je Tag, nach einem Monat eine je Woche,
+nach 90 Tagen nichts mehr. Das passt zu einem Rechner, auf dem eine Platte
+voll werden kann.
+
+Hier gilt: **alles bleibt, ein Jahr lang.** Geändert wird dafür nichts am
+Desktop-Programm — [web/verlauf.py](web/verlauf.py) setzt beim Start die
+eigene Regel an die Stelle der alten. Mit `NOTIZMAPPE_VERLAUF_TAGE` lässt sich
+die Zeit einstellen.
+
+Zwei Sachen, die man dazu wissen sollte:
+
+* **Feiner als eine Sekunde geht es nicht.** Eine Fassung heißt nach ihrem
+  Zeitpunkt (`20261101-143052.json`), und die Oberfläche speichert 900 ms nach
+  der letzten Eingabe. „Jede Änderung" heißt also: jede Sekunde, in der sich
+  etwas geändert hat. Wer eine Stunde am Stück schreibt, kann damit bis zu
+  3600 Fassungen einer Seite bekommen — eine Seite mit viel Text ist einige
+  Kilobyte groß, das summiert sich.
+* **Aufgeräumt wird höchstens einmal am Tag je Seite.** Drüben liest das
+  Wegräumen bei jedem Speichern den ganzen Ordner; bei zehntausend Fassungen
+  hinge daran jedes Speichern. Jeder Verlaufsordner merkt sich deshalb in
+  `.geputzt`, wann er zuletzt durchgesehen wurde.
+
+Die Liste im Verlauf-Fenster zeigt alles, was da ist — bei viel Arbeit an
+einer Seite wird sie entsprechend lang.
+
 ## Was wo liegt
 
 Alles, was bleiben muss, liegt im Volume `./daten`:
