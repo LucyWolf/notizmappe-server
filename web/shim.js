@@ -2864,8 +2864,9 @@
       }),
     ]);
 
+    // Unten, nicht oben: so steht es im Bild, und es liest sich auch besser -
+    // erst die Punkte, dann das Werkzeug.
     const block = el('div', { id: 'rm-format' }, [reihe1, reihe2]);
-    menue.insertBefore(block, menue.firstChild);
 
     // Die vier Punkte drueben bekommen ihr Zeichen davor - geaendert wird an
     // ihnen sonst nichts, sie haengen weiter an ihrem data-tun.
@@ -2897,7 +2898,7 @@
     // Wer wann - so weit wir es wirklich wissen. Die Seite merkt sich, wann
     // sie zuletzt geaendert wurde, aber nicht von wem; in einem Projekt waere
     // ein Name hier also geraten.
-    menue.append(el('p', { id: 'rm-wer', className: 'rm-fuss' }));
+    menue.append(el('p', { id: 'rm-wer', className: 'rm-fuss' }), block);
 
     // Ein Klick ins Menue darf die Markierung nicht kosten - sonst formatiert
     // der Knopf nichts. Bei Auswahlfeldern nicht: die muessen den Fokus
@@ -2928,8 +2929,8 @@
     stil.textContent = `
       #rechtsmenue { padding: 0; min-width: 232px; }
       #rm-format {
-        padding: 6px 6px 4px; border-bottom: 1px solid var(--linie);
-        background: var(--leiste);
+        padding: 6px 6px 5px; border-top: 1px solid var(--linie);
+        background: var(--leiste); border-radius: 0 0 8px 8px;
       }
       #rm-format .rm-reihe {
         display: flex; align-items: center; gap: 2px; margin: 0 0 3px;
