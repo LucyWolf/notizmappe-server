@@ -495,6 +495,21 @@ Seite ganz normal hoch, die Anmeldung sieht richtig aus — und gespeichert wird
 der Start jetzt eine Schreibprobe und bricht mit einer klaren Zeile ab, statt
 scheinbar zu laufen.
 
+## Nummerierte Listen: die Art der Nummer
+
+Der Pfeil neben dem Nummerierungsknopf macht die **Nummerierungsbibliothek**
+auf: 16 Arten, von `1.` über `a)` und `(1)` bis `i.`, dazu „Keine" — damit ist
+die Nummerierung wieder weg.
+
+Gespeichert wird das als **ein** Attribut an der Liste, `data-art="1)"`, und
+nur mit einem Wert aus einer festen Liste (`web/listen.py`). Kein `style`, kein
+`class`: was sonst an einem Element stehen dürfte, wäre ein Einfallstor — damit
+ließe sich ein unsichtbares Feld über die Seite legen.
+
+Die Fensterfassung kennt das Attribut noch nicht. Sie zeigt eine so gesetzte
+Liste mit ihren eigenen Zahlen, und wird die Seite **dort** gespeichert, ist
+die Art weg. Der Text bleibt.
+
 ## 3D-Dateien in der Notiz
 
 Ein Anhang mit `.stl`, `.obj` oder `.fbx` wird nicht als Kachel gezeichnet,
@@ -576,6 +591,7 @@ Die anderen prüfen je eine Sache, und jede steht wegen eines echten Fehlers da:
 | `test_post.py` | Mailversand, Zurücksetzen, Benachrichtigung bei Anmeldeversuchen |
 | `test_ablage.py` | NAS-Einstellungen: nichts, was in einer Mount-Option etwas anderes bedeuten könnte |
 | `test_selbst.py` | das Nachladen einer Fassung und vor allem den Weg zurück |
+| `test_leiste.py` | die Formatleiste: dass hinter jedem Knopf der richtige Befehl steckt, und dass im Rechtsklickmenü nicht zwei Leisten übereinander stehen |
 | `test_modell.py` | STL, OBJ und FBX einlesen, und ob das Teil wirklich im Bild liegt |
 | `test_reiter.py`, `test_zerren.py`, `test_glaetten.py`, `test_balken.py` | Oberflächensachen in einem nachgebauten DOM: Reiter, Griffe, Glätten, Update-Balken |
 

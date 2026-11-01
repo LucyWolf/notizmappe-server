@@ -37,6 +37,7 @@ from starlette.concurrency import run_in_threadpool
 
 import ablage
 import benutzer as nutzer
+import listen
 import post
 import selbst
 import verlauf
@@ -60,6 +61,8 @@ import speicher                                                    # noqa: E402
 # lang. Eingerichtet wird das, bevor die Bruecke steht - sonst liefe das erste
 # Speichern noch nach der alten Regel. Siehe web/verlauf.py.
 verlauf.einrichten(speicher)
+# Und nummerierte Listen duerfen sagen, welche Art Nummer sie haben wollen.
+listen.einrichten()
 
 BRUECKE = bruecke_modul.Bruecke()
 DESKTOP_FASSUNG = bruecke_modul.VERSION

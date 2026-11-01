@@ -48,6 +48,15 @@ for muster, name in ((r"^  function el\(.*?^  \}", "el"),
                      (r"^  function flPinselNehmen\(.*?^  \}", "flPinselNehmen"),
                      (r"^  function flPinselZeigen\(.*?^  \}", "flPinselZeigen"),
                      (r"^  function flFarben\(.*?^  \}", "flFarben"),
+                     (r"^  const FL_NUMMERN = \[.*?\];", "FL_NUMMERN"),
+                     (r"^  const FL_ZAEHLER = \{.*?\};", "FL_ZAEHLER"),
+                     (r"^  const FL_ZIFFERN = \{.*?\};", "FL_ZIFFERN"),
+                     (r"^  function nrTeile\(.*?^  \}", "nrTeile"),
+                     (r"^  function nrProbe\(.*?^  \}", "nrProbe"),
+                     (r"^  function nrRegeln\(.*?^  \}", "nrRegeln"),
+                     (r"^  function nrListe\(.*?^  \}", "nrListe"),
+                     (r"^  function flNummerSetzen\(.*?^  \}", "flNummerSetzen"),
+                     (r"^  function flGalerie\(.*?^  \}", "flGalerie"),
                      (r"^  function formatleisteBauen\(.*?^  \}", "formatleisteBauen"),
                      (r"^  function formatleisteFrischen\(.*?^  \}", "formatleisteFrischen")):
     treffer = re.search(muster, shim, re.S | re.M)
@@ -117,7 +126,11 @@ class Knoten {
     if (this.eltern) this.eltern.kinder = this.eltern.kinder.filter((k) => k !== this);
     this.eltern = null;
   }
-  getBoundingClientRect() { return { left: 0, top: 0, right: 20, bottom: 20 }; }
+  getBoundingClientRect() {
+    return { left: 0, top: 0, right: 20, bottom: 20, width: 340, height: 220 };
+  }
+  setAttribute(name, wert) { this.merkmale[name] = wert; }
+  getAttribute(name) { return this.merkmale[name]; }
   addEventListener(art, f) { (this.zuhoerer[art] = this.zuhoerer[art] || []).push(f); }
   klick() {
     for (const f of this.zuhoerer.click || []) {
@@ -127,6 +140,7 @@ class Knoten {
   alle() { return this.kinder.reduce((a, k) => a.concat(k.alle()), [this]); }
   passt(w) {
     if (w === '.fl-liste') return this.klassen.has('fl-liste');
+    if (w === '.fl-kachel') return this.klassen.has('fl-kachel');
     if (w === '.fl-art') return this.klassen.has('fl-art');
     if (w === '.fl-groesse') return this.klassen.has('fl-groesse');
     if (w === '.fl-taste[data-stand]') return this.klassen.has('fl-taste') && !!this.dataset.stand;
@@ -161,7 +175,8 @@ let stand = {};
 function aufAuswahl(befehl, wert) { befehle.push([befehl, wert === undefined ? null : wert]); }
 function hervorheben() { befehle.push(['hervorheben', null]); }
 function hervorhebungWeg() { befehle.push(['hervorhebungWeg', null]); }
-const window = { getSelection: () => auswahl };
+const window = { getSelection: () => auswahl, innerWidth: 1200, innerHeight: 800 };
+function gemerkt() { befehle.push(['gemerkt', null]); }
 let auswahl = null;
 const console = { error: () => {} };
 
@@ -289,6 +304,56 @@ ergebnis.schriftliste = leiste.querySelector('.fl-art').options.map((o) => o.val
 ergebnis.schriftwahl = leiste.querySelector('.fl-art').value;
 ergebnis.groessenwahl = leiste.querySelector('.fl-groesse').value;
 
+/* Die Nummerierungsbibliothek */
+ergebnis.probe = nrProbe('(a)');
+ergebnis.regeln = nrRegeln();
+
+const galerie = tasten.find((t) => t.title === 'Nummerierungsbibliothek');
+galerie.klick();
+const kasten = leiste.querySelector('.fl-liste');
+const kacheln = kasten.querySelectorAll('.fl-kachel');
+ergebnis.kacheln = kacheln.length;
+ergebnis.erste = kacheln[0].textContent;
+ergebnis.zweite = kacheln[1].textContent;
+
+/* In einer Liste: nur die Art setzen, keine zweite Liste anlegen */
+const ol = new Knoten('ol');
+const zeile = new Knoten('li');
+zeile.nodeType = 1;
+ol.append(zeile);
+zeile.closest = (w) => (w === 'ol' ? ol : null);
+auswahl = { rangeCount: 1, getRangeAt: () => ({ startContainer: zeile }) };
+befehle.length = 0;
+kacheln.find((k) => k.textContent.startsWith('(1)')).klick();
+ergebnis.in_liste = befehle.slice();
+ergebnis.gesetzt = ol.merkmale['data-art'] || null;
+
+/* Ohne Liste: erst anlegen, dann die Art setzen - so wie es der Browser tut */
+let schonListe = false;
+zeile.closest = (w) => (w === 'ol' && schonListe ? ol : null);
+ol.merkmale = {};
+befehle.length = 0;
+galerie.klick();
+const kacheln2 = leiste.querySelector('.fl-liste').querySelectorAll('.fl-kachel');
+const alterBefehl = aufAuswahl;
+aufAuswahl = function (befehl, wert) {
+  befehle.push([befehl, wert === undefined ? null : wert]);
+  if (befehl === 'insertOrderedList') schonListe = true;
+};
+kacheln2.find((k) => k.textContent.startsWith('a)')).klick();
+ergebnis.ohne_liste = befehle.slice();
+ergebnis.gesetzt2 = ol.merkmale['data-art'] || null;
+
+/* "Keine" macht die Liste wieder weg */
+schonListe = true;
+ol.merkmale = {};
+befehle.length = 0;
+galerie.klick();
+leiste.querySelector('.fl-liste').querySelectorAll('.fl-kachel')[0].klick();
+ergebnis.keine = befehle.slice();
+ergebnis.keine_art = ol.merkmale['data-art'] || null;
+aufAuswahl = alterBefehl;
+
 console.log = (...a) => process.stdout.write(a.join(' ') + '\n');
 process.stdout.write(JSON.stringify(ergebnis) + '\n');
 """
@@ -326,7 +391,8 @@ pruefe("die Gruppen kommen mit", d["gruppen"] == ['★ Favoriten'], d["gruppen"]
 ERWARTET = ['Formatvorlage', 'Einzug verkleinern', 'Einzug vergrößern',
             'Aufgabe (zum Abhaken)', 'Kategorie', 'Fett (Strg+B)', 'Kursiv (Strg+I)',
             'Unterstrichen (Strg+U)', 'Durchgestrichen', 'Hervorheben', 'Schriftfarbe',
-            'Aufzählung', 'Nummerierung', 'Format übertragen', 'Formatierung entfernen']
+            'Aufzählung', 'Nummerierung', 'Nummerierungsbibliothek',
+            'Format übertragen', 'Formatierung entfernen']
 pruefe("alle Knöpfe, in dieser Reihenfolge", d["knoepfe"] == ERWARTET, d["knoepfe"])
 
 print("\nWas unten ankommt")
@@ -370,6 +436,27 @@ pruefe("und gibt genau das weiter, was an der Stelle galt",
        d["pinsel_befehle"] == [["removeFormat", None], ["bold", None],
                                ["fontName", "DejaVu Sans"], ["fontSize", "5"],
                                ["foreColor", "#b23b2e"]], d["pinsel_befehle"])
+
+print("\nDie Nummerierungsbibliothek")
+pruefe("die Vorschau zeigt, was spaeter dasteht",
+       d["probe"] == ['(a)', '(b)', '(c)'], d["probe"])
+# '(1)' ist die achte Art - Klammer davor, Klammer und Leerzeichen dahinter.
+pruefe("daraus wird die Regel im Stylesheet",
+       '@counter-style nz7 { system: extends decimal; prefix: "("; suffix: ") "; }'
+       in d["regeln"] and 'ol[data-art="(1)"] { list-style-type: nz7; }' in d["regeln"],
+       d["regeln"][:200])
+pruefe("16 Arten und 'Keine'", d["kacheln"] == 17, d["kacheln"])
+pruefe("'Keine' steht vorn", d["erste"] == 'Keine', d["erste"])
+pruefe("dann die erste Art", d["zweite"] == '1.2.3.', d["zweite"])
+pruefe("in einer Liste wird nur die Art gesetzt",
+       d["in_liste"] == [["gemerkt", None]] and d["gesetzt"] == '(1)',
+       (d["in_liste"], d["gesetzt"]))
+pruefe("ohne Liste wird erst eine angelegt",
+       d["ohne_liste"] == [["insertOrderedList", None], ["gemerkt", None]]
+       and d["gesetzt2"] == 'a)', (d["ohne_liste"], d["gesetzt2"]))
+pruefe("'Keine' nimmt die Nummerierung wieder weg",
+       d["keine"] == [["insertOrderedList", None]] and d["keine_art"] is None,
+       (d["keine"], d["keine_art"]))
 
 print("\nWas gerade gilt")
 pruefe("zeigt sich am Knopf", sorted(d["an"]) == sorted(['Fett (Strg+B)', 'Aufzählung']),

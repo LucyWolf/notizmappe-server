@@ -1046,6 +1046,41 @@ anon.post("/anmelden", data={"name": "gibtsnichtmehr", "passwort": "egal12345"},
           follow_redirects=False)
 pruefe("ein erfundener Name schickt nichts", verschickt == [], str(verschickt))
 
+# --- Nummerierte Listen behalten ihre Art ------------------------------------
+#
+# Der Reiniger drueben laesst an <ol> nichts durch. Fuer die
+# Nummerierungsbibliothek bringt web/listen.py ihm ein einziges Attribut bei -
+# mit fester Werteliste. Geprueft wird am echten Reiniger, nicht an der Liste:
+# wird die Fensterfassung einmal umgebaut, muss das hier auffallen.
+print("\nNummerierte Listen")
+import reinigen as _rein                                           # noqa: E402
+import listen as _listen                                           # noqa: E402
+
+pruefe("die Art der Nummer bleibt stehen",
+       _rein.html('<ol data-art="1)"><li>eins</li></ol>')
+       == '<ol data-art="1)"><li>eins</li></ol>',
+       _rein.html('<ol data-art="1)"><li>eins</li></ol>'))
+pruefe("ein erfundener Wert faellt heraus",
+       _rein.html('<ol data-art="boese"><li>eins</li></ol>')
+       == '<ol><li>eins</li></ol>',
+       _rein.html('<ol data-art="boese"><li>eins</li></ol>'))
+pruefe("und ein Anfuehrungszeichen darin erst recht",
+       '"' not in _rein.html('<ol data-art=\'1." onmouseover="x\'><li>a</li></ol>'),
+       _rein.html('<ol data-art=\'1." onmouseover="x\'><li>a</li></ol>'))
+pruefe("an anderen Elementen gilt es nicht",
+       _rein.html('<p data-art="1)">text</p>') == '<p>text</p>',
+       _rein.html('<p data-art="1)">text</p>'))
+pruefe("style und class bleiben draussen",
+       _rein.html('<ol style="x" class="y"><li>a</li></ol>') == '<ol><li>a</li></ol>',
+       _rein.html('<ol style="x" class="y"><li>a</li></ol>'))
+# Dieselbe Liste steht in shim.js - stehen dort Arten, die der Server nicht
+# kennt, waeren sie nach dem ersten Speichern weg.
+_shim = (WURZEL / "web/shim.js").read_text(encoding="utf-8")
+_dort = _re.search(r"const FL_NUMMERN = \[(.*?)\];", _shim, _re.S)
+_arten = set(_re.findall(r"'([^']+)'", _dort.group(1))) if _dort else set()
+pruefe("shim.js und listen.py kennen dieselben Arten",
+       _arten == _listen.ARTEN, (sorted(_arten), sorted(_listen.ARTEN)))
+
 print()
 print("alles gruen" if not fehler else f"{len(fehler)} FEHLER:\n - " + "\n - ".join(fehler))
 shutil.rmtree(DATEN, ignore_errors=True)

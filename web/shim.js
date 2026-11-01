@@ -2773,6 +2773,65 @@
                          ['✔', 'Erledigt'], ['✘', 'Verworfen']];
   const FL_GROESSEN = [['1', '8'], ['2', '10'], ['3', '12'], ['4', '14'],
                        ['5', '18'], ['6', '24'], ['7', '36']];
+  /* Die Nummerierungsbibliothek. Welche Zaehlung und was davor und dahinter
+     steht, sagt der Wert selbst: '1)' sind Ziffern mit Klammer, '(a)' kleine
+     Buchstaben in Klammern. Daraus wird beides gebaut - die Vorschau im Menue
+     und die Regel im Stylesheet. Dieselbe Liste steht in web/listen.py; was
+     dort nicht drinsteht, faellt beim Speichern heraus. */
+  const FL_NUMMERN = ['1.', '1)', 'a)', 'A.',
+                      '1.)', 'I.', 'A)', '(1)', '(a)',
+                      'a.', '1-', '1', 'A', 'a',
+                      'i.', 'i)'];
+  const FL_ZAEHLER = { '1': 'decimal', a: 'lower-alpha', A: 'upper-alpha',
+                       i: 'lower-roman', I: 'upper-roman' };
+  const FL_ZIFFERN = { '1': ['1', '2', '3'], a: ['a', 'b', 'c'], A: ['A', 'B', 'C'],
+                       i: ['i', 'ii', 'iii'], I: ['I', 'II', 'III'] };
+
+  function nrTeile(art) {
+    const i = String(art).search(/[1aAiI]/);
+    if (i < 0) return null;
+    return { typ: art.charAt(i), vorne: art.slice(0, i), hinten: art.slice(i + 1) };
+  }
+
+  function nrProbe(art) {
+    const t = nrTeile(art);
+    if (!t) return [];
+    return FL_ZIFFERN[t.typ].map(function (z) { return t.vorne + z + t.hinten; });
+  }
+
+  function nrRegeln() {
+    let text = '';
+    FL_NUMMERN.forEach(function (art, i) {
+      const t = nrTeile(art);
+      text += `@counter-style nz${i} { system: extends ${FL_ZAEHLER[t.typ]};`
+            + ` prefix: "${t.vorne}"; suffix: "${t.hinten} "; }\n`
+            + `ol[data-art="${art}"] { list-style-type: nz${i}; }\n`;
+    });
+    return text;
+  }
+
+  // Die Liste, in der die Markierung steht - oder nichts.
+  function nrListe() {
+    const sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return null;
+    let k = sel.getRangeAt(0).startContainer;
+    if (k && k.nodeType !== 1) k = k.parentElement;
+    return k && k.closest ? k.closest('ol') : null;
+  }
+
+  function flNummerSetzen(art) {
+    const liste = nrListe();
+    if (!art) {                       // "Keine": die Nummerierung wieder weg
+      if (liste) flBefehl('insertOrderedList');
+      return;
+    }
+    if (!liste) flBefehl('insertOrderedList');
+    const neue = nrListe();
+    if (!neue) return;
+    neue.setAttribute('data-art', art);
+    gemerkt();
+  }
+
   let flPinsel = null;            // gemerktes Format beim Uebertragen
 
   /* Symbole als Strich, nicht als Zeichen. Pfeile, Schild und Pinsel gibt es
@@ -2956,6 +3015,51 @@
     return aus;
   }
 
+  /* Dieselbe Mechanik wie das Klappmenue, nur als Gitter mit Vorschau: ein
+     paar Zeilen "1. 2. 3." sagen mehr als ihr Name. */
+  function flGalerie(wirt, titel, inhalt, arten, tun) {
+    const knopf = flTaste(inhalt + '<span class="fl-pfeil">▾</span>', titel, function (k) {
+      const alte = wirt.querySelector('.fl-liste');
+      if (alte) {
+        alte.remove();
+        if (alte.dataset.von === titel) return;      // derselbe Knopf: zu
+      }
+      const kasten = el('div', { className: 'fl-liste fl-galerie' });
+      kasten.dataset.von = titel;
+      kasten.append(el('p', { className: 'fl-galkopf', textContent: titel }));
+      const gitter = el('div', { className: 'fl-gitter' });
+      for (const art of [''].concat(arten)) {
+        const kachel = el('button', { type: 'button', className: 'fl-kachel' },
+          art ? nrProbe(art).map(function (z) {
+            return el('span', { className: 'fl-kzeile' }, [
+              el('span', { className: 'fl-knr', textContent: z }),
+              el('span', { className: 'fl-kstrich' }),
+            ]);
+          }) : [el('span', { className: 'fl-keine', textContent: 'Keine' })]);
+        kachel.addEventListener('click', function (ev) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          kasten.remove();
+          tun(art);
+        });
+        gitter.append(kachel);
+      }
+      kasten.append(gitter);
+      wirt.append(kasten);
+      // Das Gitter ist breiter als die Leiste. Es darf ueber ihren Rand
+      // hinausragen, nur nicht aus dem Fenster.
+      const k2 = k.getBoundingClientRect();
+      const w = wirt.getBoundingClientRect();
+      const b = kasten.getBoundingClientRect();
+      const links = Math.max(8, Math.min(k2.left, window.innerWidth - b.width - 8));
+      const oben = Math.max(8, Math.min(k2.bottom + 2, window.innerHeight - b.height - 8));
+      kasten.style.left = (links - w.left) + 'px';
+      kasten.style.top = (oben - w.top) + 'px';
+    });
+    knopf.classList.add('fl-mitpfeil');
+    return knopf;
+  }
+
   function formatleisteBauen() {
     const wirt = el('div', { className: 'formatleiste' });
 
@@ -3006,6 +3110,8 @@
               function () { flBefehl('insertUnorderedList'); }, 'insertUnorderedList'),
       flTaste('<span class="fl-sinn">1.</span>', 'Nummerierung',
               function () { flBefehl('insertOrderedList'); }, 'insertOrderedList'),
+      flGalerie(wirt, 'Nummerierungsbibliothek', '<span class="fl-sinn">1.</span>',
+                FL_NUMMERN, flNummerSetzen),
       el('span', { className: 'fl-trenner' }),
       flTaste(FL_PINSEL, 'Format übertragen',
               flPinselNehmen, 'pinsel'),
@@ -3154,7 +3260,24 @@
       .fl-eintrag:hover { background: var(--flaeche); }
       .fl-probe { width: 16px; text-align: center; }
       .fl-tupfer { height: 12px; border-radius: 50%; border: 1px solid var(--linie); }
-    `;
+      .fl-galerie { padding: 8px; }
+      .fl-galkopf { margin: 0 0 6px; font-size: 12px; color: var(--matt); }
+      .fl-gitter {
+        display: grid; grid-template-columns: repeat(5, 68px); gap: 6px;
+      }
+      .fl-kachel {
+        display: flex; flex-direction: column; justify-content: center; gap: 3px;
+        height: 62px; padding: 6px; border: 1px solid var(--linie);
+        border-radius: 3px; background: var(--papier); color: var(--schrift);
+        font: inherit; font-size: 11px; cursor: pointer;
+      }
+      .fl-kachel:hover { border-color: var(--betont, #7a5cff); }
+      .fl-kzeile { display: flex; align-items: center; gap: 4px; }
+      .fl-knr { min-width: 18px; text-align: right; }
+      .fl-kstrich { flex: 1; height: 1px; background: var(--schrift); opacity: .5; }
+      .fl-keine { font-size: 12px; text-align: center; }
+    `
+    + nrRegeln();
     document.head.append(stil);
   }
 
