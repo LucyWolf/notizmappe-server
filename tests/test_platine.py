@@ -370,20 +370,19 @@ pruefe("von unten liegen die Löcher gespiegelt",
 
 # --- Und wie gross ist das Fenster, in dem sie steht? ------------------------
 #
-# Ein 4:3-Fenster fuer jede Platine heisst: eine lange schmale Platine steht
-# zwischen zwei breiten schwarzen Flanken. Das Fenster nimmt deshalb die Form
-# der Platine an.
+# Das Fenster ist immer so breit wie der Kasten - also so breit wie die Zeile
+# darunter. Nur die Hoehe richtet sich nach der Platine: ein festes 4:3 waere
+# fuer ein langes schmales Brett zu flach und fuer ein flaches zu hoch.
 print("\nDas Fenster um die Platine")
 f = m["fenster"]
-schmal = f["schmal"]
-pruefe("eine schmale Platine bekommt ein schmales Fenster",
-       schmal["breit"] < 200 and schmal["hoch"] == 340, schmal)
-pruefe("und zwar genau in ihrer Form",
-       abs(schmal["breit"] / schmal["hoch"] - 17.8 / 42.5) < 0.03, schmal)
-pruefe("eine breite Platine fuellt den Kasten", f["quer"]["breit"] == 435, f["quer"])
-pruefe("kein Fenster wird breiter als der Kasten",
-       all(w["breit"] <= 435 for w in f.values()), f)
-pruefe("und keines hoeher als 340 oder flacher als 90",
+pruefe("jedes Fenster ist so breit wie der Kasten",
+       all(w["breit"] == 435 for w in f.values()), f)
+pruefe("eine lange schmale Platine bekommt das hoechste Fenster",
+       f["schmal"]["hoch"] == 340, f["schmal"])
+pruefe("eine flache Platine bekommt ein flaches",
+       f["quer"]["hoch"] < 120 and f["streifen"]["hoch"] < 120,
+       (f["quer"], f["streifen"]))
+pruefe("und keines ist hoeher als 340 oder flacher als 90",
        all(90 <= w["hoch"] <= 340 for w in f.values()), f)
 
 # --- Haengt die Zeichenflaeche auch am Fenster? ------------------------------

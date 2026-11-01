@@ -4077,14 +4077,14 @@
 
   /* --- Der Kasten ---------------------------------------------------------- */
 
-  // Eine 18 x 42 mm lange Platine in einem 4:3-Fenster steht zwischen zwei
-  // breiten schwarzen Flanken. Also nimmt das Fenster die Form der Platine an:
-  // so hoch wie erlaubt, so breit wie die Platine dann braucht - und nie
-  // breiter als der Kasten, in dem es steht.
+  // Das Fenster ist so breit wie der Kasten - also so breit wie die Zeile
+  // darunter. Nur die Hoehe richtet sich nach der Platine: ein langes schmales
+  // Brett bekommt ein hohes Fenster, ein flaches ein flaches, und ein festes
+  // 4:3 wuerde beiden nicht passen.
   function pcbFenster(r, platz) {
     const form = r.breit / Math.max(r.hoch, 0.01);
     const hoch = Math.max(90, Math.min(340, platz / Math.max(form, 0.01)));
-    return { breit: Math.min(platz, Math.round(hoch * form)), hoch: Math.round(hoch) };
+    return { breit: platz, hoch: Math.round(hoch) };
   }
 
   async function platineStarten(z) {
