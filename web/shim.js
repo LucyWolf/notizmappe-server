@@ -5142,6 +5142,9 @@
       .kasten-3d .datei .zeichen { display: none; }
       .kasten-3d .dzahl { color: var(--matt); font-size: 11px; white-space: nowrap; }
       .kasten-pcb .modell {
+        /* Ohne position: relative haengt die Zeichenflaeche am Kasten statt am
+           Fenster - und wird ueber dessen ganze Breite gezerrt. */
+        position: relative; overflow: hidden;
         aspect-ratio: 4 / 3; background: #101214; border-radius: 4px;
         margin: 0 auto; max-width: 100%;
       }
@@ -5165,8 +5168,11 @@
       .kasten-pcb .datei:hover { border-color: transparent; }
       .kasten-pcb .datei:hover .dname { text-decoration: underline; }
       .kasten-pcb .datei .zeichen { display: none; }
-      .kasten-pcb .datei .dname { flex: 0 1 auto; color: var(--matt); }
+      .kasten-pcb .datei .dname {
+        flex: 0 1 auto; min-width: 0; color: var(--matt);
+      }
       .kasten-pcb .datei .dgroesse { font-size: 11px; }
+      .kasten-pcb .datei .dzahl { white-space: nowrap; }
       .kasten-pcb .datei .dgroesse::before, .kasten-pcb .datei .dzahl::before {
         content: "· ";
       }

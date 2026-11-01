@@ -528,6 +528,10 @@ Flanken. Darunter steht der Dateiname als ruhige Zeile mit Maßen und Zahl der
 Bohrungen, nicht als Kästchen mit Rahmen: die Beschriftung soll nicht mehr
 wiegen als das Bild.
 
+Was im Umriss als geschlossener Zug **innerhalb** der Platine steht, ist ein
+Ausschnitt und bleibt leer — ein Frässchlitz quer durch das Brett sieht
+deshalb aus wie ein schwarzes Band, und das ist richtig so.
+
 Gelesen werden die üblichen Endungen (GTL, GBL, GTO, GBO, GKO, DRL …) und die
 Namen, die KiCad und EasyEDA vergeben. Ein ZIP ohne Gerber bleibt eine ganz
 normale Kachel — ohne Meldung, es hat ja niemand eine Platine erwartet.

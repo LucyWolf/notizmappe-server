@@ -386,6 +386,24 @@ pruefe("kein Fenster wird breiter als der Kasten",
 pruefe("und keines hoeher als 340 oder flacher als 90",
        all(90 <= w["hoch"] <= 340 for w in f.values()), f)
 
+# --- Haengt die Zeichenflaeche auch am Fenster? ------------------------------
+#
+# Die Zeichenflaeche liegt mit position: absolute; inset: 0 im Fenster. Ist das
+# Fenster selbst nicht positioniert, sucht sie sich den naechsten positionierten
+# Vorfahren - den Kasten - und wird ueber dessen ganze Breite gezerrt. Das Bild
+# ist dann vollstaendig da, nur in die Breite gezogen: ein Fehler, den kein
+# Rechentest sieht, weil gezeichnet wird in die richtige Groesse.
+print("\nDas Fenster traegt die Zeichenfläche")
+for fenster in (".kasten-3d .modell", ".kasten-pcb .modell"):
+    regel = re.search(re.escape(fenster) + r"\s*\{(.*?)\}", shim, re.S)
+    # Ohne die Kommentare: sonst genuegt es, dass im Kommentar darueber steht,
+    # was fehlt. Genau so ist diese Prüfung beim ersten Versuch grün geblieben.
+    inhalt = re.sub(r"/\*.*?\*/", "", regel.group(1), flags=re.S) if regel else ""
+    pruefe(f"{fenster} ist positioniert", "position: relative" in inhalt,
+           inhalt.strip() or "keine Regel")
+    pruefe(f"{fenster} schneidet ab", "overflow: hidden" in inhalt,
+           inhalt.strip() or "keine Regel")
+
 shutil.rmtree(ordner, ignore_errors=True)
 print()
 if fehler:
