@@ -555,18 +555,30 @@ async def vergessen(bitte: Request, wer: str = Form("")):
             f"/passwort-vergessen?hinweis={urllib.parse.quote_plus(VERGESSEN_ANTWORT)}",
             status_code=303)
     fehlversuch(schluessel)
+    auftrag = None
     try:
         auftrag = await run_in_threadpool(nutzer.rueckstellung_anlegen, wer)
-        if auftrag:
-            await run_in_threadpool(post.ruecksetzmail, auftrag["email"],
-                                    auftrag["name"], auftrag["marke"])
-    except (nutzer.BenutzerFehler, post.PostFehler) as f:
+    except nutzer.BenutzerFehler as f:
         # Dem Fragenden sagt das nichts - im Protokoll steht es, damit man
         # nachsehen kann, wenn sich jemand beschwert, es komme nichts an.
         print(f"[notizmappe] Zuruecksetzen fehlgeschlagen: {f}", flush=True)
+
+    def schicken():
+        try:
+            post.ruecksetzmail(auftrag["email"], auftrag["name"], auftrag["marke"])
+        except post.PostFehler as f:
+            print(f"[notizmappe] Ruecksetzmail nicht zugestellt: {f}", flush=True)
+
+    # Verschickt wird NACH der Antwort. Die Antwort ist zwar immer dieselbe -
+    # aber nicht gleich schnell: ein Name mit hinterlegter Adresse dauerte
+    # genau so lange wie das Gespraech mit dem Mailserver, ein erfundener kam
+    # sofort zurueck. Damit war die Seite ueber die Uhr doch wieder eine
+    # Auskunft darueber, welche Zugaenge es gibt. Bei der Anmeldemeldung steht
+    # es aus demselben Grund so.
     return RedirectResponse(
         f"/passwort-vergessen?hinweis={urllib.parse.quote_plus(VERGESSEN_ANTWORT)}",
-        status_code=303)
+        status_code=303,
+        background=BackgroundTask(schicken) if auftrag else None)
 
 
 @app.get("/neues-passwort", response_class=HTMLResponse)

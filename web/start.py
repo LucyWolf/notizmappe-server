@@ -175,6 +175,11 @@ def programm_waehlen() -> tuple[str, str]:
         return image_web, image_desktop
 
     anlauf = selbst.versuch_merken(DATEN, fassung)
+    if anlauf < 0:
+        # Siehe selbst.versuch_merken: ohne Zaehler kein Weg zurueck.
+        print("[start] Ohne mitgezaehlte Startversuche gibt es keinen Weg zurueck - "
+              "es gilt die Fassung aus dem Image.", flush=True)
+        return image_web, image_desktop
     if anlauf > MAX_ANLAEUFE:
         print(f"[start] Fassung {fassung} ist {anlauf - 1}x nicht hochgekommen - "
               "wird verworfen, es gilt wieder die aus dem Image.", flush=True)

@@ -99,6 +99,33 @@ pruefe("eine andere Fassung zaehlt getrennt", selbst.versuch_merken(daten, "1.3.
 # Nummer geben. Bliebe sie stehen, laege unter derselben Nummer ein anderer
 # Inhalt, und /fassung haette nichts zu vergleichen: keine laufende
 # Installation erfuehre je davon.
+# Der Zaehler ist der ganze Weg zurueck. Laesst er sich nicht schreiben, darf
+# die nachgeladene Fassung gar nicht erst gelten - sonst wird sie endlos wieder
+# versucht, und ohne Oberflaeche gibt es keinen Knopf, der sie zuruecknimmt.
+print()
+print("Wenn sich der Startversuch nicht merken laesst")
+import start as startmodul                                      # noqa: E402
+
+echt_write = Path.write_text
+
+
+def _geht_nicht(selbst_, *a, **b):
+    if selbst_.name == "startversuch":
+        raise OSError(30, "Read-only file system")
+    return echt_write(selbst_, *a, **b)
+
+
+Path.write_text = _geht_nicht
+try:
+    zahl = selbst.versuch_merken(daten, "9.9.9")
+    startmodul.DATEN = str(daten)
+    gewaehlt = startmodul.programm_waehlen()
+finally:
+    Path.write_text = echt_write
+pruefe("versuch_merken sagt: verlass dich nicht darauf", zahl == -1, zahl)
+pruefe("und gestartet wird aus dem Image",
+       gewaehlt[0] == "/srv/web", gewaehlt)
+
 print()
 print("Die Nummer hochzaehlen")
 sys.path.insert(0, str(WURZEL / "tools"))

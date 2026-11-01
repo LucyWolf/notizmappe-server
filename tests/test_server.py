@@ -883,6 +883,34 @@ pruefe("echter und erfundener Name sehen gleich aus",
 pruefe("nur fuer den echten Zugang geht etwas raus",
        verschickt == ["lucy@example.de"], str(verschickt))
 
+# Gleiche Antwort reicht nicht - sie muss auch gleich schnell kommen. Vorher
+# wartete die Antwort auf das Gespraech mit dem Mailserver: ein Name mit
+# hinterlegter Adresse dauerte Sekunden, ein erfundener kam sofort zurueck.
+# Damit war die Seite ueber die Uhr doch eine Auskunft.
+#
+# Der Testklient laesst Nachlaeufe vor der Antwort durchlaufen, die Uhr sagt
+# hier also nichts. Darum direkt an der Route: kommt die Antwort mit einem
+# Nachlauf heraus, und ist zu diesem Zeitpunkt noch nichts verschickt?
+import asyncio                                                   # noqa: E402
+from starlette.requests import Request                           # noqa: E402
+
+verschickt.clear()
+lage = {"type": "http", "method": "POST", "path": "/passwort-vergessen",
+        "headers": [], "query_string": b"", "client": ("203.0.113.9", 4711)}
+antwort = asyncio.run(server.vergessen(Request(lage), wer="lucy"))
+pruefe("die Antwort bringt einen Nachlauf mit", antwort.background is not None)
+pruefe("und bis dahin ist noch nichts verschickt", verschickt == [], str(verschickt))
+if antwort.background is not None:
+    asyncio.run(antwort.background())
+pruefe("erst der Nachlauf schickt die Mail",
+       verschickt == ["lucy@example.de"], str(verschickt))
+# Und fuer einen erfundenen Namen gibt es gar keinen Nachlauf - sonst waere
+# allein dessen Dasein die Auskunft.
+ohne = asyncio.run(server.vergessen(Request({**lage, "client": ("203.0.113.10", 1)}),
+                                    wer="gibtsnicht"))
+pruefe("fuer einen erfundenen Namen gibt es nichts zu schicken",
+       ohne.background is None and ohne.status_code == antwort.status_code)
+
 a = anon.get("/neues-passwort?marke=" + "x" * 40)
 pruefe("eine erfundene Marke fuehrt zu keinem Formular",
        a.status_code == 200 and "gilt nicht mehr" in a.text)

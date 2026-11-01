@@ -279,8 +279,14 @@ def versuch_merken(daten, fassung: str) -> int:
         bisher = 0
     try:
         marke.write_text(f"{fassung} {bisher + 1}", encoding="utf-8")
-    except OSError:
-        pass
+    except OSError as f:
+        # Ohne Zaehler gibt es keinen Weg zurueck: eine Fassung, die nicht
+        # hochkommt, wuerde endlos wieder versucht, und ohne Oberflaeche gibt
+        # es keinen Knopf, der sie zuruecknimmt. Dann lieber gleich die
+        # Fassung aus dem Image - die Ueberlagerung ist der Luxus, nicht die
+        # Pflicht. -1 heisst: nicht verlassen auf diesen Weg.
+        print(f"[selbst] Der Startversuch liess sich nicht merken ({f}).", flush=True)
+        return -1
     return bisher + 1
 
 

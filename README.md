@@ -517,10 +517,12 @@ mitgerechnet, sonst läge bei einem Avatar alles übereinander im Nullpunkt.
   verschlüsselte Mappe, sagt der Server das — er zeigt keine leeren Seiten.
 * **Anhänge „mit Programm öffnen"**. Das würde auf dem Server passieren und
   nicht bei dir. Der Stellvertreter macht daraus einen Download.
-* **Updates per Knopf.** Unter *Datei → Informationen* steht aber, welche
-  Fassung hier läuft und ob es eine neuere gibt — samt der beiden Befehle:
-  `docker compose pull` und `docker compose up -d`. Dass es etwas zu holen
-  gibt, soll man sehen, ohne es zu wissen.
+* **Ein neues Image per Knopf.** Die Fassung *nachladen* geht (siehe
+  [Aktualisieren](#aktualisieren)) — ein Container kann sich aber nicht selbst
+  durch ein neues Image ersetzen. Braucht eine Fassung andere Pakete, sagt der
+  Knopf das und tut nichts; dann sind es `docker compose pull` und
+  `docker compose up -d`. Beides steht unter *Datei → Informationen*, samt der
+  Befehle zum Mitnehmen.
 * Die **Schriftliste** ist die des Containers, nicht die deines Rechners — der
   Server kann nicht wissen, was bei dir installiert ist. Im Image sind DejaVu
   und Liberation dabei.
@@ -535,6 +537,19 @@ tests/alle.sh                              # gegen die Fassung aus DESKTOP_VERSI
 `test_server.py` fährt Anmeldung, Bremse, Positivliste, Download und vor allem
 die **Trennung der Benutzer** durch: zwei Zugänge, und der eine kommt nicht an
 die Notizen des anderen — auch nicht, wenn er den Pfad kennt.
+
+Die anderen prüfen je eine Sache, und jede steht wegen eines echten Fehlers da:
+
+| | |
+|---|---|
+| `test_gleich.py` | dass Desktop und Server dieselbe Oberfläche sind — keine Kopien, Byte für Byte gleich, und die Stellen, an die sich `shim.js` hängt, gibt es drüben noch |
+| `test_namen.py` | dass jeder gelesene Name irgendwoher kommt — in `shim.js` **und** in `web/*.py`. Eine vergessene Funktion sieht man dem Quelltext nicht an |
+| `test_unsinn.py` | dass kein Aufruf einen 500er auslöst, egal was im Rumpf steht. Die Routen holt er sich aus der App selbst |
+| `test_post.py` | Mailversand, Zurücksetzen, Benachrichtigung bei Anmeldeversuchen |
+| `test_ablage.py` | NAS-Einstellungen: nichts, was in einer Mount-Option etwas anderes bedeuten könnte |
+| `test_selbst.py` | das Nachladen einer Fassung und vor allem den Weg zurück |
+| `test_modell.py` | STL, OBJ und FBX einlesen, und ob das Teil wirklich im Bild liegt |
+| `test_reiter.py`, `test_zerren.py`, `test_glaetten.py`, `test_balken.py` | Oberflächensachen in einem nachgebauten DOM: Reiter, Griffe, Glätten, Update-Balken |
 
 ## Wie es innen aussieht
 
