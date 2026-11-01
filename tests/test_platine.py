@@ -247,7 +247,8 @@ pruefe("zwei Bohrungen sind angekommen", d["bohrzahl"] == 2, d["bohrzahl"])
 # mitschreibt, und nachgerechnet, wo die Ecken der Platine landen.
 print("\nWo die Platine auf der Fläche landet")
 teile2 = []
-for muster, name in ((r"^  function pcbPfad\(.*?^  \}", "pcbPfad"),
+for muster, name in ((r"^  function pcbFenster\(.*?^  \}", "pcbFenster"),
+                     (r"^  function pcbPfad\(.*?^  \}", "pcbPfad"),
                      (r"^  function abdruckMalen\(.*?^  \}", "abdruckMalen"),
                      (r"^  function lageMalen\(.*?^  \}", "lageMalen"),
                      (r"^  const PCB_FARBEN = \{.*?^  \};", "PCB_FARBEN"),
@@ -327,6 +328,11 @@ Mitschrift.prototype.clip = function () {};
   }
   ergebnis.loch_oben = loch(oben.ctx);
   ergebnis.loch_unten = loch(unten.ctx);
+  // Das Fenster, in dem die Platine steht: 435 px ist ein gewoehnlicher Kasten.
+  ergebnis.fenster = { schmal: pcbFenster({ breit: 17.8, hoch: 42.5 }, 435),
+                       quer: pcbFenster({ breit: 100, hoch: 20 }, 435),
+                       streifen: pcbFenster({ breit: 200, hoch: 2 }, 435),
+                       quadrat: pcbFenster({ breit: 20, hoch: 15 }, 435) };
   process.stdout.write(JSON.stringify(ergebnis) + '\n');
 })().catch((f) => { process.stderr.write(String(f.stack || f) + '\n'); process.exit(1); });
 """
@@ -361,6 +367,24 @@ pruefe("von unten liegen die Löcher gespiegelt",
        and sorted(m["loch_unten"]) == sorted(400 - x for x in m["loch_oben"])
        and m["loch_oben"] != m["loch_unten"],
        (m["loch_oben"], m["loch_unten"]))
+
+# --- Und wie gross ist das Fenster, in dem sie steht? ------------------------
+#
+# Ein 4:3-Fenster fuer jede Platine heisst: eine lange schmale Platine steht
+# zwischen zwei breiten schwarzen Flanken. Das Fenster nimmt deshalb die Form
+# der Platine an.
+print("\nDas Fenster um die Platine")
+f = m["fenster"]
+schmal = f["schmal"]
+pruefe("eine schmale Platine bekommt ein schmales Fenster",
+       schmal["breit"] < 200 and schmal["hoch"] == 340, schmal)
+pruefe("und zwar genau in ihrer Form",
+       abs(schmal["breit"] / schmal["hoch"] - 17.8 / 42.5) < 0.03, schmal)
+pruefe("eine breite Platine fuellt den Kasten", f["quer"]["breit"] == 435, f["quer"])
+pruefe("kein Fenster wird breiter als der Kasten",
+       all(w["breit"] <= 435 for w in f.values()), f)
+pruefe("und keines hoeher als 340 oder flacher als 90",
+       all(90 <= w["hoch"] <= 340 for w in f.values()), f)
 
 shutil.rmtree(ordner, ignore_errors=True)
 print()

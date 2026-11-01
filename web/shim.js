@@ -4077,6 +4077,16 @@
 
   /* --- Der Kasten ---------------------------------------------------------- */
 
+  // Eine 18 x 42 mm lange Platine in einem 4:3-Fenster steht zwischen zwei
+  // breiten schwarzen Flanken. Also nimmt das Fenster die Form der Platine an:
+  // so hoch wie erlaubt, so breit wie die Platine dann braucht - und nie
+  // breiter als der Kasten, in dem es steht.
+  function pcbFenster(r, platz) {
+    const form = r.breit / Math.max(r.hoch, 0.01);
+    const hoch = Math.max(90, Math.min(340, platz / Math.max(form, 0.01)));
+    return { breit: Math.min(platz, Math.round(hoch * form)), hoch: Math.round(hoch) };
+  }
+
   async function platineStarten(z) {
     if (z.laeuft) return;
     z.laeuft = true;
@@ -4122,6 +4132,12 @@
       kachelBehalten(z, 'Die Gerber-Dateien sind leer - keine einzige Linie darin.');
       return;
     }
+    const platz = (z.wo.parentElement && z.wo.parentElement.clientWidth)
+                  || z.wo.clientWidth || 320;
+    const f = pcbFenster(z.rahmen, platz);
+    z.wo.style.width = f.breit + 'px';
+    z.wo.style.height = f.hoch + 'px';
+
     const zaehler = z.kasten.querySelector('.dzahl');
     if (zaehler) {
       zaehler.textContent = z.rahmen.breit.toFixed(1).replace('.', ',') + ' × '
@@ -5125,19 +5141,35 @@
       .kasten-3d .datei { margin-top: 6px; }
       .kasten-3d .datei .zeichen { display: none; }
       .kasten-3d .dzahl { color: var(--matt); font-size: 11px; white-space: nowrap; }
-      .kasten-pcb .modell { aspect-ratio: 4 / 3; background: #101214; }
+      .kasten-pcb .modell {
+        aspect-ratio: 4 / 3; background: #101214; border-radius: 4px;
+        margin: 0 auto; max-width: 100%;
+      }
       .kasten-pcb .modell canvas {
         position: absolute; inset: 0; width: 100%; height: 100%;
         display: block; touch-action: none; cursor: grab;
       }
       .kasten-pcb .pcbseite {
-        position: absolute; right: 6px; top: 6px; z-index: 2;
-        padding: 3px 8px; border: 1px solid var(--linie); border-radius: 4px;
-        background: rgba(16,18,20,.8); color: #e8eaec; font: inherit;
-        font-size: 11px; cursor: pointer;
+        position: absolute; right: 5px; top: 5px; z-index: 2;
+        padding: 2px 7px; border: 1px solid rgba(232,234,236,.25); border-radius: 4px;
+        background: rgba(16,18,20,.55); color: #e8eaec; font: inherit;
+        font-size: 11px; cursor: pointer; opacity: .35; transition: opacity .12s;
       }
-      .kasten-pcb .datei { margin-top: 6px; }
+      .kasten-pcb:hover .pcbseite, .kasten-pcb .pcbseite:focus { opacity: 1; }
+      /* Unter einer Platine steht kein Kaestchen mit Rahmen, sondern eine
+         ruhige Zeile - sonst wiegt die Beschriftung mehr als das Bild. */
+      .kasten-pcb .datei {
+        margin-top: 5px; padding: 0; border: 0; background: transparent;
+        justify-content: center; gap: 5px; font-size: 11px; color: var(--matt);
+      }
+      .kasten-pcb .datei:hover { border-color: transparent; }
+      .kasten-pcb .datei:hover .dname { text-decoration: underline; }
       .kasten-pcb .datei .zeichen { display: none; }
+      .kasten-pcb .datei .dname { flex: 0 1 auto; color: var(--matt); }
+      .kasten-pcb .datei .dgroesse { font-size: 11px; }
+      .kasten-pcb .datei .dgroesse::before, .kasten-pcb .datei .dzahl::before {
+        content: "· ";
+      }
       .kasten .modellfehler {
         margin: 4px 0 0; color: var(--warnung); font-size: 11px; line-height: 1.4;
       }

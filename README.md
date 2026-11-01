@@ -522,6 +522,12 @@ schickt), steht die Platine da statt der 📎-Kachel: Träger, Kupfer, Bohrungen
 und Bestückungsdruck, **ziehen schiebt, Rad zoomt, Doppelklick stellt zurück**,
 und ein Knopf oben rechts dreht sie auf die Unterseite.
 
+Das Fenster nimmt die **Form der Platine** an — eine lange schmale Platine
+stünde in einem festen 4:3-Fenster sonst zwischen zwei breiten schwarzen
+Flanken. Darunter steht der Dateiname als ruhige Zeile mit Maßen und Zahl der
+Bohrungen, nicht als Kästchen mit Rahmen: die Beschriftung soll nicht mehr
+wiegen als das Bild.
+
 Gelesen werden die üblichen Endungen (GTL, GBL, GTO, GBO, GKO, DRL …) und die
 Namen, die KiCad und EasyEDA vergeben. Ein ZIP ohne Gerber bleibt eine ganz
 normale Kachel — ohne Meldung, es hat ja niemand eine Platine erwartet.
