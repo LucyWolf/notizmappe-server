@@ -77,7 +77,9 @@ class AblageFehler(Exception):
 
 
 def _pruefe(muster: re.Pattern, wert: str, feld: str, pflicht: bool = True) -> str:
-    wert = (wert or "").strip()
+    # str() und nicht nur "or": aus dem JSON kann auch eine Zahl oder eine
+    # Liste kommen, und .strip() darauf war ein 500er statt einer Meldung.
+    wert = str(wert if wert is not None else "").strip()
     if not wert:
         if pflicht:
             raise AblageFehler(f"{feld} fehlt.")
@@ -109,7 +111,7 @@ def lesen() -> dict:
 
 def pruefen(rumpf: dict) -> dict:
     """Aus dem Formular eine Einstellung machen - oder sagen, was fehlt."""
-    art = (rumpf.get("art") or "lokal").strip()
+    art = str(rumpf.get("art") or "lokal").strip()
     if art not in ARTEN:
         raise AblageFehler(f"Unbekannte Art: {art!r}")
     if art == "lokal":
@@ -120,7 +122,7 @@ def pruefen(rumpf: dict) -> dict:
     # Funktion, waehrend "ordner" schon vorher zurueckkehrte: der Wert kam nie
     # an, und "../../etc" lief anstandslos durch, weil die Pruefung gar nicht
     # erst stattfand.
-    unter = (rumpf.get("unterordner") or "").strip().strip("/")
+    unter = str(rumpf.get("unterordner") or "").strip().strip("/")
     if unter:
         if ".." in unter.split("/"):
             raise AblageFehler("Der Unterordner darf nicht aus der Freigabe herausführen.")

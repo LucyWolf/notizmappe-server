@@ -89,11 +89,13 @@ def setzen(an: bool, server: str, port, sicherheit: str, benutzer: str,
     `passwort=None` heisst "das bisherige behalten" - das ist der Normalfall,
     wenn jemand nur den Absender aendert.
     """
-    server = (server or "").strip()
-    benutzer = (benutzer or "").strip()
-    absender = (absender or "").strip()
-    stelle = (stelle or "").strip().rstrip("/")
-    sicherheit = (sicherheit or "starttls").strip()
+    # str() ueberall: was aus dem JSON kommt, muss kein Text sein, und
+    # .strip() auf einer Zahl war ein 500er statt einer Meldung.
+    server = str(server or "").strip()
+    benutzer = str(benutzer or "").strip()
+    absender = str(absender or "").strip()
+    stelle = str(stelle or "").strip().rstrip("/")
+    sicherheit = str(sicherheit or "starttls").strip()
     try:
         port = int(port or 0)
     except (TypeError, ValueError):

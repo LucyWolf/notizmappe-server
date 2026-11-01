@@ -95,6 +95,35 @@ pruefe("eine andere Fassung zaehlt getrennt", selbst.versuch_merken(daten, "1.3.
 # Die Nummer aus dem Archiv wird zu einem Ordnernamen und zu einem Stueck
 # URL. Ungeprueft liefe sie aus /daten/.programm heraus - und ausgerechnet in
 # der Datei, die Code nachlaedt.
+# Das taegliche Nachziehen baut ein neues Image - und muss ihm eine eigene
+# Nummer geben. Bliebe sie stehen, laege unter derselben Nummer ein anderer
+# Inhalt, und /fassung haette nichts zu vergleichen: keine laufende
+# Installation erfuehre je davon.
+print()
+print("Die Nummer hochzaehlen")
+sys.path.insert(0, str(WURZEL / "tools"))
+import fassung_hoch                                              # noqa: E402
+
+for vorher, erwartet in (("1.2.18", "1.2.19"), ("1.2.9", "1.2.10"),
+                         ("1.2.99", "1.3.0"), ("1.99.99", "2.0.0"),
+                         ("0.9", "0.10"), ("7", "8")):
+    raus = fassung_hoch.naechste(vorher)
+    pruefe(f"{vorher} -> {erwartet}", raus == erwartet, raus)
+# Die letzte Stelle zaehlt bis 99 - 1.2.9 wird 1.2.10 und nicht 1.3.0.
+pruefe("neun ist kein Ueberlauf", fassung_hoch.naechste("1.2.9") == "1.2.10")
+for schlecht in ("", "v1.2", "1.2.x", "1..2"):
+    try:
+        fassung_hoch.naechste(schlecht)
+        gut = False
+    except ValueError:
+        gut = True
+    pruefe(f"abgelehnt: {schlecht!r}", gut)
+# Und das Entscheidende: die neue Nummer muss gegen die alte als neuer gelten,
+# sonst bleibt der Hinweis aus.
+for vorher in ("1.2.18", "1.2.99", "1.99.99", "0.9"):
+    pruefe(f"{vorher} gilt als aelter als {fassung_hoch.naechste(vorher)}",
+           selbst.neuer_als(fassung_hoch.naechste(vorher), vorher))
+
 print()
 print("Was als Fassungsnummer durchgeht")
 for schlecht in ("1./../../tmp/x", "../1.2.3", "1.2.3/..", "1.2.3; rm -rf /",

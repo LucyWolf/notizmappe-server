@@ -755,7 +755,8 @@ def email_von(name: str) -> str:
 
 def email_setzen(name: str, email: str) -> None:
     name = (name or "").strip().lower()
-    email = (email or "").strip()
+    # str(): was aus dem JSON kommt, muss kein Text sein.
+    email = str(email or "").strip()
     if email and not EMAIL_MUSTER.match(email):
         raise BenutzerFehler("Das sieht nicht wie eine E-Mail-Adresse aus")
     with _sperre:
@@ -881,7 +882,7 @@ def meldung_von(name: str) -> str:
 
 
 def meldung_setzen(name: str, art: str) -> None:
-    art = (art or "").strip()
+    art = str(art or "").strip()
     if art not in MELDE_ARTEN:
         raise BenutzerFehler("Benachrichtigung: aus, fehler oder alle")
     with _sperre:

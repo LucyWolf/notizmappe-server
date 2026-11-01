@@ -859,8 +859,8 @@ async def aussehen_setzen(bitte: Request):
         return JSONResponse({"fehler": "Nicht angemeldet"}, status_code=401)
     if not _eigener_aufruf(bitte):
         return JSONResponse({"fehler": "Falscher Aufruf"}, status_code=400)
-    rumpf = _rumpf(await bitte.json())
-    gewaehlt = (rumpf.get("thema") or "").strip()
+    rumpf = await _rumpf_von(bitte)
+    gewaehlt = str(rumpf.get("thema") or "").strip()
     if gewaehlt not in AUSSEHEN:
         return JSONResponse({"fehler": f"Unbekanntes Design: {gewaehlt!r}"},
                             status_code=400)
@@ -930,9 +930,9 @@ async def profil_email(bitte: Request):
         return JSONResponse({"fehler": "Nicht angemeldet"}, status_code=401)
     if not _eigener_aufruf(bitte):
         return JSONResponse({"fehler": "Falscher Aufruf"}, status_code=400)
-    rumpf = _rumpf(await bitte.json())
+    rumpf = await _rumpf_von(bitte)
     try:
-        nutzer.email_setzen(wer, rumpf.get("email") or "")
+        nutzer.email_setzen(wer, str(rumpf.get("email") or ""))
     except nutzer.BenutzerFehler as f:
         return JSONResponse({"fehler": str(f)}, status_code=400)
     neue = nutzer.email_von(wer)
@@ -949,9 +949,9 @@ async def profil_meldung(bitte: Request):
         return JSONResponse({"fehler": "Nicht angemeldet"}, status_code=401)
     if not _eigener_aufruf(bitte):
         return JSONResponse({"fehler": "Falscher Aufruf"}, status_code=400)
-    rumpf = _rumpf(await bitte.json())
+    rumpf = await _rumpf_von(bitte)
     try:
-        nutzer.meldung_setzen(wer, rumpf.get("art") or "")
+        nutzer.meldung_setzen(wer, str(rumpf.get("art") or ""))
     except nutzer.BenutzerFehler as f:
         return JSONResponse({"fehler": str(f)}, status_code=400)
     art = nutzer.meldung_von(wer)
@@ -978,7 +978,7 @@ async def post_setzen(bitte: Request):
         return JSONResponse({"fehler": "Dafür fehlt das Recht"}, status_code=403)
     if not _eigener_aufruf(bitte):
         return JSONResponse({"fehler": "Falscher Aufruf"}, status_code=400)
-    rumpf = _rumpf(await bitte.json())
+    rumpf = await _rumpf_von(bitte)
     # Kein Passwort im Rumpf heisst "das bisherige behalten" - sonst muesste
     # man es bei jeder Kleinigkeit neu eintippen.
     passwort = rumpf.get("passwort")
@@ -986,7 +986,7 @@ async def post_setzen(bitte: Request):
         post.setzen(an=bool(rumpf.get("an")), server=rumpf.get("server", ""),
                     port=rumpf.get("port"), sicherheit=rumpf.get("sicherheit", "starttls"),
                     benutzer=rumpf.get("benutzer", ""),
-                    passwort=None if passwort in (None, "") else passwort,
+                    passwort=None if passwort in (None, "") else str(passwort),
                     absender=rumpf.get("absender", ""), stelle=rumpf.get("stelle", ""))
     except post.PostFehler as f:
         return JSONResponse({"fehler": str(f)}, status_code=400)
@@ -1029,9 +1029,9 @@ async def profil_passwort(bitte: Request):
         return JSONResponse({"fehler": "Nicht angemeldet"}, status_code=401)
     if not _eigener_aufruf(bitte):
         return JSONResponse({"fehler": "Falscher Aufruf"}, status_code=400)
-    rumpf = _rumpf(await bitte.json())
-    alt = rumpf.get("alt") or ""
-    neu = rumpf.get("neu") or ""
+    rumpf = await _rumpf_von(bitte)
+    alt = str(rumpf.get("alt") or "")
+    neu = str(rumpf.get("neu") or "")
     if not nutzer.pruefen(wer, alt):
         return JSONResponse({"fehler": "Das bisherige Passwort stimmt nicht."},
                             status_code=400)
@@ -1051,8 +1051,8 @@ async def ablage_pruefen(bitte: Request):
     _nur_verwalter(bitte)
     if not _eigener_aufruf(bitte):
         return JSONResponse({"fehler": "Falscher Aufruf"}, status_code=400)
-    rumpf = _rumpf(await bitte.json())
-    gut, text = ablage.ordner_pruefen((rumpf.get("pfad") or "").strip())
+    rumpf = await _rumpf_von(bitte)
+    gut, text = ablage.ordner_pruefen(str(rumpf.get("pfad") or "").strip())
     return {"gut": gut, "text": text}
 
 
@@ -1067,10 +1067,10 @@ async def ablage_setzen(bitte: Request):
     _nur_verwalter(bitte)
     if not _eigener_aufruf(bitte):
         return JSONResponse({"fehler": "Falscher Aufruf"}, status_code=400)
-    rumpf = _rumpf(await bitte.json())
+    rumpf = await _rumpf_von(bitte)
     try:
         neu = ablage.pruefen(rumpf)
-        ablage.schreiben(neu, (rumpf.get("passwort") or ""))
+        ablage.schreiben(neu, str(rumpf.get("passwort") or ""))
     except ablage.AblageFehler as f:
         return JSONResponse({"fehler": str(f)}, status_code=400)
     except OSError as f:
@@ -1173,7 +1173,7 @@ async def bereich_wechseln(bitte: Request):
         return JSONResponse({"fehler": "Nicht angemeldet"}, status_code=401)
     if bitte.headers.get("x-notizmappe") != "1":
         return JSONResponse({"fehler": "Falscher Aufruf"}, status_code=400)
-    d = _rumpf(await bitte.json() if await bitte.body() else {})
+    d = await _rumpf_von(bitte)
     try:
         jetzt = bereich_setzen(wer, str(d.get("bereich") or ""))
     except nutzer.BenutzerFehler as f:
@@ -1202,7 +1202,7 @@ async def zwei_schritte(bitte: Request):
         return JSONResponse({"fehler": "Nicht angemeldet"}, status_code=401)
     if bitte.headers.get("x-notizmappe") != "1":
         return JSONResponse({"fehler": "Falscher Aufruf"}, status_code=400)
-    d = _rumpf(await bitte.json() if await bitte.body() else {})
+    d = await _rumpf_von(bitte)
     was = str(d.get("was") or "")
     ziel = str(d.get("benutzer") or "").strip().lower() or wer
     if ziel != wer and "benutzer" not in nutzer.rechte_von(wer):
@@ -1237,7 +1237,7 @@ async def verwaltung_einladung(bitte: Request):
     _nur_verwalter(bitte)
     if bitte.headers.get("x-notizmappe") != "1":
         return JSONResponse({"fehler": "Falscher Aufruf"}, status_code=400)
-    d = _rumpf(await bitte.json() if await bitte.body() else {})
+    d = await _rumpf_von(bitte)
     try:
         if d.get("was") == "zuruecknehmen":
             nutzer.einladung_zuruecknehmen(str(d.get("marke") or ""))
@@ -1297,7 +1297,7 @@ async def verwaltung_projekt(bitte: Request):
         return JSONResponse({"fehler": "Nicht angemeldet"}, status_code=401)
     if bitte.headers.get("x-notizmappe") != "1":
         return JSONResponse({"fehler": "Falscher Aufruf"}, status_code=400)
-    d = _rumpf(await bitte.json() if await bitte.body() else {})
+    d = await _rumpf_von(bitte)
     was = str(d.get("was") or "")
     projekt = str(d.get("projekt") or "")
     meine = nutzer.rechte_von(wer)
@@ -1359,13 +1359,29 @@ def _rumpf(wert) -> dict:
     return wert if isinstance(wert, dict) else {}
 
 
+async def _rumpf_von(bitte: Request) -> dict:
+    """Den JSON-Rumpf lesen - und alles abfangen, was keiner ist.
+
+    Ein leerer Rumpf, eine kaputte Klammer, eine Liste statt eines Objekts:
+    das kam vorher als Ausnahme hoch und wurde zu einem 500er. Ein 500er sagt
+    niemandem etwas und sieht aus wie ein kaputter Server; hier ist es aber
+    nur ein Aufruf, der so nicht gemeint war. Also ein leeres Woerterbuch -
+    die Pruefungen dahinter sagen dann, was fehlt.
+    """
+    try:
+        roh = await bitte.json() if await bitte.body() else {}
+    except (ValueError, UnicodeDecodeError):
+        return {}
+    return roh if isinstance(roh, dict) else {}
+
+
 @app.post("/verwaltung/benutzer")
 async def verwaltung_benutzer(bitte: Request):
     """Anlegen, Rolle setzen, Passwort setzen, entfernen - je nach "was"."""
     _nur_verwalter(bitte)
     if bitte.headers.get("x-notizmappe") != "1":
         return JSONResponse({"fehler": "Falscher Aufruf"}, status_code=400)
-    d = _rumpf(await bitte.json() if await bitte.body() else {})
+    d = await _rumpf_von(bitte)
     was = str(d.get("was") or "")
     name = str(d.get("name") or "").strip().lower()
     try:

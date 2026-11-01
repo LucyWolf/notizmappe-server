@@ -34,14 +34,24 @@ jobs:
         if: steps.f.outputs.neu != steps.f.outputs.alt && steps.f.outputs.neu != ''
         run: |
           printf '%s\n' "${{ steps.f.outputs.neu }}" > DESKTOP_VERSION
+          # Und eine eigene Nummer dazu. Hier entsteht ein neues Image: eine
+          # andere Oberflaeche steckt drin. Bliebe VERSION stehen, laege unter
+          # derselben Nummer ein anderer Inhalt - und schlimmer: /fassung
+          # vergleicht die Nummer bei GitHub mit der laufenden, also erfuehre
+          # keine laufende Installation je davon.
+          FASSUNG=$(tools/fassung_hoch.py)
           git config user.name "github-actions"
           git config user.email "github-actions@users.noreply.github.com"
-          git add DESKTOP_VERSION
-          git commit -m "Desktop-Fassung ${{ steps.f.outputs.neu }} nachgezogen
+          git add DESKTOP_VERSION VERSION
+          git commit -m "Desktop-Fassung ${{ steps.f.outputs.neu }} nachgezogen (Server $FASSUNG)
 
           Die Serverfassung benutzt die Oberflaeche des Desktop-Programms
           unveraendert. Zieht der Desktop weiter, muss der Server mitgehen -
-          sonst sehen die beiden Fassungen unterschiedlich aus."
+          sonst sehen die beiden Fassungen unterschiedlich aus.
+
+          Dazu eine eigene Serverfassung: hier entsteht ein neues Image, und
+          ohne neue Nummer sieht keine laufende Installation, dass es etwas
+          Neues gibt."
           git push
 
       # Ein Push, den ein Workflow mit dem eingebauten Token macht, loest keine
