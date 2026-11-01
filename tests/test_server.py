@@ -336,6 +336,50 @@ pruefe("Der Gast sieht den Papierkorb von lucy nicht",
 lage, _ = ruf(k, "papierkorb_zurueck", {"eintrag": meiner["eintraege"][0]["eintrag"]})
 pruefe("Zurückholen geht am Server", lage == 200 and "fehler" not in _, _)
 
+# --- Was in einer Notiz stehen darf ------------------------------------------
+#
+# Am Desktop ist das Selbstbeschuss: wer sich ein <script> in die eigene Notiz
+# schreibt, hat es sich selbst eingebrockt. In einem geteilten Projekt sitzt
+# derjenige, bei dem es losgeht, aber woanders - und die Seite rendert das HTML
+# in die Oberflaeche hinein. Gereinigt wird drueben; geprueft wird es hier,
+# weil nur hier mehrere Leute dieselbe Seite aufmachen.
+print("\nWas in einer Notiz stehen darf")
+ANGRIFFE = (
+    '<script>alert(1)</script>',
+    '<img src=x onerror="alert(1)">',
+    '<a href="javascript:alert(1)">klick</a>',
+    '<div onclick="alert(1)">x</div>',
+    '<iframe src="https://boese.example"></iframe>',
+    '<svg><script>alert(1)</script></svg>',
+    '<img src="data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==">',
+    '<form action="/benutzer/entfernen"><input name=name value=lucy></form>',
+    '<style>body{display:none}</style>',
+    '<object data="x"></object>',
+    '<body onload=alert(1)>',
+    '<p style="background:url(javascript:alert(1))">x</p>',
+    '<math><mtext><script>alert(1)</script></mtext></math>',
+    '<base href="https://boese.example/">',
+    '<meta http-equiv="refresh" content="0;url=https://boese.example">',
+    '<link rel=stylesheet href="https://boese.example/x.css">',
+)
+BOESE = ("<script", "onerror", "onclick", "onload", "javascript:", "<iframe",
+         "<object", "<style", "<base", "http-equiv", "<link", "<form", "<svg",
+         "<math", "data:text/html")
+durch = []
+lage, stand_ = ruf(k, "seite_lesen", buch, absch, seite)
+rev = int(stand_.get("rev", 1))
+for gift in ANGRIFFE:
+    lage, _ = ruf(k, "seite_speichern", {"notizbuch": buch, "abschnitt": absch,
+                                         "name": seite, "rev": rev, "titel": seite,
+                                         "elemente": [{"id": "x", "typ": "text", "x": 0,
+                                                       "y": 0, "b": 100, "html": gift}]})
+    rev = int(_.get("rev", rev + 1))
+    lage, d = ruf(k, "seite_lesen", buch, absch, seite)
+    raus = (d.get("elemente") or [{}])[0].get("html", "").lower()
+    if any(w in raus for w in BOESE):
+        durch.append(f"{gift[:40]} -> {raus[:60]}")
+pruefe("Kein Angriff ueberlebt das Speichern", not durch, " | ".join(durch[:3]))
+
 # --- Rollen und Rechte -------------------------------------------------------
 #
 # Der Punkt ist nicht, dass die Oberfläche Knöpfe ausgraut, sondern dass der
