@@ -38,6 +38,9 @@ for muster, name in ((r"^  function el\(.*?^  \}", "el"),
                      (r"^  function flBild\(.*?^  \}", "flBild"),
                      (r"^  const FL_EINZUG_RAUS = [^;]*;", "FL_EINZUG_RAUS"),
                      (r"^  const FL_EINZUG_REIN = [^;]*;", "FL_EINZUG_REIN"),
+                     (r"^  const FL_ZEILEN = [^;]*;", "FL_ZEILEN"),
+                     (r"^  const FL_PUNKTLISTE = flBild\(.*?\);", "FL_PUNKTLISTE"),
+                     (r"^  const FL_NUMMERNLISTE = flBild\(.*?\);", "FL_NUMMERNLISTE"),
                      (r"^  const FL_SCHILD = [^;]*;", "FL_SCHILD"),
                      (r"^  const FL_PINSEL = [^;]*;", "FL_PINSEL"),
                      (r"^  function flBefehl\(.*?^  \}", "flBefehl"),
@@ -61,6 +64,7 @@ for muster, name in ((r"^  function el\(.*?^  \}", "el"),
                      (r"^  function flPunktSetzen\(.*?$", "flPunktSetzen"),
                      (r"^  function nrKachel\(.*?^  \}", "nrKachel"),
                      (r"^  function azKachel\(.*?^  \}", "azKachel"),
+                     (r"^  function flGeteilt\(.*?^  \}", "flGeteilt"),
                      (r"^  function flGalerie\(.*?^  \}", "flGalerie"),
                      (r"^  function formatleisteBauen\(.*?^  \}", "formatleisteBauen"),
                      (r"^  function formatleisteFrischen\(.*?^  \}", "formatleisteFrischen")):
@@ -309,6 +313,12 @@ ergebnis.schriftliste = leiste.querySelector('.fl-art').options.map((o) => o.val
 ergebnis.schriftwahl = leiste.querySelector('.fl-art').value;
 ergebnis.groessenwahl = leiste.querySelector('.fl-groesse').value;
 
+/* Knopf und Pfeil gehoeren zusammen */
+ergebnis.paare = leiste.alle().filter((k) => k.klassen.has('fl-geteilt'))
+  .map((k) => k.kinder.map((x) => x.title));
+ergebnis.listenbild = [FL_PUNKTLISTE.slice(0, 4), FL_NUMMERNLISTE.slice(0, 4)];
+ergebnis.pfeilnur = tasten.find((t) => t.title === 'Nummerierungsbibliothek').textContent;
+
 /* Die Nummerierungsbibliothek */
 ergebnis.probe = nrProbe('(a)');
 ergebnis.regeln = listenRegeln();
@@ -460,6 +470,16 @@ pruefe("und gibt genau das weiter, was an der Stelle galt",
        d["pinsel_befehle"] == [["removeFormat", None], ["bold", None],
                                ["fontName", "DejaVu Sans"], ["fontSize", "5"],
                                ["foreColor", "#b23b2e"]], d["pinsel_befehle"])
+
+print("\nListe und Bibliothek sind ein Knopf")
+# Vorher standen vier Knoepfe nebeneinander, und keiner sagte, dass je zwei
+# dasselbe meinen.
+pruefe("je Listenart ein Paar aus Knopf und Pfeil",
+       d["paare"] == [['Aufzählung', 'Aufzählungszeichenbibliothek'],
+                      ['Nummerierung', 'Nummerierungsbibliothek']], d["paare"])
+pruefe("der Knopf zeigt eine Liste, nicht nur sein Zeichen",
+       d["listenbild"] == ['<svg', '<svg'], d["listenbild"])
+pruefe("am Pfeil steht nichts weiter", d["pfeilnur"] == '▾', d["pfeilnur"])
 
 print("\nDie Nummerierungsbibliothek")
 pruefe("die Vorschau zeigt, was spaeter dasteht",

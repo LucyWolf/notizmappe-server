@@ -2870,6 +2870,17 @@
                                 + '<path d="M4.5 6.5 2 8l2.5 1.5"/>');
   const FL_EINZUG_REIN = flBild('<path d="M2 3h12M6 6h8M6 10h8M2 13h12"/>'
                                 + '<path d="M1.5 6.5 4 8l-2.5 1.5"/>');
+  // Die beiden Listenknoepfe zeigen eine Liste, nicht nur ihr Zeichen: ein
+  // einzelner Punkt neben einer "1." sagt nicht, dass es um Absaetze geht.
+  const FL_ZEILEN = '<path d="M6 3.5h8M6 8h8M6 12.5h8"/>';
+  const FL_PUNKTLISTE = flBild(FL_ZEILEN
+      + '<circle cx="2.6" cy="3.5" r="1.2" fill="currentColor" stroke="none"/>'
+      + '<circle cx="2.6" cy="8" r="1.2" fill="currentColor" stroke="none"/>'
+      + '<circle cx="2.6" cy="12.5" r="1.2" fill="currentColor" stroke="none"/>');
+  const FL_NUMMERNLISTE = flBild(FL_ZEILEN
+      + '<text x="0" y="5.4" font-size="5.6" fill="currentColor" stroke="none">1</text>'
+      + '<text x="0" y="9.9" font-size="5.6" fill="currentColor" stroke="none">2</text>'
+      + '<text x="0" y="14.4" font-size="5.6" fill="currentColor" stroke="none">3</text>');
   const FL_SCHILD = flBild('<path d="M8.5 1.5H14v5.5L7 14 2 9z"/>'
                            + '<circle cx="11.2" cy="4.6" r=".9"/>');
   const FL_PINSEL = flBild('<path d="M11 2.5 13.5 5 7 11.5 4.5 9z"/>'
@@ -3092,6 +3103,14 @@
     return knopf;
   }
 
+  /* Knopf und Pfeil gehoeren zusammen: links die Liste an- und ausschalten,
+     rechts die Bibliothek. Getrennt standen vier Knoepfe nebeneinander, und
+     keiner sagte, dass je zwei dasselbe meinen. */
+  function flGeteilt(knopf, pfeil) {
+    pfeil.classList.add('fl-nurpfeil');
+    return el('span', { className: 'fl-geteilt' }, [knopf, pfeil]);
+  }
+
   function formatleisteBauen() {
     const wirt = el('div', { className: 'formatleiste' });
 
@@ -3138,14 +3157,16 @@
       flKlappe(wirt, 'Schriftfarbe', '<span class="fl-buchstabe">A</span>',
                flFarben(), function (farbe) { flBefehl('foreColor', farbe); }),
       el('span', { className: 'fl-trenner' }),
-      flTaste('<span class="fl-sinn">•</span>', 'Aufzählung',
-              function () { flBefehl('insertUnorderedList'); }, 'insertUnorderedList'),
-      flGalerie(wirt, 'Aufzählungszeichenbibliothek', '<span class="fl-sinn">•</span>',
-                FL_ZEICHEN, flPunktSetzen, azKachel),
-      flTaste('<span class="fl-sinn">1.</span>', 'Nummerierung',
-              function () { flBefehl('insertOrderedList'); }, 'insertOrderedList'),
-      flGalerie(wirt, 'Nummerierungsbibliothek', '<span class="fl-sinn">1.</span>',
-                FL_NUMMERN, flNummerSetzen, nrKachel),
+      flGeteilt(
+        flTaste(FL_PUNKTLISTE, 'Aufzählung',
+                function () { flBefehl('insertUnorderedList'); }, 'insertUnorderedList'),
+        flGalerie(wirt, 'Aufzählungszeichenbibliothek', '',
+                  FL_ZEICHEN, flPunktSetzen, azKachel)),
+      flGeteilt(
+        flTaste(FL_NUMMERNLISTE, 'Nummerierung',
+                function () { flBefehl('insertOrderedList'); }, 'insertOrderedList'),
+        flGalerie(wirt, 'Nummerierungsbibliothek', '',
+                  FL_NUMMERN, flNummerSetzen, nrKachel)),
       el('span', { className: 'fl-trenner' }),
       flTaste(FL_PINSEL, 'Format übertragen',
               flPinselNehmen, 'pinsel'),
@@ -3310,6 +3331,12 @@
       .fl-knr { min-width: 18px; text-align: right; }
       .fl-kstrich { flex: 1; height: 1px; background: var(--schrift); opacity: .5; }
       .fl-keine { font-size: 12px; text-align: center; }
+      .fl-geteilt { display: inline-flex; align-items: center; }
+      .fl-geteilt .fl-taste { border-radius: 3px 0 0 3px; }
+      .fl-geteilt .fl-nurpfeil {
+        min-width: 13px; padding: 0; border-radius: 0 3px 3px 0;
+      }
+      .fl-nurpfeil .fl-pfeil { font-size: 9px; opacity: .8; }
       .fl-kzeichen {
         display: block; width: 100%; font-size: 22px; line-height: 1;
         text-align: center;
