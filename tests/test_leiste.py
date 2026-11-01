@@ -35,7 +35,13 @@ for muster, name in ((r"^  function el\(.*?^  \}", "el"),
                      (r"^  const FL_KATEGORIEN = \[.*?\];", "FL_KATEGORIEN"),
                      (r"^  const FL_GROESSEN = \[.*?\];", "FL_GROESSEN"),
                      (r"^  let flPinsel = [^\n]*$", "flPinsel"),
+                     (r"^  function flBild\(.*?^  \}", "flBild"),
+                     (r"^  const FL_EINZUG_RAUS = [^;]*;", "FL_EINZUG_RAUS"),
+                     (r"^  const FL_EINZUG_REIN = [^;]*;", "FL_EINZUG_REIN"),
+                     (r"^  const FL_SCHILD = [^;]*;", "FL_SCHILD"),
+                     (r"^  const FL_PINSEL = [^;]*;", "FL_PINSEL"),
                      (r"^  function flBefehl\(.*?^  \}", "flBefehl"),
+                     (r"^  function flSchriftenSpiegeln\(.*?^  \}", "flSchriftenSpiegeln"),
                      (r"^  function flTaste\(.*?^  \}", "flTaste"),
                      (r"^  function flKlappe\(.*?^  \}", "flKlappe"),
                      (r"^  function flZeichenSetzen\(.*?^  \}", "flZeichenSetzen"),
@@ -57,8 +63,9 @@ class Knoten {
   constructor(art) {
     this.art = art; this.kinder = []; this.zuhoerer = {};
     this.style = {}; this.dataset = {}; this.hidden = false;
-    this.klassen = new Set(); this.merkmale = {}; this.options = [];
+    this.klassen = new Set(); this.merkmale = {};
     this.eigenerText = ''; this.id = ''; this.title = ''; this.eltern = null;
+    this.label = '';
     const selbst = this;
     this.classList = {
       add: (c) => selbst.klassen.add(c),
@@ -68,6 +75,17 @@ class Knoten {
     };
   }
   get tagName() { return this.art.toUpperCase(); }
+  // select.options ist im Browser flach - auch ueber Gruppen hinweg.
+  get options() { return this.alle().slice(1).filter((k) => k.art === 'option'); }
+  // Ein Auswahlfeld hat den Wert der gewaehlten Moeglichkeit - im Browser
+  // rechnet das der Browser aus, hier muss es dastehen.
+  get value() {
+    if (this._wert !== undefined) return this._wert;
+    if (this.art !== 'select') return '';
+    const o = this.options.find((x) => x.selected) || this.options[0];
+    return o ? o.value : '';
+  }
+  set value(w) { this._wert = w; }
   get children() { return this.kinder; }
   get parentElement() { return this.eltern; }
   get firstChild() { return this.kinder[0] || null; }
@@ -87,7 +105,6 @@ class Knoten {
       if (typeof k === 'string') { this.eigenerText += k; continue; }
       if (k.eltern) k.remove();
       k.eltern = this; this.kinder.push(k);
-      if (k.art === 'option') this.options.push(k);
     }
   }
   insertBefore(neu, davor) {
@@ -160,12 +177,18 @@ for (const [farbe, name] of [['#1f1d1a', 'Standard'], ['#b23b2e', 'Rot'],
 }
 const schriften = new Knoten('select');
 schriften.dataset.befehl = 'fontName';
-for (const name of ['Standard', 'DejaVu Sans', 'Liberation Serif']) {
+function schrift(wohin, name) {
   const o = new Knoten('option');
   o.value = name;
   o.textContent = name;
-  schriften.append(o);
+  wohin.append(o);
 }
+schrift(schriften, 'Standard');
+const gruppe = new Knoten('optgroup');
+gruppe.label = '★ Favoriten';
+schriften.append(gruppe);
+schrift(gruppe, 'DejaVu Sans');
+schrift(schriften, 'Liberation Serif');
 wurzel.append(farbkasten, schriften);
 """ + "\n".join(teile) + r"""
 
@@ -175,6 +198,10 @@ wurzel.append(leiste);
 
 const tasten = leiste.alle().filter((k) => k.klassen.has('fl-taste'));
 ergebnis.reihen = leiste.kinder.filter((k) => k.klassen.has('fl-reihe')).length;
+ergebnis.groesse_anfang = leiste.querySelector('.fl-groesse').value;
+ergebnis.schriften_anfang = leiste.querySelector('.fl-art').options.map((o) => o.value);
+ergebnis.gruppen = leiste.querySelector('.fl-art').kinder
+  .filter((k) => k.art === 'optgroup').map((k) => k.label);
 ergebnis.knoepfe = tasten.map((k) => k.title);
 
 function druecke(titel) {
@@ -286,6 +313,16 @@ d = json.loads(lauf.stdout.strip().splitlines()[-1])
 
 print("\nDer Aufbau")
 pruefe("zwei Reihen", d["reihen"] == 2, d["reihen"])
+# 12 ist die Groesse, in der geschrieben wird - vorher stand hier 8, die
+# erste der Liste.
+pruefe("die Größe steht auf 12, nicht auf der ersten der Liste",
+       d["groesse_anfang"] == '3', d["groesse_anfang"])
+pruefe("und die Schriftliste ist gleich beim Bauen da",
+       d["schriften_anfang"] == ['Standard', 'DejaVu Sans', 'Liberation Serif'],
+       d["schriften_anfang"])
+# Die Favoriten stehen drueben in einer eigenen Gruppe. Ohne sie waeren sie
+# irgendwo in der Liste - gerade die, die man sucht.
+pruefe("die Gruppen kommen mit", d["gruppen"] == ['★ Favoriten'], d["gruppen"])
 ERWARTET = ['Formatvorlage', 'Einzug verkleinern', 'Einzug vergrößern',
             'Aufgabe (zum Abhaken)', 'Kategorie', 'Fett (Strg+B)', 'Kursiv (Strg+I)',
             'Unterstrichen (Strg+U)', 'Durchgestrichen', 'Hervorheben', 'Schriftfarbe',
@@ -321,10 +358,10 @@ print("\nAufgabe und Kategorie")
 pruefe("die Aufgabe schreibt ein Kästchen in den Text",
        d["aufgabe"] == [["execCommand", "insertText", "☐ "]], d["aufgabe"])
 pruefe("die Kategorien stehen zur Wahl",
-       d["kategorien"] == ['☐Aufgabe', '⭐Wichtig', '❓Frage', '❗Achtung',
-                           '💡Idee', '✔Erledigt'], d["kategorien"])
+       d["kategorien"] == ['☐Aufgabe', '★Wichtig', '⚑Fahne',
+                           '✔Erledigt', '✘Verworfen'], d["kategorien"])
 pruefe("und schreiben ihr Zeichen",
-       d["kategorie_befehl"] == [["execCommand", "insertText", "❓ "]],
+       d["kategorie_befehl"] == [["execCommand", "insertText", "⚑ "]],
        d["kategorie_befehl"])
 
 print("\nFormat übertragen")

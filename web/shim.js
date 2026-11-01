@@ -2766,11 +2766,32 @@
   const FL_VORLAGEN = [['<p>', 'Normal'], ['<h1>', 'Überschrift 1'],
                        ['<h2>', 'Überschrift 2'], ['<h3>', 'Überschrift 3'],
                        ['<blockquote>', 'Zitat'], ['<pre>', 'Code']];
-  const FL_KATEGORIEN = [['☐', 'Aufgabe'], ['⭐', 'Wichtig'], ['❓', 'Frage'],
-                         ['❗', 'Achtung'], ['💡', 'Idee'], ['✔', 'Erledigt']];
+  // Diese Zeichen landen im Text, nicht nur in der Leiste - also solche, die
+  // jede Schrift hat. Ein Kaestchen mitten im Satz waere schlimmer als kein
+  // Zeichen.
+  const FL_KATEGORIEN = [['☐', 'Aufgabe'], ['★', 'Wichtig'], ['⚑', 'Fahne'],
+                         ['✔', 'Erledigt'], ['✘', 'Verworfen']];
   const FL_GROESSEN = [['1', '8'], ['2', '10'], ['3', '12'], ['4', '14'],
                        ['5', '18'], ['6', '24'], ['7', '36']];
   let flPinsel = null;            // gemerktes Format beim Uebertragen
+
+  /* Symbole als Strich, nicht als Zeichen. Pfeile, Schild und Pinsel gibt es
+     nicht in jeder Schrift - fehlen sie, zeigt der Browser ein Kaestchen, und
+     eine Leiste voller Kaestchen sagt niemandem etwas. Gezeichnet ist immer
+     da, und es nimmt die Farbe der Schrift mit. */
+  function flBild(inhalt) {
+    return '<svg class="fl-bild" viewBox="0 0 16 16" width="15" height="15" '
+         + 'fill="none" stroke="currentColor" stroke-width="1.4" '
+         + 'stroke-linecap="round" stroke-linejoin="round">' + inhalt + '</svg>';
+  }
+  const FL_EINZUG_RAUS = flBild('<path d="M2 3h12M6 6h8M6 10h8M2 13h12"/>'
+                                + '<path d="M4.5 6.5 2 8l2.5 1.5"/>');
+  const FL_EINZUG_REIN = flBild('<path d="M2 3h12M6 6h8M6 10h8M2 13h12"/>'
+                                + '<path d="M1.5 6.5 4 8l-2.5 1.5"/>');
+  const FL_SCHILD = flBild('<path d="M8.5 1.5H14v5.5L7 14 2 9z"/>'
+                           + '<circle cx="11.2" cy="4.6" r=".9"/>');
+  const FL_PINSEL = flBild('<path d="M11 2.5 13.5 5 7 11.5 4.5 9z"/>'
+                           + '<path d="M4.5 9 3 12.5 6.5 11"/>');
 
   function flBefehl(was, wert) {
     try {
@@ -2942,24 +2963,27 @@
     art.addEventListener('change', function () { flBefehl('fontName', art.value); });
     const groesse = el('select', { className: 'fl-groesse', title: 'Schriftgröße' });
     for (const [wert, text] of FL_GROESSEN) {
-      groesse.append(el('option', { value: wert, textContent: text }));
+      // 12 ist die Groesse, in der geschrieben wird - ohne das stand hier 8,
+      // die erste der Liste.
+      groesse.append(el('option', { value: wert, textContent: text,
+                                    selected: wert === '3' }));
     }
     groesse.addEventListener('change', function () { flBefehl('fontSize', groesse.value); });
 
     const reihe1 = el('div', { className: 'fl-reihe' }, [
       art, groesse,
       el('span', { className: 'fl-trenner' }),
-      flKlappe(wirt, 'Formatvorlage', '<span class="fl-sinn">✒</span>',
+      flKlappe(wirt, 'Formatvorlage', '<span class="fl-sinn">¶</span>',
                FL_VORLAGEN.map(([w, n]) => [w, n, '']),
                function (w) { flBefehl('formatBlock', w); }),
-      flTaste('<span class="fl-sinn">⇤</span>', 'Einzug verkleinern',
+      flTaste(FL_EINZUG_RAUS, 'Einzug verkleinern',
               function () { flBefehl('outdent'); }),
-      flTaste('<span class="fl-sinn">⇥</span>', 'Einzug vergrößern',
+      flTaste(FL_EINZUG_REIN, 'Einzug vergrößern',
               function () { flBefehl('indent'); }),
       el('span', { className: 'fl-trenner' }),
       flTaste('<span class="fl-haken">☑</span>', 'Aufgabe (zum Abhaken)',
               function () { flZeichenSetzen('☐'); }),
-      flKlappe(wirt, 'Kategorie', '<span class="fl-sinn">🏷</span>',
+      flKlappe(wirt, 'Kategorie', FL_SCHILD,
                FL_KATEGORIEN.map(([z, n]) => [z, n, z]),
                function (z) { flZeichenSetzen(z); }),
     ]);
@@ -2983,7 +3007,7 @@
       flTaste('<span class="fl-sinn">1.</span>', 'Nummerierung',
               function () { flBefehl('insertOrderedList'); }, 'insertOrderedList'),
       el('span', { className: 'fl-trenner' }),
-      flTaste('<span class="fl-sinn">🖌</span>', 'Format übertragen',
+      flTaste(FL_PINSEL, 'Format übertragen',
               flPinselNehmen, 'pinsel'),
       flTaste('<span class="fl-weg">✕</span>', 'Formatierung entfernen', function () {
         flBefehl('removeFormat');
@@ -2992,6 +3016,7 @@
     ]);
 
     wirt.append(reihe1, reihe2);
+    flSchriftenSpiegeln(wirt);      // gleich, nicht erst beim ersten Auffrischen
     // Ein Klick in die Leiste darf die Markierung nicht kosten - sonst
     // formatiert der Knopf nichts. Auswahlfelder brauchen den Fokus, sonst
     // klappen sie nicht auf.
@@ -3003,17 +3028,37 @@
 
   /* Was an der Markierung schon gilt, anzeigen - und die Schriftliste
      nachziehen, die der Server erst nachlaedt. */
-  function formatleisteFrischen(wirt) {
-    if (!wirt) return;
-    const art = wirt.querySelector('.fl-art');
+  /* Die Schriftliste steht drueben und wird vom Server nachgeladen - sie ist
+     also erst spaeter vollstaendig. Deshalb jedes Mal nachsehen, ob sie
+     gewachsen ist. */
+  function flSchriftenSpiegeln(wirt) {
+    const art = wirt && wirt.querySelector('.fl-art');
     const echt = document.querySelector('#minialt select[data-befehl="fontName"]')
-              || document.querySelector('#minileiste select[data-befehl="fontName"]');
-    if (art && echt && art.options.length !== echt.options.length) {
-      art.textContent = '';
-      for (const o of echt.options) {
-        art.append(el('option', { value: o.value, textContent: o.textContent }));
+              || document.querySelector('#minileiste select[data-befehl="fontName"]')
+              || document.getElementById('schriftart');
+    if (!art || !echt || !echt.options.length
+        || art.options.length === echt.options.length) return;
+    const stand = art.value;
+    art.textContent = '';
+    // Mit den Gruppen: die Favoriten stehen drueben in einer eigenen, und
+    // ohne sie waeren sie irgendwo in der Liste - gerade die, die man sucht.
+    for (const kind of echt.children) {
+      if (kind.tagName === 'OPTGROUP') {
+        const g = el('optgroup', { label: kind.label });
+        for (const o of kind.children) {
+          g.append(el('option', { value: o.value, textContent: o.textContent }));
+        }
+        art.append(g);
+      } else {
+        art.append(el('option', { value: kind.value, textContent: kind.textContent }));
       }
     }
+    if (stand) art.value = stand;
+  }
+
+  function formatleisteFrischen(wirt) {
+    if (!wirt) return;
+    flSchriftenSpiegeln(wirt);
     const klappe = wirt.querySelector('.fl-liste');
     if (klappe) klappe.remove();
     for (const [waehler, befehl] of [['.fl-art', 'fontName'], ['.fl-groesse', 'fontSize']]) {
@@ -3050,6 +3095,14 @@
     document.addEventListener('selectionchange', function () {
       if (!leiste.hidden) formatleisteFrischen(neu);
     });
+    // Beim Ziehen mit der Maus geht die Leiste erst beim Loslassen auf - und
+    // dabei kommt kein selectionchange mehr. Deshalb am Zustand der Leiste
+    // selbst haengen: wird sie sichtbar, wird sie auch aufgefrischt.
+    if (window.MutationObserver) {
+      new MutationObserver(function () {
+        if (!leiste.hidden) formatleisteFrischen(neu);
+      }).observe(leiste, { attributes: true, attributeFilter: ['hidden'] });
+    }
   }
 
   function formatleistenBauen() {
@@ -3079,6 +3132,7 @@
       .fl-taste.an { background: color-mix(in srgb, var(--akzent) 25%, transparent); }
       .fl-pfeil { font-size: 9px; opacity: .7; }
       .fl-sinn { font-size: 13px; }
+      .fl-bild { display: block; }
       .fl-haken { color: var(--akzent); font-size: 13px; }
       .fl-weg { opacity: .6; }
       .fl-marker { background: #ffe680; color: #1f1d1a; padding: 0 3px; border-radius: 2px; }
