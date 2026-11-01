@@ -515,6 +515,23 @@ Die Fensterfassung kennt das Attribut noch nicht. Sie zeigt eine so gesetzte
 Liste mit ihren eigenen Zahlen, und wird die Seite **dort** gespeichert, ist
 die Art weg. Der Text bleibt.
 
+## Platinen: ein Gerber-ZIP in der Notiz
+
+Hängt an einer Notiz ein **Gerber-Paket** (das ZIP, das man zur Platinenfirma
+schickt), steht die Platine da statt der 📎-Kachel: Träger, Kupfer, Bohrungen
+und Bestückungsdruck, **ziehen schiebt, Rad zoomt, Doppelklick stellt zurück**,
+und ein Knopf oben rechts dreht sie auf die Unterseite.
+
+Gelesen werden die üblichen Endungen (GTL, GBL, GTO, GBO, GKO, DRL …) und die
+Namen, die KiCad und EasyEDA vergeben. Ein ZIP ohne Gerber bleibt eine ganz
+normale Kachel — ohne Meldung, es hat ja niemand eine Platine erwartet.
+
+**Was hier nicht geht:** die Bauteile als Körper, so wie es JLCPCB im Browser
+zeigt. Die stecken in keiner dieser Dateien; JLCPCB holt sie über die
+Bauteilnummer aus seiner eigenen Bibliothek. Dafür müsste der Server bei jedem
+Öffnen einer Notiz dorthin funken — und damit wären die Stücklisten aus einer
+selbst gehosteten Mappe draußen im Netz.
+
 ## 3D-Dateien in der Notiz
 
 Ein Anhang mit `.stl`, `.obj` oder `.fbx` wird nicht als Kachel gezeichnet,
@@ -597,6 +614,7 @@ Die anderen prüfen je eine Sache, und jede steht wegen eines echten Fehlers da:
 | `test_ablage.py` | NAS-Einstellungen: nichts, was in einer Mount-Option etwas anderes bedeuten könnte |
 | `test_selbst.py` | das Nachladen einer Fassung und vor allem den Weg zurück |
 | `test_leiste.py` | die Formatleiste: dass hinter jedem Knopf der richtige Befehl steckt, und dass im Rechtsklickmenü nicht zwei Leisten übereinander stehen |
+| `test_platine.py` | Gerber: ZIP auspacken, Koordinatenformat, Zoll, Bohrdatei — und ob die Platine am Ende wirklich im Bild liegt und von unten gespiegelt ist |
 | `test_modell.py` | STL, OBJ und FBX einlesen, und ob das Teil wirklich im Bild liegt |
 | `test_reiter.py`, `test_zerren.py`, `test_glaetten.py`, `test_balken.py` | Oberflächensachen in einem nachgebauten DOM: Reiter, Griffe, Glätten, Update-Balken |
 

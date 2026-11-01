@@ -3535,6 +3535,694 @@
            + wann;
   }
 
+  /* ------------------------------------------------- Platinen (Gerber-ZIP)
+
+     Ein Gerber-Paket ist kein Modell, sondern ein Stapel Zeichnungen: je eine
+     Datei fuer Kupfer oben, Kupfer unten, Bestueckungsdruck, Umriss, dazu die
+     Bohrdatei. Uebereinandergelegt ergibt das die Platine - von oben und von
+     unten.
+
+     Kein gekipptes 3D und kein Foto: die Koerper der Bauteile stehen in
+     keiner dieser Dateien. Die holt JLCPCB aus seiner eigenen Bibliothek
+     ueber die Bauteilnummer. Hier steht nur, was wirklich in der Datei steht.
+
+     Wieder ohne fremde Bibliothek: ein ZIP ist ein Verzeichnis am Ende der
+     Datei, auspacken kann der Browser selbst (DecompressionStream), und
+     Gerber ist eine Textsprache mit einer Handvoll Befehlen. */
+
+  const PCB_MAX_EINTRAEGE = 300;
+  const PCB_MAX_ENTPACKT = 40 * 1024 * 1024;   // je Datei
+  const PCB_MAX_STUECKE = 400000;              // Striche und Flaechen gesamt
+  const PCB_BOGEN = 24;                        // Ecken je Viertelkreis
+
+  /* --- ZIP ---------------------------------------------------------------- */
+
+  async function entpacken(roh) {
+    if (!window.DecompressionStream) {
+      throw new Error('dieser Browser kann kein ZIP auspacken');
+    }
+    const strom = new Blob([roh]).stream()
+      .pipeThrough(new DecompressionStream('deflate-raw'));
+    return new Uint8Array(await new Response(strom).arrayBuffer());
+  }
+
+  /* Gelesen wird ueber das Verzeichnis am Ende, nicht der Reihe nach durch
+     die Datei: nur dort steht sicher, wie lang ein Eintrag gepackt ist. Im
+     lokalen Kopf darf die Laenge fehlen (dann steht sie hinter den Daten). */
+  async function zipLesen(puffer) {
+    const b = new Uint8Array(puffer);
+    const sicht = new DataView(puffer);
+    let e = -1;
+    for (let i = b.length - 22; i >= Math.max(0, b.length - 66000); i--) {
+      if (sicht.getUint32(i, true) === 0x06054b50) { e = i; break; }
+    }
+    if (e < 0) throw new Error('kein ZIP-Verzeichnis gefunden');
+    const anzahl = sicht.getUint16(e + 10, true);
+    let p = sicht.getUint32(e + 16, true);
+    const aus = [];
+    for (let i = 0; i < anzahl && i < PCB_MAX_EINTRAEGE; i++) {
+      if (p + 46 > b.length || sicht.getUint32(p, true) !== 0x02014b50) break;
+      const art = sicht.getUint16(p + 10, true);
+      const klein = sicht.getUint32(p + 20, true);
+      const gross = sicht.getUint32(p + 24, true);
+      const nl = sicht.getUint16(p + 28, true);
+      const xl = sicht.getUint16(p + 30, true);
+      const kl = sicht.getUint16(p + 32, true);
+      const wo = sicht.getUint32(p + 42, true);
+      const name = new TextDecoder().decode(b.slice(p + 46, p + 46 + nl));
+      p += 46 + nl + xl + kl;
+      if (gross > PCB_MAX_ENTPACKT) continue;        // Packbombe
+      if (name.endsWith('/') || wo + 30 > b.length) continue;
+      if (sicht.getUint32(wo, true) !== 0x04034b50) continue;
+      const anfang = wo + 30 + sicht.getUint16(wo + 26, true)
+                   + sicht.getUint16(wo + 28, true);
+      const roh = b.slice(anfang, anfang + klein);
+      let daten = null;
+      if (art === 0) daten = roh;
+      else if (art === 8) daten = await entpacken(roh);
+      else continue;                                  // andere Packart: selten
+      aus.push({ name: name, daten: daten });
+    }
+    return aus;
+  }
+
+  /* --- Welche Datei ist welche Lage? --------------------------------------
+
+     Die Endung sagt es meistens (GTL, GBL, GTO, GKO, DRL), aber nicht jedes
+     Programm haelt sich daran - KiCad schreibt "F_Cu.gbr", EasyEDA
+     "Gerber_TopLayer.GTL". Deshalb beides: erst die Endung, dann der Name. */
+  const PCB_LAGEN = [
+    ['bohren', /\.(drl|xln|tap|nc)$/i, /drill|bohr|npth|\bpth\b/i],
+    ['umriss', /\.(gko|gm1|gm2|gml)$/i, /outline|edge[._-]?cuts|boardoutline|profile|contour/i],
+    ['kupfer-oben', /\.(gtl|cmp)$/i, /top[._-]?(layer|copper)|f[._-]cu|copper[._-]?top/i],
+    ['kupfer-unten', /\.(gbl|sol)$/i, /bottom[._-]?(layer|copper)|b[._-]cu|copper[._-]?bottom/i],
+    ['druck-oben', /\.(gto|plc)$/i, /top[._-]?(silk|overlay)|f[._-]silk/i],
+    ['druck-unten', /\.(gbo|pls)$/i, /bottom[._-]?(silk|overlay)|b[._-]silk/i],
+    ['lot-oben', /\.(gts|stc)$/i, /top[._-]?(solder)?mask|f[._-]mask/i],
+    ['lot-unten', /\.(gbs|sts)$/i, /bottom[._-]?(solder)?mask|b[._-]mask/i],
+  ];
+
+  function lageVon(name) {
+    const kurz = String(name || '').replace(/^.*\//, '');
+    for (const [lage, endung] of PCB_LAGEN) if (endung.test(kurz)) return lage;
+    for (const [lage, , wort] of PCB_LAGEN) if (wort.test(kurz)) return lage;
+    // Eine .txt ohne sprechenden Namen kann die Bohrdatei sein - das sagt
+    // ihr Inhalt, nicht ihr Name. Entschieden wird das beim Lesen.
+    if (/\.(txt|gbr|ger|art|pho)$/i.test(kurz)) return 'unklar';
+    return null;
+  }
+
+  /* --- Gerber lesen -------------------------------------------------------
+
+     Gerber ist eine Folge von Befehlen, jeder mit * abgeschlossen; was
+     zwischen zwei % steht, sind Einstellungen (Format, Einheit, Blenden).
+     Gezeichnet wird mit einer "Blende" (aperture): D01 zieht damit einen
+     Strich, D03 drueckt sie einmal ab, D02 setzt nur den Stift um.
+
+     Herauskommt eine flache Liste aus Strichen, Abdruecken und Flaechen, alle
+     in Millimetern. Was davon spaeter welche Farbe bekommt, entscheidet die
+     Lage, nicht diese Funktion. */
+  function gerberLesen(text) {
+    const blenden = {};
+    const stuecke = [];
+    let nullen = 'L';
+    let nach = 6;
+    let ganz = 3;
+    let maß = 1;                  // 1 = mm, 25.4 = Zoll
+    let blende = null;
+    let modus = 1;                // G01 gerade, G02/G03 Bogen
+    let mehrquadrant = true;      // G75
+    let loeschen = false;         // LPC: wegnehmen statt auftragen
+    let x = 0;
+    let y = 0;
+    let flaeche = null;           // laeuft gerade ein G36-Bereich?
+    let zug = null;
+
+    function koord(s) {
+      const minus = s.charAt(0) === '-';
+      let ziffern = s.replace(/^[+-]/, '');
+      // Fehlende Nullen stehen vorn (L) oder hinten (T). Steht es hinten,
+      // ist "1" nicht 0,000001 sondern 1,0 - der haeufigste Lesefehler.
+      if (nullen === 'T') ziffern = ziffern.padEnd(ganz + nach, '0');
+      const wert = parseInt(ziffern, 10) / Math.pow(10, nach);
+      return (minus ? -wert : wert) * maß;
+    }
+
+    function parameter(teil) {
+      let m = /^FS([LT])[AI]X(\d)(\d)Y\d\d/.exec(teil);
+      if (m) { nullen = m[1]; ganz = +m[2]; nach = +m[3]; return; }
+      if (/^MOIN/.test(teil)) { maß = 25.4; return; }
+      if (/^MOMM/.test(teil)) { maß = 1; return; }
+      if (/^LPC/.test(teil)) { loeschen = true; return; }
+      if (/^LPD/.test(teil)) { loeschen = false; return; }
+      m = /^ADD(\d+)([A-Za-z_$][\w$.-]*)(?:,(.*))?$/.exec(teil);
+      if (m) {
+        const werte = (m[3] || '').split('X').map(parseFloat)
+          .filter(function (w) { return w === w; });
+        blenden[+m[1]] = { form: m[2], werte: werte.map(function (w) { return w * maß; }) };
+      }
+      // AM (eigene Blendenformen) und der Rest bleiben aussen vor: fuer das
+      // Bild genuegt die Groesse, und die steht in der ersten Zahl.
+    }
+
+    function groesse(b) {
+      if (!b) return 0.15 * maß;
+      if (b.form === 'R' || b.form === 'O') {
+        return Math.min(b.werte[0] || 0, b.werte[1] || b.werte[0] || 0) || 0.15;
+      }
+      return b.werte[0] || 0.15;
+    }
+
+    function bogen(x0, y0, x1, y1, i, j, uhrzeiger) {
+      const mx = x0 + i;
+      const my = y0 + j;
+      const r = Math.hypot(x0 - mx, y0 - my);
+      let a0 = Math.atan2(y0 - my, x0 - mx);
+      let a1 = Math.atan2(y1 - my, x1 - mx);
+      let d = a1 - a0;
+      if (uhrzeiger) { while (d > 0) d -= 2 * Math.PI; } else { while (d < 0) d += 2 * Math.PI; }
+      // Voller Kreis: Anfang gleich Ende. Dann ist die Drehung nicht null,
+      // sondern einmal herum - sonst faellt der Kreis weg.
+      if (Math.abs(d) < 1e-9 && Math.hypot(x1 - x0, y1 - y0) < 1e-9) {
+        d = uhrzeiger ? -2 * Math.PI : 2 * Math.PI;
+      }
+      const n = Math.max(2, Math.ceil(Math.abs(d) / (Math.PI / 2) * PCB_BOGEN));
+      const punkte = [];
+      for (let k = 1; k <= n; k++) {
+        const a = a0 + d * (k / n);
+        punkte.push([mx + r * Math.cos(a), my + r * Math.sin(a)]);
+      }
+      return punkte;
+    }
+
+    function hin(zx, zy, i, j) {
+      if (modus === 1) return [[zx, zy]];
+      return bogen(x, y, zx, zy, i, j, modus === 2);
+    }
+
+    function kommando(b) {
+      if (/^G0*4/.test(b) || /^M0/.test(b)) return;     // Kommentar, Ende
+      if (/^G0*36/.test(b)) { flaeche = []; return; }
+      if (/^G0*37/.test(b)) {
+        if (flaeche && flaeche.length > 2) {
+          stuecke.push({ t: 'flaeche', punkte: flaeche, weg: loeschen });
+        }
+        flaeche = null;
+        return;
+      }
+      let m = /^G0*([0-9]+)/.exec(b);
+      if (m) {
+        const n = +m[1];
+        if (n === 1 || n === 2 || n === 3) modus = n;
+        else if (n === 74) mehrquadrant = false;
+        else if (n === 75) mehrquadrant = true;
+      }
+      m = /D0*(\d+)\s*$/.exec(b);
+      let tun = 0;
+      if (m) {
+        const d = +m[1];
+        if (d >= 10) { blende = d; if (!/[XY]/.test(b)) return; } else tun = d;
+      }
+      const nx = /X([+-]?\d+)/.exec(b);
+      const ny = /Y([+-]?\d+)/.exec(b);
+      const ni = /I([+-]?\d+)/.exec(b);
+      const nj = /J([+-]?\d+)/.exec(b);
+      if (!nx && !ny && !tun) return;
+      const zx = nx ? koord(nx[1]) : x;
+      const zy = ny ? koord(ny[1]) : y;
+      const i = ni ? koord(ni[1]) : 0;
+      const j = nj ? koord(nj[1]) : 0;
+      if (stuecke.length > PCB_MAX_STUECKE) return;
+      if (tun === 1) {
+        const weg = hin(zx, zy, i, j);
+        if (flaeche) {
+          if (!flaeche.length) flaeche.push([x, y]);
+          for (const p of weg) flaeche.push(p);
+        } else {
+          if (!zug || zug.weg !== loeschen || zug.breite !== groesse(blenden[blende])
+              || zug.punkte[zug.punkte.length - 1][0] !== x
+              || zug.punkte[zug.punkte.length - 1][1] !== y) {
+            zug = { t: 'zug', punkte: [[x, y]], breite: groesse(blenden[blende]),
+                    eckig: (blenden[blende] || {}).form === 'R', weg: loeschen };
+            stuecke.push(zug);
+          }
+          for (const p of weg) zug.punkte.push(p);
+        }
+      } else if (tun === 3) {
+        stuecke.push({ t: 'abdruck', x: zx, y: zy, blende: blenden[blende] || null,
+                       weg: loeschen });
+        zug = null;
+      } else {
+        zug = null;                       // D02: der Stift setzt neu an
+        if (flaeche && flaeche.length > 2) {
+          stuecke.push({ t: 'flaeche', punkte: flaeche, weg: loeschen });
+          flaeche = [];
+        }
+      }
+      x = zx;
+      y = zy;
+    }
+
+    let p = 0;
+    while (p < text.length) {
+      // Zeilenumbrueche zuerst weg: steht einer vor dem %, sucht die
+      // Befehlsseite sonst das naechste * - und das steht im Parameterblock.
+      if (/\s/.test(text.charAt(p))) { p++; continue; }
+      if (text.charAt(p) === '%') {
+        const ende = text.indexOf('%', p + 1);
+        if (ende < 0) break;
+        for (const teil of text.slice(p + 1, ende).split('*')) {
+          if (teil.trim()) parameter(teil.trim());
+        }
+        p = ende + 1;
+      } else {
+        const ende = text.indexOf('*', p);
+        if (ende < 0) break;
+        const b = text.slice(p, ende).trim();
+        if (b) kommando(b);
+        p = ende + 1;
+      }
+    }
+    return stuecke;
+  }
+
+  /* --- Bohrdatei (Excellon) ----------------------------------------------
+
+     Viel aelter und viel schlampiger als Gerber: die Einheit steht irgendwo
+     im Kopf, und ob die Koordinate "3175" nun 3,175 mm oder 31,75 mm heisst,
+     steht oft gar nicht da. Steht ein Punkt drin, ist alles klar - sonst
+     gilt die uebliche Annahme (metrisch drei Nachkommastellen). */
+  function bohrLesen(text) {
+    const werkzeuge = {};
+    const loecher = [];
+    let maß = 1;
+    let nach = 3;
+    let jetzt = 0;
+
+    function zahl(s) {
+      if (s.indexOf('.') >= 0) return parseFloat(s) * maß;
+      const minus = s.charAt(0) === '-';
+      const ziffern = s.replace(/^[+-]/, '');
+      const wert = parseInt(ziffern, 10) / Math.pow(10, nach);
+      return (minus ? -wert : wert) * maß;
+    }
+
+    for (const zeile of String(text).split(/\r?\n/)) {
+      const z = zeile.trim();
+      if (!z || z.charAt(0) === ';') continue;
+      if (/^(METRIC|M71)/.test(z)) { maß = 1; nach = 3; continue; }
+      if (/^(INCH|M72)/.test(z)) { maß = 25.4; nach = 4; continue; }
+      let m = /^T(\d+)[^C]*C\s*([\d.]+)/.exec(z);
+      if (m) { werkzeuge[+m[1]] = parseFloat(m[2]) * maß; continue; }
+      m = /^T(\d+)\s*$/.exec(z);
+      if (m) { jetzt = +m[1]; continue; }
+      m = /X([+-]?[\d.]+)\s*Y([+-]?[\d.]+)/.exec(z);
+      if (m) {
+        loecher.push({ x: zahl(m[1]), y: zahl(m[2]), d: werkzeuge[jetzt] || 0.3 });
+      }
+    }
+    return loecher;
+  }
+
+  function istBohrdatei(text) {
+    return /^\s*(M48|;.*(drill|Excellon))/i.test(text) || /^T\d+C[\d.]/m.test(text);
+  }
+
+  /* --- Aus den Dateien eine Platine machen -------------------------------- */
+
+  const PCB_SEITEN = {
+    oben: { kupfer: 'kupfer-oben', druck: 'druck-oben' },
+    unten: { kupfer: 'kupfer-unten', druck: 'druck-unten' },
+  };
+
+  function textVon(daten) {
+    return new TextDecoder('utf-8', { fatal: false }).decode(daten);
+  }
+
+  function platinePacken(dateien) {
+    const lagen = {};
+    const loecher = [];
+    const namen = [];
+    for (const d of dateien) {
+      const lage = lageVon(d.name);
+      if (!lage) continue;
+      const text = textVon(d.daten);
+      if (lage === 'bohren' || (lage === 'unklar' && istBohrdatei(text))) {
+        for (const l of bohrLesen(text)) loecher.push(l);
+        namen.push(d.name);
+        continue;
+      }
+      if (lage === 'unklar') continue;
+      const stuecke = gerberLesen(text);
+      if (!stuecke.length) continue;
+      lagen[lage] = (lagen[lage] || []).concat(stuecke);
+      namen.push(d.name);
+    }
+    return { lagen: lagen, loecher: loecher, namen: namen,
+             umriss: umrissNaehen(lagen['umriss'] || []) };
+  }
+
+  /* Der Umriss kommt als lose Striche, nicht als Flaeche: vier Linien, oder
+     bei abgerundeten Ecken ein Dutzend Stuecke. Zum Fuellen muessen sie erst
+     wieder zu einem Ring werden - also Ende an Anfang naehen. */
+  function umrissNaehen(stuecke) {
+    const nah = function (a, b) {
+      return Math.abs(a[0] - b[0]) < 0.02 && Math.abs(a[1] - b[1]) < 0.02;
+    };
+    const offen = [];
+    for (const s of stuecke) {
+      if (s.t === 'flaeche') offen.push(s.punkte.slice());
+      else if (s.t === 'zug' && s.punkte.length > 1) offen.push(s.punkte.slice());
+    }
+    const ringe = [];
+    while (offen.length) {
+      let kette = offen.pop();
+      let weiter = true;
+      while (weiter) {
+        weiter = false;
+        for (let i = 0; i < offen.length; i++) {
+          const k = offen[i];
+          const vorn = kette[0];
+          const hinten = kette[kette.length - 1];
+          if (nah(hinten, k[0])) kette = kette.concat(k.slice(1));
+          else if (nah(hinten, k[k.length - 1])) kette = kette.concat(k.slice().reverse().slice(1));
+          else if (nah(vorn, k[k.length - 1])) kette = k.slice(0, -1).concat(kette);
+          else if (nah(vorn, k[0])) kette = k.slice().reverse().slice(0, -1).concat(kette);
+          else continue;
+          offen.splice(i, 1);
+          weiter = true;
+          break;
+        }
+      }
+      if (kette.length > 2) ringe.push(kette);
+    }
+    return ringe;
+  }
+
+  function pcbRahmen(platine) {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    const nimm = function (x, y) {
+      if (x < x0) x0 = x; if (x > x1) x1 = x;
+      if (y < y0) y0 = y; if (y > y1) y1 = y;
+    };
+    for (const ring of platine.umriss) for (const p of ring) nimm(p[0], p[1]);
+    if (!platine.umriss.length) {
+      for (const lage of Object.keys(platine.lagen)) {
+        for (const s of platine.lagen[lage]) {
+          if (s.t === 'abdruck') nimm(s.x, s.y);
+          else for (const p of s.punkte) nimm(p[0], p[1]);
+        }
+      }
+      for (const l of platine.loecher) nimm(l.x, l.y);
+    }
+    if (!(x1 > x0)) return null;
+    return { x0: x0, y0: y0, x1: x1, y1: y1, breit: x1 - x0, hoch: y1 - y0 };
+  }
+
+  /* --- Malen --------------------------------------------------------------
+
+     Alles in Millimetern: die Umrechnung macht die Matrix der Zeichenflaeche.
+     Dadurch stimmt auch die Strichbreite ohne Nachrechnen, und die Unterseite
+     ist nur ein gespiegeltes Vorzeichen. */
+
+  function pcbPfad(ctx, punkte, zu) {
+    ctx.beginPath();
+    ctx.moveTo(punkte[0][0], punkte[0][1]);
+    for (let i = 1; i < punkte.length; i++) ctx.lineTo(punkte[i][0], punkte[i][1]);
+    if (zu) ctx.closePath();
+  }
+
+  function abdruckMalen(ctx, s) {
+    const b = s.blende || { form: 'C', werte: [0.2] };
+    const w = b.werte || [];
+    if (b.form === 'R' || b.form === 'O') {
+      const bx = w[0] || 0.2;
+      const by = w[1] || bx;
+      if (b.form === 'O' && ctx.roundRect) {
+        ctx.beginPath();
+        ctx.roundRect(s.x - bx / 2, s.y - by / 2, bx, by, Math.min(bx, by) / 2);
+        ctx.fill();
+      } else {
+        ctx.fillRect(s.x - bx / 2, s.y - by / 2, bx, by);
+      }
+      return;
+    }
+    if (b.form === 'P' && w.length >= 2) {
+      const r = (w[0] || 0.2) / 2;
+      const ecken = Math.max(3, Math.round(w[1] || 6));
+      const dreh = (w[2] || 0) * Math.PI / 180;
+      ctx.beginPath();
+      for (let i = 0; i < ecken; i++) {
+        const a = dreh + i * 2 * Math.PI / ecken;
+        const px = s.x + r * Math.cos(a);
+        const py = s.y + r * Math.sin(a);
+        if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py);
+      }
+      ctx.closePath();
+      ctx.fill();
+      return;
+    }
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, (w[0] || 0.2) / 2, 0, 2 * Math.PI);
+    ctx.fill();
+  }
+
+  function lageMalen(ctx, stuecke, farbe) {
+    if (!stuecke || !stuecke.length) return;
+    ctx.save();
+    ctx.fillStyle = farbe;
+    ctx.strokeStyle = farbe;
+    ctx.lineJoin = 'round';
+    for (const s of stuecke) {
+      // LPC heisst: hier wird wieder weggenommen, was schon da war - so
+      // entstehen Freistellungen im Kupfer. Mit "destination-out" macht das
+      // die Zeichenflaeche selbst.
+      ctx.globalCompositeOperation = s.weg ? 'destination-out' : 'source-over';
+      if (s.t === 'zug') {
+        ctx.lineWidth = Math.max(s.breite, 0.02);
+        ctx.lineCap = s.eckig ? 'butt' : 'round';
+        pcbPfad(ctx, s.punkte, false);
+        ctx.stroke();
+      } else if (s.t === 'flaeche') {
+        pcbPfad(ctx, s.punkte, true);
+        ctx.fill();
+      } else {
+        abdruckMalen(ctx, s);
+      }
+    }
+    ctx.restore();
+  }
+
+  const PCB_FARBEN = {
+    traeger: '#0d5c38', traegerRand: '#0a3f27',
+    kupfer: '#d8a93c', druck: '#f2f4f5', loch: '#0b0c0d',
+  };
+
+  function platineZeichnen(z) {
+    const c = z.bild;
+    if (!c || !z.platine) return;
+    const kasten = z.wo.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const br = Math.max(1, Math.round(kasten.width * dpr));
+    const ho = Math.max(1, Math.round(kasten.height * dpr));
+    if (c.width !== br || c.height !== ho) { c.width = br; c.height = ho; }
+    const ctx = c.getContext('2d');
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, br, ho);
+    const r = z.rahmen;
+    if (!r) return;
+    const rand = 1.0;                                  // mm Luft ringsum
+    const k = Math.min(br / (r.breit + 2 * rand), ho / (r.hoch + 2 * rand)) * z.zoom;
+    const mx = (r.x0 + r.x1) / 2;
+    const my = (r.y0 + r.y1) / 2;
+    const spiegel = z.seite === 'unten' ? -1 : 1;
+    // y zeigt in Gerber nach oben, auf der Zeichenflaeche nach unten.
+    ctx.setTransform(k * spiegel, 0, 0, -k, br / 2 + z.ox, ho / 2 + z.oy);
+    ctx.translate(-mx, -my);
+
+    // Der Traeger: die Ringe des Umrisses als ein Pfad, mit Evenodd - dann
+    // bleiben Ausschnitte innen auch Ausschnitte.
+    ctx.save();
+    if (z.platine.umriss.length) {
+      ctx.beginPath();
+      for (const ring of z.platine.umriss) {
+        ctx.moveTo(ring[0][0], ring[0][1]);
+        for (let i = 1; i < ring.length; i++) ctx.lineTo(ring[i][0], ring[i][1]);
+        ctx.closePath();
+      }
+      ctx.fillStyle = PCB_FARBEN.traeger;
+      ctx.fill('evenodd');
+      ctx.lineWidth = 0.15;
+      ctx.strokeStyle = PCB_FARBEN.traegerRand;
+      ctx.stroke();
+      ctx.clip('evenodd');
+    } else {
+      ctx.fillStyle = PCB_FARBEN.traeger;
+      ctx.fillRect(r.x0, r.y0, r.breit, r.hoch);
+    }
+
+    const seite = PCB_SEITEN[z.seite] || PCB_SEITEN.oben;
+    lageMalen(ctx, z.platine.lagen[seite.kupfer], PCB_FARBEN.kupfer);
+    // Die Bohrungen sitzen durch die ganze Platine - also nach dem Kupfer
+    // und vor dem Aufdruck.
+    ctx.fillStyle = PCB_FARBEN.loch;
+    for (const l of z.platine.loecher) {
+      ctx.beginPath();
+      ctx.arc(l.x, l.y, Math.max(l.d, 0.05) / 2, 0, 2 * Math.PI);
+      ctx.fill();
+    }
+    lageMalen(ctx, z.platine.lagen[seite.druck], PCB_FARBEN.druck);
+    ctx.restore();
+  }
+
+  /* --- Der Kasten ---------------------------------------------------------- */
+
+  async function platineStarten(z) {
+    if (z.laeuft) return;
+    z.laeuft = true;
+    let puffer;
+    try {
+      puffer = await modellHolen(z.datei);
+    } catch (f) {
+      kachelBehalten(z, 'Platine ließ sich nicht holen: ' + f.message);
+      return;
+    }
+    let dateien;
+    try {
+      dateien = await zipLesen(puffer);
+    } catch (f) {
+      kachelBehalten(z, 'ZIP ließ sich nicht öffnen: ' + f.message
+                        + ' (' + puffer.byteLength + ' Byte)');
+      return;
+    }
+    let platine;
+    try {
+      platine = platinePacken(dateien);
+    } catch (f) {
+      kachelBehalten(z, 'Gerber ließ sich nicht lesen: ' + f.message);
+      return;
+    }
+    if (!platine.namen.length) {
+      // Die meisten ZIPs sind einfach ZIPs. Darunter eine rote Zeile zu
+      // setzen, waere Laerm: niemand hat hier eine Platine erwartet. Anders,
+      // wenn Gerber-Dateien drin sind und trotzdem nichts dabei herauskommt -
+      // dann will man wissen, warum.
+      const gerber = dateien.filter(function (d) {
+        const l = lageVon(d.name);
+        return l && l !== 'unklar';
+      });
+      if (!gerber.length) { kachelBehalten(z, ''); return; }
+      const liste = gerber.slice(0, 4).map(function (d) { return d.name; }).join(', ');
+      kachelBehalten(z, 'Gerber gefunden, aber keine Linie darin (' + liste + ')');
+      return;
+    }
+    z.platine = platine;
+    z.rahmen = pcbRahmen(platine);
+    if (!z.rahmen) {
+      kachelBehalten(z, 'Die Gerber-Dateien sind leer - keine einzige Linie darin.');
+      return;
+    }
+    const zaehler = z.kasten.querySelector('.dzahl');
+    if (zaehler) {
+      zaehler.textContent = z.rahmen.breit.toFixed(1).replace('.', ',') + ' × '
+        + z.rahmen.hoch.toFixed(1).replace('.', ',') + ' mm · '
+        + platine.loecher.length + ' Bohrungen';
+    }
+    if (!platine.lagen['kupfer-unten'] && !platine.lagen['druck-unten']) {
+      const knopf = z.wo.querySelector('.pcbseite');
+      if (knopf) knopf.hidden = true;        // einseitig: nichts zum Wenden
+    }
+    platineZeichnen(z);
+  }
+
+  function platineGriffe(z) {
+    const c = z.bild;
+    let zieht = false;
+    let zx = 0;
+    let zy = 0;
+    c.addEventListener('pointerdown', function (ev) {
+      zieht = true;
+      zx = ev.clientX;
+      zy = ev.clientY;
+      c.setPointerCapture(ev.pointerId);
+      ev.stopPropagation();           // nicht den Kasten mitziehen
+      ev.preventDefault();
+    });
+    c.addEventListener('pointermove', function (ev) {
+      if (!zieht) return;
+      const dpr = window.devicePixelRatio || 1;
+      z.ox += (ev.clientX - zx) * dpr;
+      z.oy += (ev.clientY - zy) * dpr;
+      zx = ev.clientX;
+      zy = ev.clientY;
+      platineZeichnen(z);
+    });
+    const los = function (ev) {
+      zieht = false;
+      try { c.releasePointerCapture(ev.pointerId); } catch (f) { /* egal */ }
+    };
+    c.addEventListener('pointerup', los);
+    c.addEventListener('pointercancel', los);
+    c.addEventListener('wheel', function (ev) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      z.zoom = Math.max(0.3, Math.min(40, z.zoom * (ev.deltaY > 0 ? 0.88 : 1.14)));
+      platineZeichnen(z);
+    }, { passive: false });
+    c.addEventListener('dblclick', function (ev) {
+      ev.stopPropagation();
+      z.zoom = 1;
+      z.ox = 0;
+      z.oy = 0;
+      platineZeichnen(z);
+    });
+  }
+
+  function platineKasten(kasten, datei) {
+    kasten.dataset.modell = 'ja';
+    kasten.classList.add('kasten-pcb');
+    const bild = el('canvas', {});
+    const lade = el('p', { className: 'lade', textContent: 'Platine wird gelesen …' });
+    const seite = el('button', { type: 'button', className: 'pcbseite',
+                                 title: 'Auf die andere Seite sehen',
+                                 textContent: 'Unterseite' });
+    const wo = el('div', { className: 'modell pcb' }, [bild, lade, seite]);
+    const kachel = kasten.querySelector('.datei');
+    if (kachel) {
+      kachel.before(wo);
+      kachel.append(el('span', { className: 'dzahl', textContent: '…' }));
+    } else {
+      kasten.append(wo);
+    }
+
+    const z = { kasten: kasten, wo: wo, bild: bild, datei: datei, platine: null,
+                rahmen: null, seite: 'oben', zoom: 1, ox: 0, oy: 0, laeuft: false };
+    seite.addEventListener('click', function (ev) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      z.seite = z.seite === 'oben' ? 'unten' : 'oben';
+      seite.textContent = z.seite === 'oben' ? 'Unterseite' : 'Oberseite';
+      platineZeichnen(z);
+    });
+    platineGriffe(z);
+
+    const sehen = new IntersectionObserver(function (treffer) {
+      for (const t of treffer) {
+        if (!t.isIntersecting) continue;
+        sehen.disconnect();
+        platineStarten(z).then(function () { lade.remove(); },
+                               function (f) {
+                                 lade.remove();
+                                 kachelBehalten(z, 'Platine: ' + f.message);
+                               });
+      }
+    }, { rootMargin: '200px' });
+    sehen.observe(wo);
+    if (window.ResizeObserver) {
+      new ResizeObserver(function () { platineZeichnen(z); }).observe(wo);
+    }
+  }
+
   /* ----------------------------------------------------------- 3D-Anhaenge
 
      Eine .stl kam bisher als 📎-Kachel in die Notiz: man sah den Namen und
@@ -4307,6 +4995,7 @@
     // kommt. In der Notiz gespeichert wird davon nichts.
     if (z.wo && z.wo.parentElement) z.wo.remove();
     z.kasten.classList.remove('kasten-3d');
+    z.kasten.classList.remove('kasten-pcb');
     const zaehler = z.kasten.querySelector('.dzahl');
     if (zaehler) zaehler.remove();
     if (!warum) return;
@@ -4359,7 +5048,13 @@
     const eintrag = (elemente || []).find(function (x) { return x.id === kasten.dataset.id; });
     const datei = eintrag ? eintrag.datei : '';
     const art = modellArt(datei);
-    if (!art) { kasten.dataset.modell = 'nein'; return; }
+    if (!art) {
+      // Ein ZIP kann ein Gerber-Paket sein - das sagt erst sein Inhalt.
+      if (/\.zip$/i.test(datei || '')) platineKasten(kasten, datei);
+      else kasten.dataset.modell = 'nein';
+      return;
+    }
+    if (!window.WebGLRenderingContext) { kasten.dataset.modell = 'nein'; return; }
     kasten.dataset.modell = 'ja';
     kasten.classList.add('kasten-3d');
 
@@ -4404,7 +5099,7 @@
   }
 
   function modelleBauen() {
-    if (!window.WebGLRenderingContext || !window.IntersectionObserver) return;
+    if (!window.IntersectionObserver) return;
     const stil = document.createElement('style');
     stil.textContent = `
       .kasten-3d .modell {
@@ -4430,6 +5125,19 @@
       .kasten-3d .datei { margin-top: 6px; }
       .kasten-3d .datei .zeichen { display: none; }
       .kasten-3d .dzahl { color: var(--matt); font-size: 11px; white-space: nowrap; }
+      .kasten-pcb .modell { aspect-ratio: 4 / 3; background: #101214; }
+      .kasten-pcb .modell canvas {
+        position: absolute; inset: 0; width: 100%; height: 100%;
+        display: block; touch-action: none; cursor: grab;
+      }
+      .kasten-pcb .pcbseite {
+        position: absolute; right: 6px; top: 6px; z-index: 2;
+        padding: 3px 8px; border: 1px solid var(--linie); border-radius: 4px;
+        background: rgba(16,18,20,.8); color: #e8eaec; font: inherit;
+        font-size: 11px; cursor: pointer;
+      }
+      .kasten-pcb .datei { margin-top: 6px; }
+      .kasten-pcb .datei .zeichen { display: none; }
       .kasten .modellfehler {
         margin: 4px 0 0; color: var(--warnung); font-size: 11px; line-height: 1.4;
       }

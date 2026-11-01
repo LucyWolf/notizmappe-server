@@ -44,6 +44,7 @@ jobs:
           python tests/test_unsinn.py
           python tests/test_verlauf.py
           python tests/test_leiste.py
+          python tests/test_platine.py
 
   bauen:
     needs: pruefen
