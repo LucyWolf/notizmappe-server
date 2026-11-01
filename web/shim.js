@@ -3284,6 +3284,7 @@
         border-top: 1px solid var(--linie); background: var(--leiste);
         border-radius: 0 0 8px 8px;
       }
+      .rm-aus { opacity: .45; pointer-events: none; }
     `;
     document.head.append(stil);
   }
@@ -3311,11 +3312,17 @@
     const menue = document.getElementById('rechtsmenue');
     const block = document.getElementById('rm-format');
     if (!menue || !block || menue.hidden) return;
-    // Auf der leeren Flaeche waere eine Formatleiste eine Reihe Knoepfe, die
-    // nichts tun.
-    block.hidden = !rmImText;
+    // Auf der leeren Flaeche ist kein Text da, den die Leiste aendern koennte.
+    // Trotzdem steht sie da: ein Menue, das mal lang und mal kurz ist, springt
+    // einem unter der Maus weg. Sie ist dann blass und nimmt keine Klicks an -
+    // so wie die vier Punkte drueben, die dort auch ausgegraut sind.
+    block.hidden = false;
+    block.classList.toggle('rm-aus', !rmImText);
     const link = document.getElementById('rm-link');
-    if (link) link.hidden = !rmImText;
+    if (link) {
+      link.hidden = false;
+      link.classList.toggle('rm-aus', !rmImText);
+    }
     if (rmImText) formatleisteFrischen(block.querySelector('.formatleiste'));
     const wer = document.getElementById('rm-wer');
     if (wer) wer.textContent = rmFusszeile();

@@ -387,7 +387,8 @@ print("\nBeim Rechtsklick ist die schwebende Leiste zu viel")
 # der Maus die Leiste zurueck - und das kommt nach dem Zumachen.
 teile2 = []
 for muster, name in ((r"^  function minileisteWeg\(.*?^  \}", "minileisteWeg"),
-                     (r"^  function minileisteHueten\(.*?^  \}", "minileisteHueten")):
+                     (r"^  function minileisteHueten\(.*?^  \}", "minileisteHueten"),
+                     (r"^  function rechtsmenueFrischen\(.*?^  \}", "rechtsmenueFrischen")):
     treffer = re.search(muster, shim, re.S | re.M)
     pruefe(f"{name} steht in shim.js", bool(treffer))
     if treffer:
@@ -400,21 +401,39 @@ class MutationObserver {
 }
 /* Nur so viel Knoten, wie es braucht: ein hidden, das Bescheid sagt. */
 class Knoten {
-  constructor() { this.versteckt = true; this.wecker = null; }
+  constructor() {
+    this.versteckt = true; this.wecker = null; this.style = {};
+    this.klassen = new Set(); this.textContent = '';
+    const selbst = this;
+    this.classList = {
+      add: (c) => selbst.klassen.add(c),
+      contains: (c) => selbst.klassen.has(c),
+      toggle: (c, an) => { if (an) selbst.klassen.add(c); else selbst.klassen.delete(c); },
+    };
+  }
   get hidden() { return this.versteckt; }
   set hidden(wert) {
     const anders = this.versteckt !== wert;
     this.versteckt = wert;
     if (anders && this.wecker) this.wecker();
   }
+  querySelector() { return null; }
+  getBoundingClientRect() { return { width: 236, height: 300 }; }
 }
 const leiste = new Knoten();
 const menue = new Knoten();
+const block = new Knoten();
+const link = new Knoten();
+const wer = new Knoten();
 const document = {
-  getElementById: (id) => (id === 'minileiste' ? leiste
-                           : id === 'rechtsmenue' ? menue : null),
+  getElementById: (id) => ({ minileiste: leiste, rechtsmenue: menue,
+                             'rm-format': block, 'rm-link': link,
+                             'rm-wer': wer })[id] || null,
 };
-const window = { MutationObserver };
+const window = { MutationObserver, innerWidth: 1200, innerHeight: 800 };
+let rmImText = false;
+function formatleisteFrischen() {}
+function rmFusszeile() { return 'lucy_wolf am 01.11.2026, 16:10'; }
 """ + "\n".join(teile2) + r"""
 
 const ergebnis = {};
@@ -437,6 +456,21 @@ ergebnis.bleibt_weg = leiste.hidden;
 menue.hidden = true;
 leiste.hidden = false;
 ergebnis.danach_wieder = !leiste.hidden;
+/* Rechtsklick in den Text und ins Leere: beide Male dasselbe Menue */
+menue.hidden = false;
+rmImText = true;
+rechtsmenueFrischen(40, 40);
+ergebnis.im_text = { leiste: !block.hidden, blass: block.klassen.has('rm-aus'),
+                     link: !link.hidden };
+rmImText = false;
+rechtsmenueFrischen(40, 40);
+ergebnis.im_leeren = { leiste: !block.hidden, blass: block.klassen.has('rm-aus'),
+                       link: !link.hidden, link_blass: link.klassen.has('rm-aus') };
+ergebnis.fuss = wer.textContent;
+// Am rechten Rand darf das Menue nicht hinausragen
+rechtsmenueFrischen(1190, 790);
+ergebnis.ecke = [menue.style.left, menue.style.top];
+
 process.stdout.write(JSON.stringify(ergebnis) + '\n');
 """
 
@@ -456,6 +490,18 @@ pruefe("beim Markieren ist sie da", z["beim_markieren"])
 pruefe("beim Rechtsklick geht sie weg", z["beim_rechtsklick"])
 pruefe("und bleibt weg, solange das Menü steht", z["bleibt_weg"])
 pruefe("ist das Menü zu, darf sie wieder", z["danach_wieder"])
+
+print("\nDas Menü sieht im Leeren aus wie im Text")
+# Vorher fehlten dort Leiste und Link - das Menue war halb so hoch und sprang
+# einem unter der Maus weg.
+pruefe("im Text: Leiste und Link da, nichts blass",
+       z["im_text"] == {"leiste": True, "blass": False, "link": True}, z["im_text"])
+pruefe("im Leeren: dieselben Teile, nur blass",
+       z["im_leeren"] == {"leiste": True, "blass": True, "link": True,
+                          "link_blass": True}, z["im_leeren"])
+pruefe("die Fußzeile steht drin", z["fuss"] != "", z["fuss"])
+pruefe("am Rand rutscht das Menü ins Bild",
+       z["ecke"] == ["956px", "492px"], z["ecke"])
 shutil.rmtree(ordner2, ignore_errors=True)
 
 shutil.rmtree(ordner, ignore_errors=True)
