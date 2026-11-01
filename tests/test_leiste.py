@@ -49,13 +49,18 @@ for muster, name in ((r"^  function el\(.*?^  \}", "el"),
                      (r"^  function flPinselZeigen\(.*?^  \}", "flPinselZeigen"),
                      (r"^  function flFarben\(.*?^  \}", "flFarben"),
                      (r"^  const FL_NUMMERN = \[.*?\];", "FL_NUMMERN"),
+                     (r"^  const FL_ZEICHEN = \[.*?\];", "FL_ZEICHEN"),
                      (r"^  const FL_ZAEHLER = \{.*?\};", "FL_ZAEHLER"),
                      (r"^  const FL_ZIFFERN = \{.*?\};", "FL_ZIFFERN"),
                      (r"^  function nrTeile\(.*?^  \}", "nrTeile"),
                      (r"^  function nrProbe\(.*?^  \}", "nrProbe"),
-                     (r"^  function nrRegeln\(.*?^  \}", "nrRegeln"),
-                     (r"^  function nrListe\(.*?^  \}", "nrListe"),
-                     (r"^  function flNummerSetzen\(.*?^  \}", "flNummerSetzen"),
+                     (r"^  function listenRegeln\(.*?^  \}", "listenRegeln"),
+                     (r"^  function listeUm\(.*?^  \}", "listeUm"),
+                     (r"^  function artSetzen\(.*?^  \}", "artSetzen"),
+                     (r"^  function flNummerSetzen\(.*?$", "flNummerSetzen"),
+                     (r"^  function flPunktSetzen\(.*?$", "flPunktSetzen"),
+                     (r"^  function nrKachel\(.*?^  \}", "nrKachel"),
+                     (r"^  function azKachel\(.*?^  \}", "azKachel"),
                      (r"^  function flGalerie\(.*?^  \}", "flGalerie"),
                      (r"^  function formatleisteBauen\(.*?^  \}", "formatleisteBauen"),
                      (r"^  function formatleisteFrischen\(.*?^  \}", "formatleisteFrischen")):
@@ -306,7 +311,7 @@ ergebnis.groessenwahl = leiste.querySelector('.fl-groesse').value;
 
 /* Die Nummerierungsbibliothek */
 ergebnis.probe = nrProbe('(a)');
-ergebnis.regeln = nrRegeln();
+ergebnis.regeln = listenRegeln();
 
 const galerie = tasten.find((t) => t.title === 'Nummerierungsbibliothek');
 galerie.klick();
@@ -344,7 +349,26 @@ kacheln2.find((k) => k.textContent.startsWith('a)')).klick();
 ergebnis.ohne_liste = befehle.slice();
 ergebnis.gesetzt2 = ol.merkmale['data-art'] || null;
 
+/* Dasselbe fuer die Aufzaehlungszeichen */
+const zeichen = tasten.find((t) => t.title === 'Aufzählungszeichenbibliothek');
+zeichen.klick();
+const zkacheln = leiste.querySelector('.fl-liste').querySelectorAll('.fl-kachel');
+ergebnis.zkacheln = zkacheln.length;
+ergebnis.zerste = zkacheln[0].textContent;
+ergebnis.zzweite = zkacheln[1].textContent;
+const ul = new Knoten('ul');
+const zeile2 = new Knoten('li');
+zeile2.nodeType = 1;
+ul.append(zeile2);
+zeile2.closest = (w) => (w === 'ul' ? ul : null);
+auswahl = { rangeCount: 1, getRangeAt: () => ({ startContainer: zeile2 }) };
+befehle.length = 0;
+zkacheln.find((k) => k.textContent === '★').klick();
+ergebnis.in_punkten = befehle.slice();
+ergebnis.zgesetzt = ul.merkmale['data-art'] || null;
+
 /* "Keine" macht die Liste wieder weg */
+auswahl = { rangeCount: 1, getRangeAt: () => ({ startContainer: zeile }) };
 schonListe = true;
 ol.merkmale = {};
 befehle.length = 0;
@@ -391,8 +415,8 @@ pruefe("die Gruppen kommen mit", d["gruppen"] == ['★ Favoriten'], d["gruppen"]
 ERWARTET = ['Formatvorlage', 'Einzug verkleinern', 'Einzug vergrößern',
             'Aufgabe (zum Abhaken)', 'Kategorie', 'Fett (Strg+B)', 'Kursiv (Strg+I)',
             'Unterstrichen (Strg+U)', 'Durchgestrichen', 'Hervorheben', 'Schriftfarbe',
-            'Aufzählung', 'Nummerierung', 'Nummerierungsbibliothek',
-            'Format übertragen', 'Formatierung entfernen']
+            'Aufzählung', 'Aufzählungszeichenbibliothek', 'Nummerierung',
+            'Nummerierungsbibliothek', 'Format übertragen', 'Formatierung entfernen']
 pruefe("alle Knöpfe, in dieser Reihenfolge", d["knoepfe"] == ERWARTET, d["knoepfe"])
 
 print("\nWas unten ankommt")
@@ -457,6 +481,18 @@ pruefe("ohne Liste wird erst eine angelegt",
 pruefe("'Keine' nimmt die Nummerierung wieder weg",
        d["keine"] == [["insertOrderedList", None]] and d["keine_art"] is None,
        (d["keine"], d["keine_art"]))
+
+print("\nDie Aufzählungszeichenbibliothek")
+pruefe("35 Zeichen und 'Keine'", d["zkacheln"] == 36, d["zkacheln"])
+pruefe("'Keine' steht auch hier vorn", d["zerste"] == 'Keine', d["zerste"])
+pruefe("dann der volle Punkt", d["zzweite"] == '●', d["zzweite"])
+pruefe("in einer Aufzählung wird nur das Zeichen gesetzt",
+       d["in_punkten"] == [["gemerkt", None]] and d["zgesetzt"] == '★',
+       (d["in_punkten"], d["zgesetzt"]))
+# cyclic mit genau einem Zeichen: das steht dann vor jeder Zeile.
+pruefe("und daraus wird die Regel im Stylesheet",
+       '@counter-style az0 { system: cyclic; symbols: "●"; suffix: " "; }'
+       in d["regeln"] and 'ul[data-art="●"] { list-style-type: az0; }' in d["regeln"])
 
 print("\nWas gerade gilt")
 pruefe("zeigt sich am Knopf", sorted(d["an"]) == sorted(['Fett (Strg+B)', 'Aufzählung']),

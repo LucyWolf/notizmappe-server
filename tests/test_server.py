@@ -1067,6 +1067,16 @@ pruefe("ein erfundener Wert faellt heraus",
 pruefe("und ein Anfuehrungszeichen darin erst recht",
        '"' not in _rein.html('<ol data-art=\'1." onmouseover="x\'><li>a</li></ol>'),
        _rein.html('<ol data-art=\'1." onmouseover="x\'><li>a</li></ol>'))
+pruefe("bei der Aufzaehlung ist der Wert das Zeichen",
+       _rein.html('<ul data-art="\u25cf"><li>eins</li></ul>')
+       == '<ul data-art="\u25cf"><li>eins</li></ul>',
+       _rein.html('<ul data-art="\u25cf"><li>eins</li></ul>'))
+pruefe("ein erfundenes Zeichen faellt heraus",
+       _rein.html('<ul data-art="X"><li>eins</li></ul>') == '<ul><li>eins</li></ul>',
+       _rein.html('<ul data-art="X"><li>eins</li></ul>'))
+pruefe("und eine Nummernart gilt an der Aufzaehlung nicht",
+       _rein.html('<ul data-art="1)"><li>eins</li></ul>') == '<ul><li>eins</li></ul>',
+       _rein.html('<ul data-art="1)"><li>eins</li></ul>'))
 pruefe("an anderen Elementen gilt es nicht",
        _rein.html('<p data-art="1)">text</p>') == '<p>text</p>',
        _rein.html('<p data-art="1)">text</p>'))
@@ -1080,6 +1090,10 @@ _dort = _re.search(r"const FL_NUMMERN = \[(.*?)\];", _shim, _re.S)
 _arten = set(_re.findall(r"'([^']+)'", _dort.group(1))) if _dort else set()
 pruefe("shim.js und listen.py kennen dieselben Arten",
        _arten == _listen.ARTEN, (sorted(_arten), sorted(_listen.ARTEN)))
+_dort2 = _re.search(r"const FL_ZEICHEN = \[(.*?)\];", _shim, _re.S)
+_zeichen = set(_re.findall(r"'([^']+)'", _dort2.group(1))) if _dort2 else set()
+pruefe("und dieselben Aufzaehlungszeichen",
+       _zeichen == _listen.ZEICHEN, (sorted(_zeichen), sorted(_listen.ZEICHEN)))
 
 print()
 print("alles gruen" if not fehler else f"{len(fehler)} FEHLER:\n - " + "\n - ".join(fehler))

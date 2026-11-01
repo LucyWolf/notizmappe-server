@@ -495,16 +495,21 @@ Seite ganz normal hoch, die Anmeldung sieht richtig aus — und gespeichert wird
 der Start jetzt eine Schreibprobe und bricht mit einer klaren Zeile ab, statt
 scheinbar zu laufen.
 
-## Nummerierte Listen: die Art der Nummer
+## Listen: Zahl oder Zeichen davor
 
-Der Pfeil neben dem Nummerierungsknopf macht die **Nummerierungsbibliothek**
-auf: 16 Arten, von `1.` über `a)` und `(1)` bis `i.`, dazu „Keine" — damit ist
-die Nummerierung wieder weg.
+Beide Listenknöpfe haben einen Pfeil daneben. Er macht die Bibliothek auf —
+**16 Nummernarten** von `1.` über `a)` und `(1)` bis `i.`, und **35
+Aufzählungszeichen** von ● über ▪ und → bis ✓. Zuoberst steht „Keine": damit
+ist die Liste wieder ein normaler Absatz.
 
-Gespeichert wird das als **ein** Attribut an der Liste, `data-art="1)"`, und
-nur mit einem Wert aus einer festen Liste (`web/listen.py`). Kein `style`, kein
-`class`: was sonst an einem Element stehen dürfte, wäre ein Einfallstor — damit
-ließe sich ein unsichtbares Feld über die Seite legen.
+Gespeichert wird das als **ein** Attribut an der Liste, `data-art="1)"`
+beziehungsweise `data-art="●"`, und nur mit einem Wert aus einer festen Liste
+(`web/listen.py`). Kein `style`, kein `class`: was sonst an einem Element
+stehen dürfte, wäre ein Einfallstor — damit ließe sich ein unsichtbares Feld
+über die Seite legen.
+
+Angeboten werden nur Zeichen aus der Grundebene. Ein Emoji fällt in Schriften
+aus, die es nicht haben, und dann steht ein Kästchen vor jeder Zeile.
 
 Die Fensterfassung kennt das Attribut noch nicht. Sie zeigt eine so gesetzte
 Liste mit ihren eigenen Zahlen, und wird die Seite **dort** gespeichert, ist

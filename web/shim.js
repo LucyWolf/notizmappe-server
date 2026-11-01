@@ -2787,6 +2787,17 @@
   const FL_ZIFFERN = { '1': ['1', '2', '3'], a: ['a', 'b', 'c'], A: ['A', 'B', 'C'],
                        i: ['i', 'ii', 'iii'], I: ['I', 'II', 'III'] };
 
+  /* Dasselbe fuer die Aufzaehlung: das Zeichen ist der Wert. Nur Zeichen aus
+     der Grundebene - ein Emoji faellt in Schriften aus, die es nicht haben,
+     und dann steht ein Kaestchen in der Liste. */
+  const FL_ZEICHEN = ['●', '○', '•', '◦', '◉',
+                      '✦', '◆', '◇', '❖', '⋄',
+                      '■', '□', '▪', '▫', '◼',
+                      '▶', '▸', '‣', '→', '⇒',
+                      '›', '➢', '✱', '✸', '❉',
+                      '–', '—', '✓', '✗', '★',
+                      '☺', '☎', '✉', '♦', '♥'];
+
   function nrTeile(art) {
     const i = String(art).search(/[1aAiI]/);
     if (i < 0) return null;
@@ -2799,7 +2810,7 @@
     return FL_ZIFFERN[t.typ].map(function (z) { return t.vorne + z + t.hinten; });
   }
 
-  function nrRegeln() {
+  function listenRegeln() {
     let text = '';
     FL_NUMMERN.forEach(function (art, i) {
       const t = nrTeile(art);
@@ -2807,30 +2818,42 @@
             + ` prefix: "${t.vorne}"; suffix: "${t.hinten} "; }\n`
             + `ol[data-art="${art}"] { list-style-type: nz${i}; }\n`;
     });
+    FL_ZEICHEN.forEach(function (z, i) {
+      // cyclic mit einem einzigen Zeichen: das steht dann vor jeder Zeile.
+      text += `@counter-style az${i} { system: cyclic; symbols: "${z}";`
+            + ` suffix: " "; }\n`
+            + `ul[data-art="${z}"] { list-style-type: az${i}; }\n`;
+    });
     return text;
   }
 
   // Die Liste, in der die Markierung steht - oder nichts.
-  function nrListe() {
+  function listeUm(tag) {
     const sel = window.getSelection();
     if (!sel || !sel.rangeCount) return null;
     let k = sel.getRangeAt(0).startContainer;
     if (k && k.nodeType !== 1) k = k.parentElement;
-    return k && k.closest ? k.closest('ol') : null;
+    return k && k.closest ? k.closest(tag) : null;
   }
 
-  function flNummerSetzen(art) {
-    const liste = nrListe();
-    if (!art) {                       // "Keine": die Nummerierung wieder weg
-      if (liste) flBefehl('insertOrderedList');
+  /* Eine Art setzen heisst: notfalls erst eine Liste daraus machen. Ohne das
+     waere die halbe Bibliothek wirkungslos, solange der Absatz noch keine
+     Liste ist - und genau so greift man danach hinein. */
+  function artSetzen(tag, befehl, wert) {
+    const liste = listeUm(tag);
+    if (!wert) {                      // "Keine": die Liste wieder weg
+      if (liste) flBefehl(befehl);
       return;
     }
-    if (!liste) flBefehl('insertOrderedList');
-    const neue = nrListe();
+    if (!liste) flBefehl(befehl);
+    const neue = listeUm(tag);
     if (!neue) return;
-    neue.setAttribute('data-art', art);
+    neue.setAttribute('data-art', wert);
     gemerkt();
   }
+
+  function flNummerSetzen(art) { artSetzen('ol', 'insertOrderedList', art); }
+  function flPunktSetzen(zeichen) { artSetzen('ul', 'insertUnorderedList', zeichen); }
 
   let flPinsel = null;            // gemerktes Format beim Uebertragen
 
@@ -3015,9 +3038,23 @@
     return aus;
   }
 
+  // Drei Zeilen Vorschau - so steht es spaeter da.
+  function nrKachel(art) {
+    return nrProbe(art).map(function (z) {
+      return el('span', { className: 'fl-kzeile' }, [
+        el('span', { className: 'fl-knr', textContent: z }),
+        el('span', { className: 'fl-kstrich' }),
+      ]);
+    });
+  }
+
+  function azKachel(zeichen) {
+    return [el('span', { className: 'fl-kzeichen', textContent: zeichen })];
+  }
+
   /* Dieselbe Mechanik wie das Klappmenue, nur als Gitter mit Vorschau: ein
      paar Zeilen "1. 2. 3." sagen mehr als ihr Name. */
-  function flGalerie(wirt, titel, inhalt, arten, tun) {
+  function flGalerie(wirt, titel, inhalt, arten, tun, bauen) {
     const knopf = flTaste(inhalt + '<span class="fl-pfeil">▾</span>', titel, function (k) {
       const alte = wirt.querySelector('.fl-liste');
       if (alte) {
@@ -3030,12 +3067,7 @@
       const gitter = el('div', { className: 'fl-gitter' });
       for (const art of [''].concat(arten)) {
         const kachel = el('button', { type: 'button', className: 'fl-kachel' },
-          art ? nrProbe(art).map(function (z) {
-            return el('span', { className: 'fl-kzeile' }, [
-              el('span', { className: 'fl-knr', textContent: z }),
-              el('span', { className: 'fl-kstrich' }),
-            ]);
-          }) : [el('span', { className: 'fl-keine', textContent: 'Keine' })]);
+          art ? bauen(art) : [el('span', { className: 'fl-keine', textContent: 'Keine' })]);
         kachel.addEventListener('click', function (ev) {
           ev.preventDefault();
           ev.stopPropagation();
@@ -3108,10 +3140,12 @@
       el('span', { className: 'fl-trenner' }),
       flTaste('<span class="fl-sinn">•</span>', 'Aufzählung',
               function () { flBefehl('insertUnorderedList'); }, 'insertUnorderedList'),
+      flGalerie(wirt, 'Aufzählungszeichenbibliothek', '<span class="fl-sinn">•</span>',
+                FL_ZEICHEN, flPunktSetzen, azKachel),
       flTaste('<span class="fl-sinn">1.</span>', 'Nummerierung',
               function () { flBefehl('insertOrderedList'); }, 'insertOrderedList'),
       flGalerie(wirt, 'Nummerierungsbibliothek', '<span class="fl-sinn">1.</span>',
-                FL_NUMMERN, flNummerSetzen),
+                FL_NUMMERN, flNummerSetzen, nrKachel),
       el('span', { className: 'fl-trenner' }),
       flTaste(FL_PINSEL, 'Format übertragen',
               flPinselNehmen, 'pinsel'),
@@ -3276,8 +3310,12 @@
       .fl-knr { min-width: 18px; text-align: right; }
       .fl-kstrich { flex: 1; height: 1px; background: var(--schrift); opacity: .5; }
       .fl-keine { font-size: 12px; text-align: center; }
+      .fl-kzeichen {
+        display: block; width: 100%; font-size: 22px; line-height: 1;
+        text-align: center;
+      }
     `
-    + nrRegeln();
+    + listenRegeln();
     document.head.append(stil);
   }
 
