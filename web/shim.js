@@ -344,6 +344,7 @@
       wahl.append(el('option', { value: p.name, selected: p.name === d.jetzt,
                                  textContent: `Projekt: ${p.name} (${p.recht})` }));
     }
+    meinBereich = d.jetzt || '';
     wahl.hidden = !(d.projekte || []).length;
     const anzeige = document.getElementById('bereichjetzt');
     if (anzeige) {
@@ -2100,6 +2101,7 @@
     let d;
     try { d = await hol('/verwaltung'); } catch (f) { return; }
     if (!d.ich) return;
+    meinName = d.ich;
     document.getElementById('profilname').textContent = d.ich;
     document.getElementById('profilbild').textContent = d.ich.slice(0, 1).toUpperCase();
     wer.textContent = d.ich;
@@ -2739,6 +2741,305 @@
        Der Server haelt die Antwort vier Minuten, es landet also hoechstens
        jede fuenfte Minute eine Anfrage bei GitHub. */
     setInterval(nachsehen, 5 * 60 * 1000);
+  }
+
+  /* --------------------------------------- Rechtsklick: Formatieren gleich mit
+
+     Drueben ist das Rechtsklick-Menue eine Liste mit vier Punkten, und zum
+     Formatieren gibt es eine eigene Leiste, die bei einer Markierung aufgeht.
+     In OneNote ist beides ein Menue: oben zwei Reihen Format, darunter die
+     Punkte. Genau so sieht es hier jetzt aus.
+
+     Gerechnet wird dabei nichts selbst. Geklickt wird auf die Funktionen
+     drueben - aufAuswahl(), hervorheben(), hervorhebungWeg() -, und die
+     Schriftliste und die Farben werden aus der vorhandenen Leiste gespiegelt.
+     Zwei Stellen, die Fett setzen, waeren eine zu viel: eine davon ist eines
+     Tages anders. */
+
+  let rmImText = false;
+  // Fuer die Fusszeile des Menues. Beides steht schon in Antworten, die der
+  // Stellvertreter ohnehin holt - hier nur gemerkt.
+  let meinName = '';
+  let meinBereich = '';
+
+  function rmBefehl(was, wert) {
+    try {
+      if (typeof aufAuswahl === 'function') aufAuswahl(was, wert);
+    } catch (f) { console.error('[notizmappe] Format:', f); }
+  }
+
+  function rmKnopf(inhalt, titel, tun, stand) {
+    const k = el('button', { type: 'button', className: 'rm-taste', title: titel });
+    k.innerHTML = inhalt;
+    // Woran man sieht, ob es an der Markierung schon gilt - dieselbe Frage,
+    // die die Mini-Leiste drueben stellt.
+    if (stand) k.dataset.stand = stand;
+    k.addEventListener('click', function (ev) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      tun();
+      rechtsmenueZu();
+    });
+    return k;
+  }
+
+  function rechtsmenueZu() {
+    const menue = document.getElementById('rechtsmenue');
+    if (menue) menue.hidden = true;
+  }
+
+  /* Die Schriftliste und die Farben stehen schon in der Mini-Leiste - von dort
+     geholt statt hier noch einmal aufgeschrieben. Kommt drueben eine Schrift
+     dazu, ist sie hier automatisch mit dabei. */
+  function rmSpiegeln() {
+    const art = document.getElementById('rm-art');
+    const echt = document.querySelector('#minileiste select[data-befehl="fontName"]');
+    if (art && echt && art.options.length !== echt.options.length) {
+      art.textContent = '';
+      for (const o of echt.options) {
+        art.append(el('option', { value: o.value, textContent: o.textContent }));
+      }
+    }
+    const platz = document.getElementById('rm-farben');
+    const quelle = document.getElementById('farben');
+    if (platz && quelle && !platz.children.length) {
+      for (const k of quelle.querySelectorAll('button[data-farbe]')) {
+        const farbe = k.dataset.farbe;
+        const punkt = el('button', { type: 'button', className: 'rm-farbe',
+                                     title: k.title || farbe });
+        punkt.style.background = farbe;
+        punkt.addEventListener('click', function (ev) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          rmBefehl('foreColor', farbe);
+          rechtsmenueZu();
+        });
+        platz.append(punkt);
+      }
+    }
+  }
+
+  function rechtsmenueBauen() {
+    const menue = document.getElementById('rechtsmenue');
+    if (!menue || document.getElementById('rm-format')) return;
+
+    const art = el('select', { id: 'rm-art', title: 'Schriftart' });
+    art.addEventListener('change', function () { rmBefehl('fontName', art.value); });
+    const groesse = el('select', { id: 'rm-groesse', title: 'Schriftgröße' });
+    for (const [wert, text] of [['1', '8'], ['2', '10'], ['3', '12'], ['4', '14'],
+                                ['5', '18'], ['6', '24'], ['7', '36']]) {
+      groesse.append(el('option', { value: wert, textContent: text }));
+    }
+    groesse.addEventListener('change', function () { rmBefehl('fontSize', groesse.value); });
+
+    const reihe1 = el('div', { className: 'rm-reihe' }, [
+      art, groesse,
+      el('span', { className: 'rm-trenner' }),
+      rmKnopf('&bull;', 'Aufzählung', function () { rmBefehl('insertUnorderedList'); },
+              'insertUnorderedList'),
+      rmKnopf('1.', 'Nummerierung', function () { rmBefehl('insertOrderedList'); },
+              'insertOrderedList'),
+      el('span', { className: 'rm-trenner' }),
+      rmKnopf('&#8676;', 'Einzug verkleinern', function () { rmBefehl('outdent'); }),
+      rmKnopf('&#8677;', 'Einzug vergrößern', function () { rmBefehl('indent'); }),
+    ]);
+
+    const farben = el('span', { id: 'rm-farben', title: 'Schriftfarbe' });
+    const reihe2 = el('div', { className: 'rm-reihe' }, [
+      rmKnopf('<b>F</b>', 'Fett (Strg+B)', function () { rmBefehl('bold'); }, 'bold'),
+      rmKnopf('<i>K</i>', 'Kursiv (Strg+I)', function () { rmBefehl('italic'); }, 'italic'),
+      rmKnopf('<u>U</u>', 'Unterstrichen (Strg+U)', function () { rmBefehl('underline'); },
+              'underline'),
+      rmKnopf('<s>S</s>', 'Durchgestrichen', function () { rmBefehl('strikeThrough'); },
+              'strikeThrough'),
+      el('span', { className: 'rm-trenner' }),
+      farben,
+      rmKnopf('<mark>H</mark>', 'Hervorheben', function () {
+        try { if (typeof hervorheben === 'function') hervorheben(); } catch (f) { /* egal */ }
+      }),
+      el('span', { className: 'rm-trenner' }),
+      rmKnopf('&#10005;', 'Formatierung entfernen', function () {
+        rmBefehl('removeFormat');
+        try { if (typeof hervorhebungWeg === 'function') hervorhebungWeg(); } catch (f) { /* egal */ }
+      }),
+    ]);
+
+    const block = el('div', { id: 'rm-format' }, [reihe1, reihe2]);
+    menue.insertBefore(block, menue.firstChild);
+
+    // Die vier Punkte drueben bekommen ihr Zeichen davor - geaendert wird an
+    // ihnen sonst nichts, sie haengen weiter an ihrem data-tun.
+    for (const [was, zeichen] of [['ausschneiden', '✂'], ['kopieren', '⧉'],
+                                  ['einfuegen', '📋'], ['alles', '⬚']]) {
+      const knopf = menue.querySelector(`button[data-tun="${was}"]`);
+      if (!knopf || knopf.querySelector('.rm-zeichen')) continue;
+      knopf.classList.add('rm-punkt');
+      knopf.insertBefore(el('span', { className: 'rm-zeichen', textContent: zeichen }),
+                         knopf.firstChild);
+    }
+
+    // Der Link gehoert zum Text, nicht zur Zwischenablage - deshalb unten,
+    // hinter einem Strich. Mehr als http, https und mailto nimmt die Ablage
+    // ohnehin nicht an; alles andere faellt beim Speichern wieder heraus.
+    const link = el('button', { type: 'button', id: 'rm-link',
+                                className: 'rm-punkt' }, [
+      el('span', { className: 'rm-zeichen', textContent: '🔗' }),
+      el('span', { textContent: 'Link …  (Strg+K)' }),
+    ]);
+    link.addEventListener('click', function (ev) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      rechtsmenueZu();
+      linkSetzen();
+    });
+    menue.append(el('div', { className: 'rm-strich' }), link);
+
+    // Wer wann - so weit wir es wirklich wissen. Die Seite merkt sich, wann
+    // sie zuletzt geaendert wurde, aber nicht von wem; in einem Projekt waere
+    // ein Name hier also geraten.
+    menue.append(el('p', { id: 'rm-wer', className: 'rm-fuss' }));
+
+    // Ein Klick ins Menue darf die Markierung nicht kosten - sonst formatiert
+    // der Knopf nichts. Bei Auswahlfeldern nicht: die muessen den Fokus
+    // bekommen, sonst klappen sie nicht auf.
+    menue.addEventListener('mousedown', function (ev) {
+      if (ev.target.tagName !== 'SELECT') ev.preventDefault();
+    });
+
+    document.addEventListener('contextmenu', function (ev) {
+      if (ev.target.closest && ev.target.closest('#einstellungen')) return;
+      rmImText = !!(ev.target.closest && ev.target.closest('[contenteditable]'));
+      // Nach dem Aufbau drueben: dort wird das Menue sichtbar gemacht und
+      // gestellt. Was hier dazukommt, aendert die Hoehe - also noch einmal
+      // nachruecken.
+      setTimeout(function () { rechtsmenueFrischen(ev.clientX, ev.clientY); }, 0);
+    });
+
+    document.addEventListener('keydown', function (ev) {
+      if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'k'
+          && document.activeElement && document.activeElement.closest
+          && document.activeElement.closest('[contenteditable]')) {
+        ev.preventDefault();
+        linkSetzen();
+      }
+    });
+
+    const stil = document.createElement('style');
+    stil.textContent = `
+      #rechtsmenue { padding: 0; min-width: 232px; }
+      #rm-format {
+        padding: 6px 6px 4px; border-bottom: 1px solid var(--linie);
+        background: var(--leiste);
+      }
+      #rm-format .rm-reihe {
+        display: flex; align-items: center; gap: 2px; margin: 0 0 3px;
+      }
+      #rm-format .rm-reihe:last-child { margin-bottom: 0; }
+      #rm-format select {
+        height: 24px; border: 1px solid var(--linie); border-radius: 4px;
+        background: var(--papier); color: var(--schrift); font-size: 12px;
+      }
+      #rm-art { flex: 1; min-width: 0; }
+      #rm-groesse { width: 54px; }
+      .rm-taste {
+        min-width: 24px; height: 24px; padding: 0 5px; border: 1px solid transparent;
+        border-radius: 4px; background: none; color: var(--schrift);
+        font: inherit; font-size: 12px; line-height: 1; cursor: pointer;
+      }
+      .rm-taste:hover { background: var(--flaeche); border-color: var(--linie); }
+      .rm-taste.an { background: color-mix(in srgb, var(--akzent) 22%, transparent); }
+      .rm-taste mark { background: #ffe680; color: #1f1d1a; padding: 0 2px; border-radius: 2px; }
+      #rm-format .rm-trenner {
+        width: 1px; height: 16px; background: var(--linie); margin: 0 3px;
+      }
+      #rm-farben { display: inline-flex; gap: 2px; }
+      .rm-farbe {
+        width: 14px; height: 14px; padding: 0; border: 1px solid var(--linie);
+        border-radius: 50%; cursor: pointer;
+      }
+      .rm-farbe:hover { outline: 2px solid var(--akzent); outline-offset: 1px; }
+      #rechtsmenue > button {
+        display: flex; align-items: center; gap: 10px; width: 100%;
+      }
+      .rm-zeichen { width: 16px; text-align: center; opacity: .75; font-size: 13px; }
+      .rm-strich { height: 1px; background: var(--linie); margin: 4px 0; }
+      .rm-fuss {
+        margin: 0; padding: 6px 10px 8px; color: var(--matt); font-size: 11px;
+        border-top: 1px solid var(--linie);
+      }
+      .rm-fuss:empty { display: none; }
+    `;
+    document.head.append(stil);
+  }
+
+  function linkSetzen() {
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed) {
+      malsagen('Erst den Text markieren, der zum Link werden soll.');
+      return;
+    }
+    const merk = sel.getRangeAt(0).cloneRange();
+    const adresse = prompt('Adresse des Links:', 'https://');
+    if (!adresse) return;
+    if (!/^(https?:\/\/|mailto:)/i.test(adresse)) {
+      malsagen('Nur http://, https:// und mailto: - anderes wird beim Speichern verworfen.');
+      return;
+    }
+    // Der Dialog kostet die Markierung, also zurueckholen.
+    sel.removeAllRanges();
+    sel.addRange(merk);
+    rmBefehl('createLink', adresse);
+  }
+
+  function rechtsmenueFrischen(x, y) {
+    const menue = document.getElementById('rechtsmenue');
+    const block = document.getElementById('rm-format');
+    if (!menue || !block || menue.hidden) return;
+    rmSpiegeln();
+    // Auf der leeren Flaeche waere eine Formatleiste eine Reihe Knoepfe, die
+    // nichts tun.
+    block.hidden = !rmImText;
+    const link = document.getElementById('rm-link');
+    if (link) link.hidden = !rmImText;
+    for (const [id, befehl] of [['rm-art', 'fontName'], ['rm-groesse', 'fontSize']]) {
+      const feld = document.getElementById(id);
+      if (!feld) continue;
+      try {
+        const wert = String(document.queryCommandValue(befehl) || '')
+          .replace(/^['"]|['"]$/g, '');
+        const treffer = Array.from(feld.options).find(function (o) {
+          return o.value === wert || o.value.toLowerCase() === wert.toLowerCase();
+        });
+        if (treffer) feld.value = treffer.value;
+      } catch (f) { /* nicht jede Webansicht kann das */ }
+    }
+    for (const k of block.querySelectorAll('.rm-taste')) {
+      const befehl = k.dataset.stand;
+      if (!befehl) continue;
+      let an = false;
+      try { an = document.queryCommandState(befehl); } catch (f) { /* egal */ }
+      k.classList.toggle('an', !!an);
+    }
+    const wer = document.getElementById('rm-wer');
+    if (wer) wer.textContent = rmFusszeile();
+    const b = menue.getBoundingClientRect();
+    menue.style.left = Math.max(4, Math.min(x, window.innerWidth - b.width - 8)) + 'px';
+    menue.style.top = Math.max(4, Math.min(y, window.innerHeight - b.height - 8)) + 'px';
+  }
+
+  function rmFusszeile() {
+    let zeit = null;
+    try { zeit = offen && offen.mtime ? new Date(offen.mtime * 1000) : null; }
+    catch (f) { zeit = null; }
+    if (!zeit) return '';
+    const wann = zeit.toLocaleString('de-DE', { day: '2-digit', month: '2-digit',
+                                                year: 'numeric', hour: '2-digit',
+                                                minute: '2-digit' });
+    // Der Name nur dort, wo er stimmt: in den eigenen Notizen war es man
+    // selbst. In einem Projekt schreiben mehrere, und wer zuletzt - das merkt
+    // sich die Seite nicht.
+    return (meinBereich ? 'Zuletzt geändert am ' : (meinName || 'Zuletzt geändert') + ' am ')
+           + wann;
   }
 
   /* ----------------------------------------------------------- 3D-Anhaenge
@@ -3669,6 +3970,7 @@
                                ['Update-Hinweis', updateHinweisBauen],
                                ['Optionen-Reiter', optionenReiterBauen],
                                ['3D-Anhänge', modelleBauen],
+                               ['Rechtsklick', rechtsmenueBauen],
                                ['Bereiche laden', bereicheLaden],
                                ['Verwaltung laden', verwaltungLaden]]) {
       try {

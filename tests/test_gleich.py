@@ -180,6 +180,26 @@ pruefe("stelle() rechnet gegen #flaeche und den Zoom",
        and bool(re.search(r'id="flaeche"', html)))
 pruefe("die Meldezeile m-hinweis gibt es noch", 'id="m-hinweis"' in html)
 
+# Das Rechtsklick-Menue bekommt oben zwei Reihen zum Formatieren. Gerechnet
+# wird dabei nichts selbst: es klickt auf die Funktionen drueben. Fallen die
+# weg, formatiert hier lautlos nichts mehr.
+pruefe("aufAuswahl setzt drueben das Format",
+       bool(re.search(r"^function aufAuswahl\b", js, re.M)))
+pruefe("hervorheben und hervorhebungWeg gibt es auch",
+       bool(re.search(r"^function hervorheben\b", js, re.M))
+       and bool(re.search(r"^function hervorhebungWeg\b", js, re.M)))
+pruefe("aufAuswahl laesst die Formatierung ohne CSS schreiben",
+       bool(re.search(r"styleWithCSS', false, false", js)))
+pruefe("das Menue und seine vier Punkte gibt es",
+       'id="rechtsmenue"' in html and 'data-tun="ausschneiden"' in html
+       and 'data-tun="alles"' in html)
+pruefe("Schriftliste und Farben stehen in der Mini-Leiste",
+       'id="minileiste"' in html and 'data-befehl="fontName"' in html
+       and 'id="farben"' in html)
+pruefe("und der Stellvertreter spiegelt sie von dort",
+       "#minileiste select[data-befehl=\"fontName\"]" in shim
+       and "querySelectorAll('button[data-farbe]')" in shim)
+
 # Die 3D-Anzeige tauscht den Inhalt eines Datei-Kastens aus. Sie haengt damit
 # an vier Dingen drueben: an der Klasse des Kastens, am Dateinamen im Element,
 # an der offenen Seite und an der Kachel, die als Fusszeile stehenbleibt.
