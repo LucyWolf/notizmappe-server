@@ -381,6 +381,83 @@ pruefe("und beide Felder zeigen den Stand an der Markierung",
        d["schriftwahl"] == 'DejaVu Sans' and d["groessenwahl"] == '5',
        (d["schriftwahl"], d["groessenwahl"]))
 
+print("\nBeim Rechtsklick ist die schwebende Leiste zu viel")
+# Sie steht sonst neben dem Menue, das dieselben Knoepfe noch einmal zeigt.
+# Der Fall, an dem die erste Fassung scheiterte: drueben holt das Loslassen
+# der Maus die Leiste zurueck - und das kommt nach dem Zumachen.
+teile2 = []
+for muster, name in ((r"^  function minileisteWeg\(.*?^  \}", "minileisteWeg"),
+                     (r"^  function minileisteHueten\(.*?^  \}", "minileisteHueten")):
+    treffer = re.search(muster, shim, re.S | re.M)
+    pruefe(f"{name} steht in shim.js", bool(treffer))
+    if treffer:
+        teile2.append(treffer.group(0))
+
+ZWEITER = r"""
+class MutationObserver {
+  constructor(f) { this.f = f; }
+  observe(knoten) { knoten.wecker = this.f; }
+}
+/* Nur so viel Knoten, wie es braucht: ein hidden, das Bescheid sagt. */
+class Knoten {
+  constructor() { this.versteckt = true; this.wecker = null; }
+  get hidden() { return this.versteckt; }
+  set hidden(wert) {
+    const anders = this.versteckt !== wert;
+    this.versteckt = wert;
+    if (anders && this.wecker) this.wecker();
+  }
+}
+const leiste = new Knoten();
+const menue = new Knoten();
+const document = {
+  getElementById: (id) => (id === 'minileiste' ? leiste
+                           : id === 'rechtsmenue' ? menue : null),
+};
+const window = { MutationObserver };
+""" + "\n".join(teile2) + r"""
+
+const ergebnis = {};
+minileisteHueten();
+
+// Markiert: die Leiste geht auf, kein Menue im Weg
+leiste.hidden = false;
+ergebnis.beim_markieren = !leiste.hidden;
+
+// Rechtsklick: Menue auf, Leiste weg
+menue.hidden = false;
+minileisteWeg();
+ergebnis.beim_rechtsklick = leiste.hidden;
+
+// und sie bleibt weg, auch wenn drueben jemand sie wieder aufmacht
+leiste.hidden = false;
+ergebnis.bleibt_weg = leiste.hidden;
+
+// Menue zu: dann gelten wieder die Regeln von drueben
+menue.hidden = true;
+leiste.hidden = false;
+ergebnis.danach_wieder = !leiste.hidden;
+process.stdout.write(JSON.stringify(ergebnis) + '\n');
+"""
+
+ordner2 = Path(tempfile.mkdtemp(prefix="leiste2-"))
+(ordner2 / "pruef.js").write_text(ZWEITER, encoding="utf-8")
+befehl2 = list(befehl)
+befehl2[-1] = befehl2[-1].replace(str(ordner), str(ordner2))
+if befehl2[0] == "docker":
+    befehl2[befehl2.index("-v") + 1] = f"{ordner2}:/p:ro"
+lauf2 = subprocess.run(befehl2, capture_output=True, text=True)
+if lauf2.returncode != 0:
+    print(lauf2.stdout)
+    print(lauf2.stderr)
+    sys.exit(1)
+z = json.loads(lauf2.stdout.strip().splitlines()[-1])
+pruefe("beim Markieren ist sie da", z["beim_markieren"])
+pruefe("beim Rechtsklick geht sie weg", z["beim_rechtsklick"])
+pruefe("und bleibt weg, solange das Menü steht", z["bleibt_weg"])
+pruefe("ist das Menü zu, darf sie wieder", z["danach_wieder"])
+shutil.rmtree(ordner2, ignore_errors=True)
+
 shutil.rmtree(ordner, ignore_errors=True)
 print()
 if fehler:

@@ -3182,6 +3182,26 @@
     if (menue) menue.hidden = true;
   }
 
+  /* Beim Rechtsklick ist die schwebende Leiste zu viel: dieselben Knoepfe
+     stehen eine Zeile tiefer noch einmal im Menue. Einmal zumachen genuegt
+     nicht - drueben macht der Mausknopf sie weg und das Loslassen wieder hin,
+     und das Loslassen kommt vor dem Menue. Deshalb bleibt sie zu, solange das
+     Menue offen ist. Geht es zu, gelten wieder die Regeln von drueben: die
+     naechste Markierung holt sie zurueck. */
+  function minileisteWeg() {
+    const leiste = document.getElementById('minileiste');
+    if (leiste) leiste.hidden = true;
+  }
+
+  function minileisteHueten() {
+    const leiste = document.getElementById('minileiste');
+    const menue = document.getElementById('rechtsmenue');
+    if (!leiste || !menue || !window.MutationObserver) return;
+    new MutationObserver(function () {
+      if (!menue.hidden && !leiste.hidden) leiste.hidden = true;
+    }).observe(leiste, { attributes: true, attributeFilter: ['hidden'] });
+  }
+
   function rechtsmenueBauen() {
     const menue = document.getElementById('rechtsmenue');
     if (!menue || document.getElementById('rm-format')) return;
@@ -3231,6 +3251,7 @@
     document.addEventListener('contextmenu', function (ev) {
       if (ev.target.closest && ev.target.closest('#einstellungen')) return;
       rmImText = !!(ev.target.closest && ev.target.closest('[contenteditable]'));
+      minileisteWeg();
       // Nach dem Aufbau drueben: dort wird das Menue sichtbar gemacht und
       // gestellt. Was hier dazukommt, aendert die Hoehe - also noch einmal
       // nachruecken.
@@ -3245,6 +3266,8 @@
         linkSetzen();
       }
     });
+
+    minileisteHueten();
 
     const stil = document.createElement('style');
     stil.textContent = `
