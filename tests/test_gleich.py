@@ -197,8 +197,12 @@ pruefe("Schriftliste und Farben stehen in der Mini-Leiste",
        'id="minileiste"' in html and 'data-befehl="fontName"' in html
        and 'id="farben"' in html)
 pruefe("und der Stellvertreter spiegelt sie von dort",
-       "#minileiste select[data-befehl=\"fontName\"]" in shim
-       and "querySelectorAll('button[data-farbe]')" in shim)
+       'select[data-befehl="fontName"]' in shim
+       and "'#farben button[data-farbe]'" in shim)
+# Die alten Knoepfe der Mini-Leiste bleiben stehen, nur versteckt: an ihnen
+# haengen drueben die Schriftliste und die Farben.
+pruefe("die alte Mini-Leiste wird nicht weggeworfen, sondern beiseitegelegt",
+       "id: 'minialt'" in shim and "while (leiste.firstChild) alt.append" in shim)
 
 # Die 3D-Anzeige tauscht den Inhalt eines Datei-Kastens aus. Sie haengt damit
 # an vier Dingen drueben: an der Klasse des Kastens, am Dateinamen im Element,

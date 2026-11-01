@@ -2743,6 +2743,367 @@
     setInterval(nachsehen, 5 * 60 * 1000);
   }
 
+  /* ------------------------------------------------------- Die Formatleiste
+
+     Zwei Reihen, so wie in OneNote: Schriftart, Groesse, Formatvorlage,
+     Einzug, Aufgabe und Kategorie oben; F K U, Marker, Farbe, Listen, Format
+     uebertragen und Loeschen unten.
+
+     Gebaut wird sie einmal und zweimal benutzt: in der schwebenden Leiste,
+     die beim Markieren aufgeht, und unten im Rechtsklick-Menue. Zwei
+     Leisten, die dasselbe tun sollen, sind eine zu viel - eine davon ist
+     eines Tages anders.
+
+     Gerechnet wird wieder nichts selbst: aufAuswahl() drueben setzt das
+     Format, hervorheben() den Marker. Was hier steht, ist die Bedienung.
+
+     Drei Sachen gehen bewusst anders als bei OneNote, weil die Ablage nur
+     bestimmte Auszeichnungen annimmt (kein freies CSS, siehe reinigen.py):
+     der Marker hat eine Farbe statt fuenf, die Groessen sind die sieben, die
+     <font size> kennt, und ein Haken ist ein Zeichen im Text - keine
+     Kontrollkaestchen-Auszeichnung, die beim Speichern wieder herausfiele. */
+
+  const FL_VORLAGEN = [['<p>', 'Normal'], ['<h1>', 'Überschrift 1'],
+                       ['<h2>', 'Überschrift 2'], ['<h3>', 'Überschrift 3'],
+                       ['<blockquote>', 'Zitat'], ['<pre>', 'Code']];
+  const FL_KATEGORIEN = [['☐', 'Aufgabe'], ['⭐', 'Wichtig'], ['❓', 'Frage'],
+                         ['❗', 'Achtung'], ['💡', 'Idee'], ['✔', 'Erledigt']];
+  const FL_GROESSEN = [['1', '8'], ['2', '10'], ['3', '12'], ['4', '14'],
+                       ['5', '18'], ['6', '24'], ['7', '36']];
+  let flPinsel = null;            // gemerktes Format beim Uebertragen
+
+  function flBefehl(was, wert) {
+    try {
+      if (typeof aufAuswahl === 'function') aufAuswahl(was, wert);
+    } catch (f) { console.error('[notizmappe] Format:', f); }
+  }
+
+  function flTaste(inhalt, titel, tun, stand) {
+    const k = el('button', { type: 'button', className: 'fl-taste', title: titel });
+    k.innerHTML = inhalt;
+    if (stand) k.dataset.stand = stand;
+    k.addEventListener('click', function (ev) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      tun(k);
+    });
+    return k;
+  }
+
+  /* Ein kleines Klappmenue - im Kasten der Leiste, nicht am Koerper: alles
+     ausserhalb schliesst drueben die schwebende Leiste und das Rechtsklick-
+     Menue, und dann waere die Liste weg, bevor man sie anklicken kann. */
+  function flKlappe(wirt, titel, inhalt, eintraege, tun) {
+    const knopf = flTaste(inhalt + '<span class="fl-pfeil">▾</span>', titel, function (k) {
+      const alte = wirt.querySelector('.fl-liste');
+      if (alte) {
+        alte.remove();
+        if (alte.dataset.von === titel) return;      // derselbe Knopf: zu
+      }
+      const liste = el('div', { className: 'fl-liste' });
+      liste.dataset.von = titel;
+      for (const [wert, name, zeichen] of eintraege) {
+        const z = el('button', { type: 'button', className: 'fl-eintrag' }, [
+          el('span', { className: 'fl-probe', textContent: zeichen || '' }),
+          el('span', { textContent: name }),
+        ]);
+        if (zeichen && zeichen.charAt(0) === '#') {
+          z.firstChild.style.background = zeichen;
+          z.firstChild.textContent = '';
+          z.firstChild.classList.add('fl-tupfer');
+        }
+        z.addEventListener('click', function (ev) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          liste.remove();
+          tun(wert);
+        });
+        liste.append(z);
+      }
+      const r = k.getBoundingClientRect();
+      const w = wirt.getBoundingClientRect();
+      liste.style.left = Math.max(0, r.left - w.left) + 'px';
+      liste.style.top = (r.bottom - w.top + 2) + 'px';
+      wirt.append(liste);
+    });
+    knopf.classList.add('fl-mitpfeil');
+    return knopf;
+  }
+
+  /* Haken und Kategorien sind Zeichen am Zeilenanfang. Eine eigene
+     Auszeichnung (etwa ein input type=checkbox) faellt beim Speichern wieder
+     heraus - die Ablage nimmt nur die Auszeichnungen an, die der Editor
+     selbst setzt. Ein Zeichen ueberlebt jeden Weg, auch den nach drueben. */
+  function flZeichenSetzen(zeichen) {
+    const sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return;
+    const r = sel.getRangeAt(0);
+    const feld = (r.startContainer.nodeType === 1 ? r.startContainer
+                                                  : r.startContainer.parentElement);
+    if (!feld || !feld.closest('[contenteditable]')) return;
+    const anfang = r.cloneRange();
+    anfang.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(anfang);
+    try {
+      document.execCommand('insertText', false, zeichen + ' ');
+    } catch (f) { /* dann eben nicht */ }
+  }
+
+  /* Ein Klick auf einen Haken im Text setzt ihn um. Das ist der Teil, der aus
+     dem Zeichen eine Aufgabe macht. */
+  function flHakenAnschalten() {
+    const grund = document.getElementById('flaeche');
+    if (!grund || grund.dataset.haken === 'ja') return;
+    grund.dataset.haken = 'ja';
+    grund.addEventListener('click', function (ev) {
+      const feld = ev.target.closest && ev.target.closest('.text');
+      if (!feld) return;
+      const stelle = document.caretRangeFromPoint
+        ? document.caretRangeFromPoint(ev.clientX, ev.clientY) : null;
+      if (!stelle || stelle.startContainer.nodeType !== 3) return;
+      const text = stelle.startContainer.nodeValue || '';
+      const i = stelle.startOffset;
+      for (const [auf, zu] of [['☐', '☑'], ['☑', '☐']]) {
+        for (const stern of [i - 1, i]) {
+          if (text.charAt(stern) !== auf) continue;
+          stelle.startContainer.nodeValue =
+            text.slice(0, stern) + zu + text.slice(stern + 1);
+          const e = kastenDaten(feld.closest('.kasten'));
+          if (e) e.html = feld.innerHTML;
+          gemerkt();
+          return;
+        }
+      }
+    });
+  }
+
+  /* Format uebertragen: einmal klicken merkt, was an der Stelle gilt; die
+     naechste Markierung bekommt es. Mehr macht der Pinsel in OneNote auch
+     nicht. */
+  function flPinselNehmen(knopf) {
+    if (flPinsel) { flPinsel = null; flPinselZeigen(); return; }
+    const lies = (was) => {
+      try { return document.queryCommandState(was); } catch (f) { return false; }
+    };
+    const wert = (was) => {
+      try { return String(document.queryCommandValue(was) || ''); } catch (f) { return ''; }
+    };
+    flPinsel = {
+      bold: lies('bold'), italic: lies('italic'), underline: lies('underline'),
+      strikeThrough: lies('strikeThrough'),
+      fontName: wert('fontName').replace(/^['"]|['"]$/g, ''),
+      fontSize: wert('fontSize'), foreColor: wert('foreColor'),
+    };
+    flPinselZeigen();
+  }
+
+  function flPinselZeigen() {
+    for (const k of document.querySelectorAll('.fl-taste[data-stand="pinsel"]')) {
+      k.classList.toggle('an', !!flPinsel);
+    }
+  }
+
+  function flPinselAnschalten() {
+    document.addEventListener('mouseup', function () {
+      if (!flPinsel) return;
+      setTimeout(function () {
+        const sel = window.getSelection();
+        if (!sel || sel.isCollapsed || !sel.anchorNode) return;
+        const knoten = sel.anchorNode.nodeType === 1 ? sel.anchorNode
+                                                     : sel.anchorNode.parentElement;
+        if (!knoten || !knoten.closest('[contenteditable]')) return;
+        const p = flPinsel;
+        flPinsel = null;
+        flPinselZeigen();
+        flBefehl('removeFormat');
+        for (const was of ['bold', 'italic', 'underline', 'strikeThrough']) {
+          if (p[was]) flBefehl(was);
+        }
+        if (p.fontName) flBefehl('fontName', p.fontName);
+        if (p.fontSize) flBefehl('fontSize', p.fontSize);
+        if (p.foreColor) flBefehl('foreColor', p.foreColor);
+      }, 0);
+    });
+  }
+
+  function flFarben() {
+    const aus = [];
+    for (const k of document.querySelectorAll('#farben button[data-farbe]')) {
+      aus.push([k.dataset.farbe, k.title || k.dataset.farbe, k.dataset.farbe]);
+    }
+    return aus;
+  }
+
+  function formatleisteBauen() {
+    const wirt = el('div', { className: 'formatleiste' });
+
+    const art = el('select', { className: 'fl-art', title: 'Schriftart' });
+    art.addEventListener('change', function () { flBefehl('fontName', art.value); });
+    const groesse = el('select', { className: 'fl-groesse', title: 'Schriftgröße' });
+    for (const [wert, text] of FL_GROESSEN) {
+      groesse.append(el('option', { value: wert, textContent: text }));
+    }
+    groesse.addEventListener('change', function () { flBefehl('fontSize', groesse.value); });
+
+    const reihe1 = el('div', { className: 'fl-reihe' }, [
+      art, groesse,
+      el('span', { className: 'fl-trenner' }),
+      flKlappe(wirt, 'Formatvorlage', '<span class="fl-sinn">✒</span>',
+               FL_VORLAGEN.map(([w, n]) => [w, n, '']),
+               function (w) { flBefehl('formatBlock', w); }),
+      flTaste('<span class="fl-sinn">⇤</span>', 'Einzug verkleinern',
+              function () { flBefehl('outdent'); }),
+      flTaste('<span class="fl-sinn">⇥</span>', 'Einzug vergrößern',
+              function () { flBefehl('indent'); }),
+      el('span', { className: 'fl-trenner' }),
+      flTaste('<span class="fl-haken">☑</span>', 'Aufgabe (zum Abhaken)',
+              function () { flZeichenSetzen('☐'); }),
+      flKlappe(wirt, 'Kategorie', '<span class="fl-sinn">🏷</span>',
+               FL_KATEGORIEN.map(([z, n]) => [z, n, z]),
+               function (z) { flZeichenSetzen(z); }),
+    ]);
+
+    const reihe2 = el('div', { className: 'fl-reihe' }, [
+      flTaste('<b>F</b>', 'Fett (Strg+B)', function () { flBefehl('bold'); }, 'bold'),
+      flTaste('<i>K</i>', 'Kursiv (Strg+I)', function () { flBefehl('italic'); }, 'italic'),
+      flTaste('<u>U</u>', 'Unterstrichen (Strg+U)',
+              function () { flBefehl('underline'); }, 'underline'),
+      flTaste('<s>S</s>', 'Durchgestrichen',
+              function () { flBefehl('strikeThrough'); }, 'strikeThrough'),
+      el('span', { className: 'fl-trenner' }),
+      flTaste('<span class="fl-marker">A</span>', 'Hervorheben', function () {
+        try { if (typeof hervorheben === 'function') hervorheben(); } catch (f) { /* egal */ }
+      }),
+      flKlappe(wirt, 'Schriftfarbe', '<span class="fl-buchstabe">A</span>',
+               flFarben(), function (farbe) { flBefehl('foreColor', farbe); }),
+      el('span', { className: 'fl-trenner' }),
+      flTaste('<span class="fl-sinn">•</span>', 'Aufzählung',
+              function () { flBefehl('insertUnorderedList'); }, 'insertUnorderedList'),
+      flTaste('<span class="fl-sinn">1.</span>', 'Nummerierung',
+              function () { flBefehl('insertOrderedList'); }, 'insertOrderedList'),
+      el('span', { className: 'fl-trenner' }),
+      flTaste('<span class="fl-sinn">🖌</span>', 'Format übertragen',
+              flPinselNehmen, 'pinsel'),
+      flTaste('<span class="fl-weg">✕</span>', 'Formatierung entfernen', function () {
+        flBefehl('removeFormat');
+        try { if (typeof hervorhebungWeg === 'function') hervorhebungWeg(); } catch (f) { /* egal */ }
+      }),
+    ]);
+
+    wirt.append(reihe1, reihe2);
+    // Ein Klick in die Leiste darf die Markierung nicht kosten - sonst
+    // formatiert der Knopf nichts. Auswahlfelder brauchen den Fokus, sonst
+    // klappen sie nicht auf.
+    wirt.addEventListener('mousedown', function (ev) {
+      if (ev.target.tagName !== 'SELECT') ev.preventDefault();
+    });
+    return wirt;
+  }
+
+  /* Was an der Markierung schon gilt, anzeigen - und die Schriftliste
+     nachziehen, die der Server erst nachlaedt. */
+  function formatleisteFrischen(wirt) {
+    if (!wirt) return;
+    const art = wirt.querySelector('.fl-art');
+    const echt = document.querySelector('#minialt select[data-befehl="fontName"]')
+              || document.querySelector('#minileiste select[data-befehl="fontName"]');
+    if (art && echt && art.options.length !== echt.options.length) {
+      art.textContent = '';
+      for (const o of echt.options) {
+        art.append(el('option', { value: o.value, textContent: o.textContent }));
+      }
+    }
+    const klappe = wirt.querySelector('.fl-liste');
+    if (klappe) klappe.remove();
+    for (const [waehler, befehl] of [['.fl-art', 'fontName'], ['.fl-groesse', 'fontSize']]) {
+      const feld = wirt.querySelector(waehler);
+      if (!feld) continue;
+      try {
+        const wert = String(document.queryCommandValue(befehl) || '')
+          .replace(/^['"]|['"]$/g, '');
+        const treffer = Array.from(feld.options).find(function (o) {
+          return o.value === wert || o.value.toLowerCase() === wert.toLowerCase();
+        });
+        if (treffer) feld.value = treffer.value;
+      } catch (f) { /* nicht jede Webansicht kann das */ }
+    }
+    for (const k of wirt.querySelectorAll('.fl-taste[data-stand]')) {
+      const befehl = k.dataset.stand;
+      if (befehl === 'pinsel') { k.classList.toggle('an', !!flPinsel); continue; }
+      let an = false;
+      try { an = document.queryCommandState(befehl); } catch (f) { /* egal */ }
+      k.classList.toggle('an', !!an);
+    }
+  }
+
+  /* Die schwebende Leiste drueben bekommt denselben Inhalt. Ihre eigenen
+     Knoepfe bleiben stehen, nur versteckt: an ihnen haengen drueben die
+     Schriftliste und die Farben, und von dort werden sie hier gespiegelt. */
+  function minileisteUmbauen() {
+    const leiste = document.getElementById('minileiste');
+    if (!leiste || leiste.querySelector('.formatleiste')) return;
+    const alt = el('div', { id: 'minialt', hidden: true });
+    while (leiste.firstChild) alt.append(leiste.firstChild);
+    const neu = formatleisteBauen();
+    leiste.append(alt, neu);
+    document.addEventListener('selectionchange', function () {
+      if (!leiste.hidden) formatleisteFrischen(neu);
+    });
+  }
+
+  function formatleistenBauen() {
+    minileisteUmbauen();
+    flHakenAnschalten();
+    flPinselAnschalten();
+    const stil = document.createElement('style');
+    stil.textContent = `
+      .formatleiste { position: relative; padding: 4px 5px; }
+      .formatleiste .fl-reihe {
+        display: flex; align-items: center; gap: 1px;
+      }
+      .formatleiste .fl-reihe + .fl-reihe { margin-top: 3px; }
+      .formatleiste select {
+        height: 24px; border: 1px solid var(--linie); border-radius: 3px;
+        background: var(--papier); color: var(--schrift); font-size: 12px;
+      }
+      .formatleiste .fl-art { flex: 1; min-width: 86px; max-width: 150px; }
+      .formatleiste .fl-groesse { width: 56px; margin-left: 2px; }
+      .fl-taste {
+        min-width: 26px; height: 24px; padding: 0 4px; border: 1px solid transparent;
+        border-radius: 3px; background: none; color: var(--schrift);
+        font: inherit; font-size: 12px; line-height: 1; cursor: pointer;
+        display: inline-flex; align-items: center; justify-content: center; gap: 1px;
+      }
+      .fl-taste:hover { background: var(--flaeche); border-color: var(--linie); }
+      .fl-taste.an { background: color-mix(in srgb, var(--akzent) 25%, transparent); }
+      .fl-pfeil { font-size: 9px; opacity: .7; }
+      .fl-sinn { font-size: 13px; }
+      .fl-haken { color: var(--akzent); font-size: 13px; }
+      .fl-weg { opacity: .6; }
+      .fl-marker { background: #ffe680; color: #1f1d1a; padding: 0 3px; border-radius: 2px; }
+      .fl-buchstabe { border-bottom: 3px solid var(--warnung); line-height: 1.1; }
+      .formatleiste .fl-trenner {
+        width: 1px; height: 16px; background: var(--linie); margin: 0 3px;
+      }
+      .fl-liste {
+        position: absolute; z-index: 60; min-width: 150px; padding: 4px;
+        background: var(--leiste); border: 1px solid var(--linie);
+        border-radius: 6px; box-shadow: 0 8px 24px rgba(0,0,0,.35);
+      }
+      .fl-eintrag {
+        display: flex; align-items: center; gap: 8px; width: 100%;
+        padding: 5px 8px; border: 0; border-radius: 4px; background: none;
+        color: var(--schrift); font: inherit; font-size: 13px; cursor: pointer;
+        text-align: left;
+      }
+      .fl-eintrag:hover { background: var(--flaeche); }
+      .fl-probe { width: 16px; text-align: center; }
+      .fl-tupfer { height: 12px; border-radius: 50%; border: 1px solid var(--linie); }
+    `;
+    document.head.append(stil);
+  }
+
   /* --------------------------------------- Rechtsklick: Formatieren gleich mit
 
      Drueben ist das Rechtsklick-Menue eine Liste mit vier Punkten, und zum
@@ -2762,111 +3123,14 @@
   let meinName = '';
   let meinBereich = '';
 
-  function rmBefehl(was, wert) {
-    try {
-      if (typeof aufAuswahl === 'function') aufAuswahl(was, wert);
-    } catch (f) { console.error('[notizmappe] Format:', f); }
-  }
-
-  function rmKnopf(inhalt, titel, tun, stand) {
-    const k = el('button', { type: 'button', className: 'rm-taste', title: titel });
-    k.innerHTML = inhalt;
-    // Woran man sieht, ob es an der Markierung schon gilt - dieselbe Frage,
-    // die die Mini-Leiste drueben stellt.
-    if (stand) k.dataset.stand = stand;
-    k.addEventListener('click', function (ev) {
-      ev.preventDefault();
-      ev.stopPropagation();
-      tun();
-      rechtsmenueZu();
-    });
-    return k;
-  }
-
   function rechtsmenueZu() {
     const menue = document.getElementById('rechtsmenue');
     if (menue) menue.hidden = true;
   }
 
-  /* Die Schriftliste und die Farben stehen schon in der Mini-Leiste - von dort
-     geholt statt hier noch einmal aufgeschrieben. Kommt drueben eine Schrift
-     dazu, ist sie hier automatisch mit dabei. */
-  function rmSpiegeln() {
-    const art = document.getElementById('rm-art');
-    const echt = document.querySelector('#minileiste select[data-befehl="fontName"]');
-    if (art && echt && art.options.length !== echt.options.length) {
-      art.textContent = '';
-      for (const o of echt.options) {
-        art.append(el('option', { value: o.value, textContent: o.textContent }));
-      }
-    }
-    const platz = document.getElementById('rm-farben');
-    const quelle = document.getElementById('farben');
-    if (platz && quelle && !platz.children.length) {
-      for (const k of quelle.querySelectorAll('button[data-farbe]')) {
-        const farbe = k.dataset.farbe;
-        const punkt = el('button', { type: 'button', className: 'rm-farbe',
-                                     title: k.title || farbe });
-        punkt.style.background = farbe;
-        punkt.addEventListener('click', function (ev) {
-          ev.preventDefault();
-          ev.stopPropagation();
-          rmBefehl('foreColor', farbe);
-          rechtsmenueZu();
-        });
-        platz.append(punkt);
-      }
-    }
-  }
-
   function rechtsmenueBauen() {
     const menue = document.getElementById('rechtsmenue');
     if (!menue || document.getElementById('rm-format')) return;
-
-    const art = el('select', { id: 'rm-art', title: 'Schriftart' });
-    art.addEventListener('change', function () { rmBefehl('fontName', art.value); });
-    const groesse = el('select', { id: 'rm-groesse', title: 'Schriftgröße' });
-    for (const [wert, text] of [['1', '8'], ['2', '10'], ['3', '12'], ['4', '14'],
-                                ['5', '18'], ['6', '24'], ['7', '36']]) {
-      groesse.append(el('option', { value: wert, textContent: text }));
-    }
-    groesse.addEventListener('change', function () { rmBefehl('fontSize', groesse.value); });
-
-    const reihe1 = el('div', { className: 'rm-reihe' }, [
-      art, groesse,
-      el('span', { className: 'rm-trenner' }),
-      rmKnopf('&bull;', 'Aufzählung', function () { rmBefehl('insertUnorderedList'); },
-              'insertUnorderedList'),
-      rmKnopf('1.', 'Nummerierung', function () { rmBefehl('insertOrderedList'); },
-              'insertOrderedList'),
-      el('span', { className: 'rm-trenner' }),
-      rmKnopf('&#8676;', 'Einzug verkleinern', function () { rmBefehl('outdent'); }),
-      rmKnopf('&#8677;', 'Einzug vergrößern', function () { rmBefehl('indent'); }),
-    ]);
-
-    const farben = el('span', { id: 'rm-farben', title: 'Schriftfarbe' });
-    const reihe2 = el('div', { className: 'rm-reihe' }, [
-      rmKnopf('<b>F</b>', 'Fett (Strg+B)', function () { rmBefehl('bold'); }, 'bold'),
-      rmKnopf('<i>K</i>', 'Kursiv (Strg+I)', function () { rmBefehl('italic'); }, 'italic'),
-      rmKnopf('<u>U</u>', 'Unterstrichen (Strg+U)', function () { rmBefehl('underline'); },
-              'underline'),
-      rmKnopf('<s>S</s>', 'Durchgestrichen', function () { rmBefehl('strikeThrough'); },
-              'strikeThrough'),
-      el('span', { className: 'rm-trenner' }),
-      farben,
-      rmKnopf('<mark>H</mark>', 'Hervorheben', function () {
-        try { if (typeof hervorheben === 'function') hervorheben(); } catch (f) { /* egal */ }
-      }),
-      el('span', { className: 'rm-trenner' }),
-      rmKnopf('&#10005;', 'Formatierung entfernen', function () {
-        rmBefehl('removeFormat');
-        try { if (typeof hervorhebungWeg === 'function') hervorhebungWeg(); } catch (f) { /* egal */ }
-      }),
-    ]);
-
-    // Unten, nicht oben: so steht es im Bild, und es liest sich auch besser -
-    // erst die Punkte, dann das Werkzeug.
-    const block = el('div', { id: 'rm-format' }, [reihe1, reihe2]);
 
     // Die vier Punkte drueben bekommen ihr Zeichen davor - geaendert wird an
     // ihnen sonst nichts, sie haengen weiter an ihrem data-tun.
@@ -2898,11 +3162,14 @@
     // Wer wann - so weit wir es wirklich wissen. Die Seite merkt sich, wann
     // sie zuletzt geaendert wurde, aber nicht von wem; in einem Projekt waere
     // ein Name hier also geraten.
-    menue.append(el('p', { id: 'rm-wer', className: 'rm-fuss' }), block);
+    menue.append(el('p', { id: 'rm-wer', className: 'rm-fuss' }));
 
-    // Ein Klick ins Menue darf die Markierung nicht kosten - sonst formatiert
-    // der Knopf nichts. Bei Auswahlfeldern nicht: die muessen den Fokus
-    // bekommen, sonst klappen sie nicht auf.
+    // Unten die Leiste - dieselbe wie die schwebende beim Markieren.
+    const block = el('div', { id: 'rm-format' }, [formatleisteBauen()]);
+    menue.append(block);
+
+    // Ein Klick ins Menue darf die Markierung nicht kosten - sonst tut der
+    // Knopf nichts. Bei Auswahlfeldern nicht: die brauchen den Fokus.
     menue.addEventListener('mousedown', function (ev) {
       if (ev.target.tagName !== 'SELECT') ev.preventDefault();
     });
@@ -2927,41 +3194,8 @@
 
     const stil = document.createElement('style');
     stil.textContent = `
-      #rechtsmenue { padding: 0; min-width: 232px; }
-      #rm-format {
-        padding: 6px 6px 5px; border-top: 1px solid var(--linie);
-        background: var(--leiste); border-radius: 0 0 8px 8px;
-      }
-      #rm-format .rm-reihe {
-        display: flex; align-items: center; gap: 2px; margin: 0 0 3px;
-      }
-      #rm-format .rm-reihe:last-child { margin-bottom: 0; }
-      #rm-format select {
-        height: 24px; border: 1px solid var(--linie); border-radius: 4px;
-        background: var(--papier); color: var(--schrift); font-size: 12px;
-      }
-      #rm-art { flex: 1; min-width: 0; }
-      #rm-groesse { width: 54px; }
-      .rm-taste {
-        min-width: 24px; height: 24px; padding: 0 5px; border: 1px solid transparent;
-        border-radius: 4px; background: none; color: var(--schrift);
-        font: inherit; font-size: 12px; line-height: 1; cursor: pointer;
-      }
-      .rm-taste:hover { background: var(--flaeche); border-color: var(--linie); }
-      .rm-taste.an { background: color-mix(in srgb, var(--akzent) 22%, transparent); }
-      .rm-taste mark { background: #ffe680; color: #1f1d1a; padding: 0 2px; border-radius: 2px; }
-      #rm-format .rm-trenner {
-        width: 1px; height: 16px; background: var(--linie); margin: 0 3px;
-      }
-      #rm-farben { display: inline-flex; gap: 2px; }
-      .rm-farbe {
-        width: 14px; height: 14px; padding: 0; border: 1px solid var(--linie);
-        border-radius: 50%; cursor: pointer;
-      }
-      .rm-farbe:hover { outline: 2px solid var(--akzent); outline-offset: 1px; }
-      #rechtsmenue > button {
-        display: flex; align-items: center; gap: 10px; width: 100%;
-      }
+      #rechtsmenue { padding: 0; min-width: 236px; }
+      #rechtsmenue > button { display: flex; align-items: center; gap: 10px; width: 100%; }
       .rm-zeichen { width: 16px; text-align: center; opacity: .75; font-size: 13px; }
       .rm-strich { height: 1px; background: var(--linie); margin: 4px 0; }
       .rm-fuss {
@@ -2969,6 +3203,10 @@
         border-top: 1px solid var(--linie);
       }
       .rm-fuss:empty { display: none; }
+      #rm-format {
+        border-top: 1px solid var(--linie); background: var(--leiste);
+        border-radius: 0 0 8px 8px;
+      }
     `;
     document.head.append(stil);
   }
@@ -2989,44 +3227,26 @@
     // Der Dialog kostet die Markierung, also zurueckholen.
     sel.removeAllRanges();
     sel.addRange(merk);
-    rmBefehl('createLink', adresse);
+    flBefehl('createLink', adresse);
   }
 
   function rechtsmenueFrischen(x, y) {
     const menue = document.getElementById('rechtsmenue');
     const block = document.getElementById('rm-format');
     if (!menue || !block || menue.hidden) return;
-    rmSpiegeln();
     // Auf der leeren Flaeche waere eine Formatleiste eine Reihe Knoepfe, die
     // nichts tun.
     block.hidden = !rmImText;
     const link = document.getElementById('rm-link');
     if (link) link.hidden = !rmImText;
-    for (const [id, befehl] of [['rm-art', 'fontName'], ['rm-groesse', 'fontSize']]) {
-      const feld = document.getElementById(id);
-      if (!feld) continue;
-      try {
-        const wert = String(document.queryCommandValue(befehl) || '')
-          .replace(/^['"]|['"]$/g, '');
-        const treffer = Array.from(feld.options).find(function (o) {
-          return o.value === wert || o.value.toLowerCase() === wert.toLowerCase();
-        });
-        if (treffer) feld.value = treffer.value;
-      } catch (f) { /* nicht jede Webansicht kann das */ }
-    }
-    for (const k of block.querySelectorAll('.rm-taste')) {
-      const befehl = k.dataset.stand;
-      if (!befehl) continue;
-      let an = false;
-      try { an = document.queryCommandState(befehl); } catch (f) { /* egal */ }
-      k.classList.toggle('an', !!an);
-    }
+    if (rmImText) formatleisteFrischen(block.querySelector('.formatleiste'));
     const wer = document.getElementById('rm-wer');
     if (wer) wer.textContent = rmFusszeile();
     const b = menue.getBoundingClientRect();
     menue.style.left = Math.max(4, Math.min(x, window.innerWidth - b.width - 8)) + 'px';
     menue.style.top = Math.max(4, Math.min(y, window.innerHeight - b.height - 8)) + 'px';
   }
+
 
   function rmFusszeile() {
     let zeit = null;
@@ -3971,6 +4191,7 @@
                                ['Update-Hinweis', updateHinweisBauen],
                                ['Optionen-Reiter', optionenReiterBauen],
                                ['3D-Anhänge', modelleBauen],
+                               ['Formatleiste', formatleistenBauen],
                                ['Rechtsklick', rechtsmenueBauen],
                                ['Bereiche laden', bereicheLaden],
                                ['Verwaltung laden', verwaltungLaden]]) {
