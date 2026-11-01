@@ -347,6 +347,10 @@ def keks_setzen(antwort: Response, name: str) -> None:
 # dessen Namen danebenliegt - er braucht das Passwort gar nicht zu erraten, nur
 # die Geduld. Genau das ist beim Durchprobieren herausgekommen.
 _fehlversuche: dict[str, list] = {}
+# Die Bremse wird aus dem Threadpool heraus angefasst, und zaehlen heisst
+# lesen, aendern, schreiben. Ohne Sperre koennen zwei gleichzeitige Fehlgriffe
+# denselben Stand lesen und beide auf 2 setzen - gezaehlt waere dann einer.
+_bremssperre = threading.Lock()
 MAX_BREMSE = 2000               # mehr Eintraege nicht; sonst waere das Fuellen
                                 # dieses Woerterbuchs selbst der Angriff
 
@@ -377,11 +381,12 @@ def gebremst(wer: str) -> int:
 
 
 def fehlversuch(wer: str) -> None:
-    anzahl = (_fehlversuche.get(wer) or [0, 0])[0] + 1
-    # 1-3 Versuche frei, danach steigend bis 5 Minuten
-    wartezeit = 0 if anzahl <= 3 else min(300, 5 * 2 ** (anzahl - 4))
-    _fehlversuche[wer] = [anzahl, time.time() + wartezeit]
-    _aufraeumen()
+    with _bremssperre:
+        anzahl = (_fehlversuche.get(wer) or [0, 0])[0] + 1
+        # 1-3 Versuche frei, danach steigend bis 5 Minuten
+        wartezeit = 0 if anzahl <= 3 else min(300, 5 * 2 ** (anzahl - 4))
+        _fehlversuche[wer] = [anzahl, time.time() + wartezeit]
+        _aufraeumen()
 
 
 def geklappt(wer: str) -> None:
@@ -896,7 +901,10 @@ async def aussehen_setzen(bitte: Request):
                             status_code=400)
 
     ziel = nutzer.konfigordner(wer) / "aussehen.json"
-    vorlaeufig = ziel.with_name(".aussehen.neu")
+    # Eindeutig je Aufruf: zwei Browser desselben Menschen, die gleichzeitig
+    # speichern, schrieben sonst in dieselbe Zwischendatei - und einer von
+    # beiden ersetzte das Ziel durch eine halb geschriebene.
+    vorlaeufig = ziel.with_name(f".aussehen.{os.getpid()}.{threading.get_ident()}.neu")
     try:
         vorlaeufig.write_text(json.dumps({"thema": gewaehlt, "farben": eigene}),
                               encoding="utf-8")

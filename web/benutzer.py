@@ -603,8 +603,13 @@ def einrichtung_merken() -> None:
         p.parent.mkdir(parents=True, exist_ok=True)
         if not p.exists():
             p.write_text("ja\n", encoding="utf-8")
-    except OSError:
-        pass            # Kein Einrichtungsordner: dann eben ohne Marke
+    except OSError as f:
+        # Ohne Marke sieht ein leerer Datenordner spaeter wieder wie ein
+        # frischer Server aus - und dann steht dort die Ersteinrichtung. Das
+        # ist nichts, was sich hier reparieren laesst, aber es gehoert ins
+        # Protokoll, statt lautlos zu verschwinden.
+        print(f"[notizmappe] Die Einrichtungsmarke ließ sich nicht schreiben ({f}). "
+              "Ist /einrichtung eingehängt und beschreibbar?", flush=True)
 
 
 def war_schon_eingerichtet() -> bool:
