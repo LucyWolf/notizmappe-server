@@ -148,7 +148,8 @@
       if (k) k.hidden = !d.darf;
     }
     for (const h of abschnitt.querySelectorAll('h3')) {
-      const nurVerwalter = ['Benutzer und Rollen', 'Einladen', 'Was die Rollen bedeuten']
+      const nurVerwalter = ['Benutzer und Rollen', 'Einladen', 'Was die Rollen bedeuten',
+                            'Name dieser Mappe']
         .indexOf(h.textContent) >= 0;
       h.hidden = nurVerwalter && !d.darf;
       // Seit die Verwaltung in Reiter zerlegt ist, haengt an jeder
@@ -160,6 +161,8 @@
         teil.hidden = nurVerwalter && !d.darf;
       }
     }
+    const wie = document.getElementById('v-mappe');
+    if (wie && document.activeElement !== wie) wie.value = d.mappe || '';
     zweiLaden();
     zeichneProjekte(d);
     if (!d.darf) return;            // Projekte darf man auch ohne Benutzerverwaltung sehen
@@ -526,6 +529,7 @@
     'Was die Rollen bedeuten': 'Rollen',
     'Aus OneNote übernehmen': 'OneNote',
     'Mit einem Server verbinden': 'Server',
+    'Name dieser Mappe': 'Name',
   };
   let offenerReiter = null;
   try { offenerReiter = localStorage.getItem(REITER_MERK); } catch (f) { /* ohne eben nicht */ }
@@ -2273,8 +2277,28 @@
       } catch (f) { sagen(f.message); }
     });
 
+    // Der Name dieser Mappe. Wer zwei Installationen hat, sieht im Fenster
+    // sonst nur eine Adresse - und "192.168.178.27:8112" sagt niemandem,
+    // ob das die zu Hause oder die in der Firma ist.
+    const mappenName = el('input', { type: 'text', id: 'v-mappe',
+                                     placeholder: 'z. B. Keller', maxLength: 40 });
+    const mappenKnopf = el('button', { type: 'button', textContent: 'Namen setzen' });
+    mappenKnopf.addEventListener('click', async () => {
+      try {
+        const r = await hol('/verwaltung/mappe', { name: mappenName.value });
+        sagen(r.mappe ? `Diese Mappe heißt jetzt „${r.mappe}".`
+                      : 'Der Name ist weg - im Fenster steht wieder die Adresse.');
+        verwaltungLaden();
+      } catch (f) { sagen(f.message); }
+    });
+
     const abschnitt = el('section', { id: 'serververwaltung', hidden: true }, [
-      el('h3', { textContent: 'Benutzer und Rollen' }),
+      el('h3', { textContent: 'Name dieser Mappe' }),
+      el('p', { className: 'hinweis', textContent:
+        'Steht im Fenster der Notizmappe oben in der Leiste, sobald sich jemand '
+        + 'von dort hier anmeldet - statt der Adresse. Leer lassen geht auch.' }),
+      el('p', { className: 'ordnerzeile' }, [mappenName, mappenKnopf]),
+      el('h3', { textContent: 'Benutzer und Rollen', style: 'margin-top:14px' }),
       el('div', { id: 'v-benutzer' }),
       el('p', { className: 'ordnerzeile' }, [neuerName, neuesPw, neueRolle]),
       el('p', { className: 'knoepfe' }, [anlegen]),

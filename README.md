@@ -93,6 +93,19 @@ Projekte anlegen darf, wer das Recht `projekte` hat. Wer in einem Projekt
 müsste für jede Kleinigkeit jemand von oben kommen. Den letzten Verwalter eines
 Projekts kann niemand hinauswerfen.
 
+### Der Name dieser Mappe
+
+Unter *Einstellungen → Name* bekommt die Installation einen Namen („Keller",
+„Firma"). Er steht im **Fenster** der Notizmappe oben in der Leiste, sobald
+sich jemand von dort hier anmeldet — statt `Server: http://192.168.178.27:8112`
+steht dann `Server: Keller`. Wer zwei Mappen hat, sieht damit auf einen Blick,
+in welcher er gerade schreibt. Leer lassen geht; dann steht dort wie bisher die
+Adresse.
+
+Setzen darf ihn, wer Benutzer verwalten darf. Der Name gehört zur Mappe, nicht
+zu einem Benutzer — er steht in derselben Datei wie Zugänge und Projekte und
+wird mitgesichert.
+
 ### Was sich geändert hat, steht mit **!** da
 
 In einem Projekt arbeiten mehrere im selben Ordner. Hat jemand anders eine

@@ -1266,7 +1266,10 @@ def bereiche(bitte: Request):
     if not wer:
         return JSONResponse({"fehler": "Nicht angemeldet"}, status_code=401)
     return {"jetzt": bereich_lesen(wer), "projekte": nutzer.projekte_von(wer),
-            "rechte_hier": sorted(rechte_hier(wer))}
+            "rechte_hier": sorted(rechte_hier(wer)),
+            # Wie diese Mappe heisst. Das Fenster drueben schreibt den Namen in
+            # seine Leiste, statt dort eine Adresse stehen zu lassen.
+            "mappe": nutzer.mappenname()}
 
 
 @app.post("/bereich")
@@ -1455,7 +1458,25 @@ def verwaltung(bitte: Request):
         "darf_projekte": "benutzer" in nutzer.rechte_von(wer),
         "einladungen": nutzer.einladungen() if "benutzer" in meine else [],
         "einladung_minuten": nutzer.EINLADUNG_MINUTEN,
+        "mappe": nutzer.mappenname(),
     }
+
+
+@app.post("/verwaltung/mappe")
+async def verwaltung_mappe(bitte: Request):
+    """Der Mappe einen Namen geben - oder ihn wieder wegnehmen."""
+    wer = angemeldet(bitte)
+    if not wer:
+        return JSONResponse({"fehler": "Nicht angemeldet"}, status_code=401)
+    if bitte.headers.get("x-notizmappe") != "1":
+        return JSONResponse({"fehler": "Falscher Aufruf"}, status_code=400)
+    if "benutzer" not in nutzer.rechte_von(wer):
+        return JSONResponse({"fehler": "Dafür fehlt dir das Recht."}, status_code=403)
+    d = await _rumpf_von(bitte)
+    try:
+        return {"mappe": nutzer.mappenname_setzen(str(d.get("name") or ""))}
+    except nutzer.BenutzerFehler as f:
+        return JSONResponse({"fehler": str(f)}, status_code=400)
 
 
 def _rumpf(wert) -> dict:
@@ -1712,9 +1733,10 @@ def _antwort(name: str, methode: str, rumpf: dict):
     # Wo die Dateien auf dem Server liegen, geht den Browser nichts an - das
     # ist eine Auskunft ueber den Rechner, nicht ueber die Notizen.
     if isinstance(aus, dict) and isinstance(aus.get("ordner"), str):
-        bereich = bereich_lesen(name)
         aus = dict(aus)
-        aus["ordner"] = f"Projekt: {bereich}" if bereich else f"Server: {name}"
+        wie = nutzer.mappenname()
+        aus["ordner"] = (f"Projekt: {bereich}" if bereich
+                         else (f"{wie}: {name}" if wie else f"Server: {name}"))
     # In einer Gruppe: was sich seit dem letzten Blick geaendert hat, bekommt
     # im Baum ein Zeichen - und was man aufmacht oder speichert, gilt als
     # gesehen. In den eigenen Notizen gibt es beides nicht.
@@ -1738,5 +1760,9 @@ def _antwort(name: str, methode: str, rumpf: dict):
         aus["hier"] = False
         aus["ordner_waehlbar"] = False
         aus["aus_installation"] = True
-        aus["ordner"] = f"Server: {name}"
+        # Zweimal dieselbe Zeile: oben fuer alle Antworten mit "ordner", hier
+        # noch einmal, weil dieser Block sie sonst wieder ueberschreibt.
+        wie = nutzer.mappenname()
+        aus["ordner"] = (f"Projekt: {bereich}" if bereich
+                         else (f"{wie}: {name}" if wie else f"Server: {name}"))
     return aus

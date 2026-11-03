@@ -442,6 +442,33 @@ def einladung_einloesen(marke: str, name: str, passwort: str) -> str:
 # Ein Projekt ist ein eigener Notizordner, an dem mehrere arbeiten. Die privaten
 # Notizen bleiben davon unberuehrt - niemand sieht sie, auch kein Verwalter.
 
+# --- Wie diese Mappe heisst --------------------------------------------------
+#
+# Wer zwei Installationen hat - eine zu Hause, eine auf dem Server der Firma -,
+# sieht im Fenster sonst nur "Server: http://192.168.178.27:8112". Das sagt
+# nichts. Mit einem Namen steht dort "Server: Keller".
+#
+# Der Name gehoert zur Mappe, nicht zu einem Benutzer: er steht in derselben
+# Datei wie Zugaenge und Projekte und wird mitgesichert. Setzen darf ihn, wer
+# Benutzer verwalten darf.
+MAPPENNAME_MUSTER = re.compile(r"^[^\x00-\x1f]{0,40}$")
+
+
+def mappenname() -> str:
+    return str(_lesen().get("mappe") or "").strip()
+
+
+def mappenname_setzen(name: str) -> str:
+    name = " ".join(str(name or "").split())[:40]
+    if not MAPPENNAME_MUSTER.match(name):
+        raise BenutzerFehler("Der Name hat Zeichen, die hier nicht hingehoeren")
+    with _sperre:
+        daten = _lesen()
+        daten["mappe"] = name
+        _schreiben(daten)
+    return name
+
+
 def projektordner(name: str) -> Path:
     p = datenordner() / "projekte" / _dateiname(name)
     p.mkdir(parents=True, exist_ok=True)

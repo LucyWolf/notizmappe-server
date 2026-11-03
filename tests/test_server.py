@@ -1095,6 +1095,42 @@ _zeichen = set(_re.findall(r"'([^']+)'", _dort2.group(1))) if _dort2 else set()
 pruefe("und dieselben Aufzaehlungszeichen",
        _zeichen == _listen.ZEICHEN, (sorted(_zeichen), sorted(_listen.ZEICHEN)))
 
+# --- Wie diese Mappe heisst --------------------------------------------------
+#
+# Wer zwei Installationen hat, sieht im Fenster sonst nur "Server:
+# http://192.168.178.27:8112". Das sagt nichts.
+print("\nDer Name der Mappe")
+pruefe("ohne Namen steht da nichts",
+       k.get("/bereiche").json().get("mappe") == "", k.get("/bereiche").json())
+_ordner_vorher = ruf(k, "einstellungen")[1].get("ordner")
+pruefe("und in der Leiste steht Server", _ordner_vorher.startswith("Server:"), _ordner_vorher)
+
+_a = k.post("/verwaltung/mappe", json={"name": "  Keller   oben  "},
+            headers={"X-Notizmappe": "1"})
+pruefe("der Verwalter darf einen Namen setzen",
+       _a.status_code == 200 and _a.json().get("mappe") == "Keller oben", _a.text)
+pruefe("er steht in /bereiche", k.get("/bereiche").json().get("mappe") == "Keller oben")
+pruefe("und in der Verwaltung", k.get("/verwaltung").json().get("mappe") == "Keller oben")
+pruefe("in der Leiste steht jetzt der Name",
+       ruf(k, "einstellungen")[1].get("ordner", "").startswith("Keller oben:"),
+       ruf(k, "einstellungen")[1].get("ordner"))
+
+_a = A.post("/verwaltung/mappe", json={"name": "Von Anna"},
+            headers={"X-Notizmappe": "1"})
+pruefe("eine Benutzerin darf das nicht",
+       _a.status_code == 403 and k.get("/bereiche").json()["mappe"] == "Keller oben", _a.status_code)
+pruefe("ohne den eigenen Kopf geht es auch nicht",
+       k.post("/verwaltung/mappe", json={"name": "x"}).status_code == 400)
+
+_a = k.post("/verwaltung/mappe", json={"name": "x" * 90}, headers={"X-Notizmappe": "1"})
+pruefe("ein langer Name wird gekuerzt statt abgelehnt",
+       _a.status_code == 200 and len(_a.json()["mappe"]) == 40, _a.text)
+k.post("/verwaltung/mappe", json={"name": ""}, headers={"X-Notizmappe": "1"})
+pruefe("und wegnehmen geht auch",
+       k.get("/bereiche").json()["mappe"] == ""
+       and ruf(k, "einstellungen")[1]["ordner"].startswith("Server:"),
+       ruf(k, "einstellungen")[1].get("ordner"))
+
 # --- Kopfzeilen fuer das offene Netz -----------------------------------------
 #
 # Am eigenen Netz faellt nichts davon auf. Steht die Mappe im Netz, ist das
