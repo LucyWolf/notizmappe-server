@@ -730,6 +730,15 @@ tests/alle.sh                              # gegen die Fassung aus DESKTOP_VERSI
 die **Trennung der Benutzer** durch: zwei Zugänge, und der eine kommt nicht an
 die Notizen des anderen — auch nicht, wenn er den Pfad kennt.
 
+`test_angriff.py` nimmt die andere Richtung: was jemand **in** eine Notiz
+schreibt. Am Desktop liest man seine eigenen Notizen selbst; in einem Projekt
+schreibt der eine und der andere macht die Seite auf — im selben Browser, in
+dem auch seine Sitzung steht. Geprüft wird nicht der Reiniger für sich,
+sondern der ganze Weg: 26 Muster über die Brücke gespeichert und von der
+Platte zurückgelesen. Und die Gegenprobe dazu, dass Fett, Kursiv, Link und
+Schriftgröße stehen bleiben — ein Reiniger, der alles wegwirft, bestünde
+jeden Angriffstest und wäre trotzdem kaputt.
+
 `test_tuer.py` nimmt die Stufe davor: **ohne Anmeldung überhaupt nichts.** Er
 holt sich die Routen aus der App selbst und klopft an jede einzeln. Jede muss
 entweder mit Begründung auf der Liste der öffentlichen Türen stehen oder einen
@@ -751,6 +760,7 @@ Die anderen prüfen je eine Sache, und jede steht wegen eines echten Fehlers da:
 | `test_selbst.py` | das Nachladen einer Fassung und vor allem den Weg zurück |
 | `test_verlauf.py` | dass am Server jede Änderung bleibt, ein Jahr lang — und dass nicht bei jedem Speichern der ganze Ordner durchgesehen wird |
 | `test_leiste.py` | die Formatleiste: dass hinter jedem Knopf der richtige Befehl steckt, und dass im Rechtsklickmenü nicht zwei Leisten übereinander stehen |
+| `test_angriff.py` | dass aus einer Notiz nichts ausbricht: 26 Angriffsmuster über die Brücke gespeichert und zurückgelesen, dazu Anhangnamen mit `../` |
 | `test_tuer.py` | dass keine Route ohne Anmeldung antwortet und kein gebogener Keks öffnet |
 | `test_verwalten.py` | Das Werkzeug für die Kommandozeile — und dass auch es den letzten Verwalter stehen lässt |
 | `test_gruppe.py` | Das **!** in der Gruppe: wer es sieht, wer nicht, und an welcher Zeile es steht |
