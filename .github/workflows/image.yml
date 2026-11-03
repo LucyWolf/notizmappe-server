@@ -47,6 +47,7 @@ jobs:
           python tests/test_platine.py
           python tests/test_gruppe.py
           python tests/test_verwalten.py
+          python tests/test_tuer.py
 
   bauen:
     needs: pruefen

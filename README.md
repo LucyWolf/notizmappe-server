@@ -730,6 +730,15 @@ tests/alle.sh                              # gegen die Fassung aus DESKTOP_VERSI
 die **Trennung der Benutzer** durch: zwei Zugänge, und der eine kommt nicht an
 die Notizen des anderen — auch nicht, wenn er den Pfad kennt.
 
+`test_tuer.py` nimmt die Stufe davor: **ohne Anmeldung überhaupt nichts.** Er
+holt sich die Routen aus der App selbst und klopft an jede einzeln. Jede muss
+entweder mit Begründung auf der Liste der öffentlichen Türen stehen oder einen
+Unangemeldeten abweisen — eine neue Route, die die Prüfung vergisst, fällt
+damit durch, ohne dass jemand daran denken muss. Dazu wird der Sitzungskeks in
+seine Teile zerlegt: andere Unterschrift, anderer Name, längerer Ablauf, der
+halbe Keks aus dem zweiten Schritt als ganzer ausgegeben, und ein alter Keks
+nach einem Passwortwechsel. Nichts davon öffnet.
+
 Die anderen prüfen je eine Sache, und jede steht wegen eines echten Fehlers da:
 
 | | |
@@ -742,6 +751,7 @@ Die anderen prüfen je eine Sache, und jede steht wegen eines echten Fehlers da:
 | `test_selbst.py` | das Nachladen einer Fassung und vor allem den Weg zurück |
 | `test_verlauf.py` | dass am Server jede Änderung bleibt, ein Jahr lang — und dass nicht bei jedem Speichern der ganze Ordner durchgesehen wird |
 | `test_leiste.py` | die Formatleiste: dass hinter jedem Knopf der richtige Befehl steckt, und dass im Rechtsklickmenü nicht zwei Leisten übereinander stehen |
+| `test_tuer.py` | dass keine Route ohne Anmeldung antwortet und kein gebogener Keks öffnet |
 | `test_verwalten.py` | Das Werkzeug für die Kommandozeile — und dass auch es den letzten Verwalter stehen lässt |
 | `test_gruppe.py` | Das **!** in der Gruppe: wer es sieht, wer nicht, und an welcher Zeile es steht |
 | `test_platine.py` | Gerber: ZIP auspacken, Koordinatenformat, Zoll, Bohrdatei — und ob die Platine am Ende wirklich im Bild liegt und von unten gespiegelt ist |
