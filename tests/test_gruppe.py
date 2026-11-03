@@ -165,6 +165,40 @@ pruefe("Bei Anna selbst nicht - sie hat ja gespeichert", neu_bei(A) == [], neu_b
 ruf(B, "seite_lesen", buch, teil, seite)
 pruefe("Nachdem Bert sie aufgemacht hat, ist das Zeichen weg", neu_bei(B) == [])
 
+print("\nUnd wer war es?")
+
+
+def wer_bei(klient):
+    return [(s["name"], s.get("wer")) for b in ruf(klient, "baum").get("notizbuecher") or []
+            for a in b.get("abschnitte") or [] for s in a.get("seiten") or [] if s.get("neu")]
+
+
+# Bert hat die Seite eben aufgemacht; in derselben Sekunde zaehlt eine
+# Aenderung nicht als neu. Also wird sein Stand um fuenf Sekunden
+# zurueckgestellt - das ist genau das, was in echt die Zeit macht.
+def berts_blick_zurueck(sekunden=5):
+    g = server.nutzer.konfigordner("bert") / "gesehen.json"
+    d = json.loads(g.read_text(encoding="utf-8"))
+    schluessel = f"{buch}/{teil}/{seite}"
+    d["Hausbau"][schluessel] = d["Hausbau"][schluessel] - sekunden
+    g.write_text(json.dumps(d), encoding="utf-8")
+
+
+berts_blick_zurueck()
+stand = ruf(A, "seite_lesen", buch, teil, seite)
+ruf(A, "seite_speichern", {
+    "notizbuch": buch, "abschnitt": teil, "name": seite, "titel": "Fundament",
+    "rev": stand.get("rev"), "geraet": "chefin",
+    "elemente": [{"typ": "text", "x": 40, "y": 40, "b": 300, "inhalt": "x",
+                  "html": "<p>40 cm</p>"}]})
+pruefe("An der Änderung steht, wer sie war", wer_bei(B) == [(seite, "anna")], wer_bei(B))
+# Das ist der Punkt, an dem der Server es eintraegt und nicht die Oberflaeche:
+# Anna hat "chefin" mitgeschickt.
+pruefe("Und zwar der Server - ein mitgeschickter fremder Name zählt nicht",
+       json.loads((datei).read_text(encoding="utf-8"))["geraet"] == "anna",
+       json.loads((datei).read_text(encoding="utf-8"))["geraet"])
+ruf(B, "seite_lesen", buch, teil, seite)
+
 zweite = ruf(A, "seite_anlegen", buch, teil, "Dach")["name"]
 pruefe("Eine neue Seite von Anna ist für Bert neu", neu_bei(B) == [zweite], neu_bei(B))
 pruefe("Für Anna selbst nicht - sie hat sie angelegt", neu_bei(A) == [], neu_bei(A))
@@ -195,7 +229,8 @@ for muster, name in ((r"^  function el\(.*?^  \}", "el"),
                      (r"^  function neuesZeichen\(.*?^  \}", "neuesZeichen"),
                      (r"^  function neuesZahl\(.*?^  \}", "neuesZahl"),
                      (r"^  function neuesGelesen\(.*?^  \}", "neuesGelesen"),
-                     (r"^  function neuesMarkieren\(.*?^  \}", "neuesMarkieren")):
+                     (r"^  function neuesMarkieren\(.*?^  \}", "neuesMarkieren"),
+                     (r"^  function meldungMitNamen\(.*?^  \}", "meldungMitNamen")):
     treffer = re.search(muster, shim, re.S | re.M)
     pruefe(f"{name} steht in shim.js", bool(treffer))
     if treffer:
@@ -272,8 +307,11 @@ function zeile(text, klassen) {
 }
 
 /* Der Baum, wie mappe.js ihn baut: Buch > Abschnitt > Seitenzeilen. */
+let meinBereich = '';
+let letzterStand = null;
 const baumDaten = [{ name: 'Buch', abschnitte: [
-  { name: 'Keller', seiten: [{ name: 'a', titel: 'a' }, { name: 'b', titel: 'b', neu: true }] },
+  { name: 'Keller', seiten: [{ name: 'a', titel: 'a' },
+                             { name: 'b', titel: 'b', neu: true, wer: 'anna' }] },
   { name: 'Dach', seiten: [{ name: 'c', titel: 'c' }] },
   { name: 'Garten', seiten: [{ name: 'd', titel: 'd', neu: true }] },
 ]}];
@@ -307,12 +345,23 @@ aus.abschnitte = abschnitte.filter((a) => hat(a.firstElementChild)).map((a) => a
 aus.buch = hat(wurzel.children[0].firstElementChild);
 aus.buchtitel = wurzel.children[0].firstElementChild.querySelector('.neumarke').title;
 aus.zeichen = wurzel.querySelectorAll('.neumarke')[0].textContent;
+aus.hinweis_mit_namen = wurzel.querySelectorAll('.seite').filter(hat)
+  .map((z) => z.querySelector('.neumarke').title);
 // Aufgemacht: das Zeichen muss an der Seite und am Abschnitt darueber weg.
 const garten = abschnitte[2];
 garten.querySelectorAll('.seite')[0].querySelector('.name').klick();
 aus.nach_klick = marken();
 aus.garten_nach_klick = hat(garten.firstElementChild);
 aus.buch_nach_klick = hat(wurzel.children[0].firstElementChild);
+// Die Meldungen drueben: in den eigenen Notizen bleibt alles, wie es ist.
+letzterStand = { geraet: 'anna' };
+meinBereich = '';
+aus.eigen_konflikt = meldungMitNamen('Diese Seite wurde woanders geändert (Gerät 7f3k2a9).');
+aus.eigen_sync = meldungMitNamen('Neuere Fassung vom Sync da.');
+meinBereich = 'Hausbau';
+aus.projekt_konflikt = meldungMitNamen('Diese Seite wurde woanders geändert (Gerät anna). Deine Änderungen sind noch nicht gespeichert.');
+aus.projekt_sync = meldungMitNamen('Neuere Fassung vom Sync da.');
+aus.projekt_anderes = meldungMitNamen('Die Seite ist nicht mehr da (gelöscht oder verschoben).');
 process.stdout.write(JSON.stringify(aus) + '\n');
 """
 
@@ -343,6 +392,26 @@ pruefe("wer eine Seite aufmacht, ist ihr Zeichen los", j["nach_klick"] == 3, j["
 pruefe("und das des Abschnitts darüber auch", j["garten_nach_klick"] is False)
 pruefe("das Notizbuch behält seines - der Keller ist noch ungelesen",
        j["buch_nach_klick"] is True)
+pruefe("am Zeichen steht, wer es war",
+       j["hinweis_mit_namen"][0] == "Geändert von anna, seit du zuletzt hier warst",
+       j["hinweis_mit_namen"])
+pruefe("und bei einer Seite ohne Namen nur, dass sich etwas geändert hat",
+       j["hinweis_mit_namen"][1] == "Geändert, seit du zuletzt hier warst",
+       j["hinweis_mit_namen"])
+
+print("\nDie Meldungen an der offenen Seite")
+pruefe("In den eigenen Notizen bleibt der Text, wie er ist",
+       j["eigen_konflikt"].endswith("(Gerät 7f3k2a9).")
+       and j["eigen_sync"] == "Neuere Fassung vom Sync da.",
+       (j["eigen_konflikt"], j["eigen_sync"]))
+pruefe("Im Projekt steht der Name statt der Gerätenummer",
+       "von anna" in j["projekt_konflikt"] and "Gerät" not in j["projekt_konflikt"],
+       j["projekt_konflikt"])
+pruefe("Aus der Sync-Meldung wird: anna hat diese Seite geändert",
+       j["projekt_sync"] == "anna hat diese Seite geändert.", j["projekt_sync"])
+pruefe("Andere Meldungen bleiben unangetastet",
+       j["projekt_anderes"] == "Die Seite ist nicht mehr da (gelöscht oder verschoben).",
+       j["projekt_anderes"])
 
 shutil.rmtree(DATEN, ignore_errors=True)
 print()

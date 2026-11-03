@@ -101,6 +101,15 @@ Seite geändert oder eine neue angelegt, steht in der Leiste hinter ihr ein
 zugeklappt sieht man die Seite sonst gar nicht. Beim Daraufzeigen steht, wie
 viele es darunter sind. Aufmachen lässt das Zeichen verschwinden.
 
+Beim Daraufzeigen steht auch, **wer** es war. Den Namen trägt der Server beim
+Speichern ein, nicht die Oberfläche — so kann sich niemand als jemand anderes
+eintragen. Er steht im Feld, in dem am eigenen Rechner die Zufallskennung des
+Browsers steht („Gerät 7f3k2a9"); die sagt zu Hause etwas und im Projekt
+niemandem. Deshalb heißt es an einer offenen Seite jetzt auch
+*„anna hat diese Seite geändert"* statt *„Neuere Fassung vom Sync da"* — in
+den eigenen Notizen bleibt der alte Text, dort ist die Gerätenummer die
+richtige Auskunft.
+
 Wer selbst speichert, anlegt oder umbenennt, bekommt kein Zeichen an seiner
 eigenen Arbeit. Und wer neu in ein Projekt kommt, findet nicht hinter jeder
 Seite eines: beim ersten Blick gilt alles als gesehen. Ein Zeichen, das

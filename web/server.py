@@ -1687,6 +1687,15 @@ def _antwort(name: str, methode: str, rumpf: dict):
     schief = _passt(methode, args)
     if schief:
         return {"fehler": f"Ungültiger Aufruf: {schief}"}
+    bereich = bereich_lesen(name)
+    # In einer Gruppe gehoert an eine Aenderung, wer sie war. Die Oberflaeche
+    # schickt dafuer eine Zufallskennung des Browsers mit ("Geraet") - die
+    # sagt am eigenen Rechner etwas ("welcher meiner Rechner war das"), im
+    # Projekt niemandem. Also traegt der Server den Namen ein. Dass er es tut
+    # und nicht die Oberflaeche, ist der Punkt: so kann sich niemand als
+    # jemand anderes eintragen.
+    if bereich and methode == "seite_speichern" and args and isinstance(args[0], dict):
+        args[0] = {**args[0], "geraet": name[:40]}
     try:
         aus = _ausfuehren(name, methode, args)
     except TypeError as f:
@@ -1709,11 +1718,15 @@ def _antwort(name: str, methode: str, rumpf: dict):
     # In einer Gruppe: was sich seit dem letzten Blick geaendert hat, bekommt
     # im Baum ein Zeichen - und was man aufmacht oder speichert, gilt als
     # gesehen. In den eigenen Notizen gibt es beides nicht.
-    bereich = bereich_lesen(name)
     if bereich and isinstance(aus, dict):
         konfig = nutzer.konfigordner(name)
         if methode == "baum":
             aus = neues.markieren(konfig, bereich, aus)
+            # Nur fuer die markierten Seiten nachsehen, wer es war: das sind
+            # ein paar, nicht alle. Bei tausend Seiten waere "jede Datei
+            # aufmachen" ein Preis, den der Baum nicht zahlen kann.
+            aus = neues.wer_dazu(arbeitsordner(name), aus,
+                                 {b["name"] for b in nutzer.liste()})
         elif methode in GESEHEN_BEI:
             teile = _seitenpfad(methode, args, aus)
             neues.merken(konfig, bereich, teile, _seitenstand(name, teile))

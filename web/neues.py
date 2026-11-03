@@ -99,6 +99,36 @@ def markieren(konfig: Path, projekt: str, antwort: dict) -> dict:
     return antwort
 
 
+def wer_dazu(ordner: Path, antwort: dict, namen: set) -> dict:
+    """An jede markierte Seite schreiben, wer sie zuletzt gespeichert hat.
+
+    Der Name steht im Feld `geraet` der Seite - dort, wo am eigenen Rechner
+    die Zufallskennung des Browsers steht. Im Projekt traegt der Server den
+    Benutzernamen ein, siehe server.py.
+
+    Nachgesehen wird nur bei Seiten, die ohnehin ein Zeichen bekommen haben.
+    Steht im Feld etwas, das kein Zugang ist (eine alte Fassung, eine
+    Kennung vom Desktop), bleibt es weg: lieber nichts als eine Zahlenreihe.
+    """
+    if not isinstance(antwort, dict):
+        return antwort
+    for schluessel, seite in _seiten(antwort):
+        if not seite.get("neu"):
+            continue
+        teile = schluessel.split("/")
+        if len(teile) != 3 or any(t in ("", ".", "..") for t in teile):
+            continue
+        try:
+            roh = json.loads((Path(ordner) / teile[0] / teile[1]
+                              / (teile[2] + ".json")).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        wer = str(roh.get("geraet") or "") if isinstance(roh, dict) else ""
+        if wer in namen:
+            seite["wer"] = wer
+    return antwort
+
+
 def merken(konfig: Path, projekt: str, teile: list, zeit: int) -> None:
     """Diese Seite hat der Benutzer jetzt gesehen - mit diesem Stand."""
     if not projekt or len(teile) != 3 or not all(teile) or not isinstance(zeit, int):

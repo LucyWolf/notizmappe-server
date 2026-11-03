@@ -11,6 +11,8 @@
 (function () {
   'use strict';
 
+  let letzterStand = null;
+
   async function schicken(name, args) {
     let antwort;
     try {
@@ -31,7 +33,13 @@
     }
     let daten = null;
     try { daten = await antwort.json(); } catch (f) { daten = null; }
-    if (daten && typeof daten === 'object') return daten;
+    if (daten && typeof daten === 'object') {
+      // Wer zuletzt gespeichert hat, steht in der Antwort auf "stand". Die
+      // Meldung drueben baut ihren Text selbst, bekommt den Namen also nicht
+      // mit - deshalb wird er hier gemerkt.
+      if (name === 'stand') letzterStand = daten;
+      return daten;
+    }
     return { fehler: 'Der Server antwortet nicht verständlich (' + antwort.status + ')' };
   }
 
@@ -5230,13 +5238,38 @@
           neuesGelesen(seite, zeile);
           if (!seite.neu) return;
           imAbschnitt++;
-          neuesZeichen(zeile, 'Geändert, seit du zuletzt hier warst');
+          neuesZeichen(zeile, seite.wer
+            ? 'Geändert von ' + seite.wer + ', seit du zuletzt hier warst'
+            : 'Geändert, seit du zuletzt hier warst');
         });
         if (imAbschnitt) neuesZeichen(ad.firstElementChild, neuesZahl(imAbschnitt));
         imBuch += imAbschnitt;
       });
       if (imBuch) neuesZeichen(bd.firstElementChild, neuesZahl(imBuch));
     });
+  }
+
+  // Drueben heisst es "(Gerät 7f3k2a9)" und "Neuere Fassung vom Sync da" -
+  // beides stimmt am eigenen Rechner und sagt in einer Gruppe nichts. Der
+  // Text entsteht in melden(), also wird der umschlossen: in den eigenen
+  // Notizen bleibt alles, wie es ist, im Projekt steht der Name da.
+  function meldungMitNamen(text) {
+    if (!meinBereich || typeof text !== 'string') return text;
+    const wer = (letzterStand && letzterStand.geraet) || '';
+    const mit = text.replace(/\(Gerät ([^)]+)\)/, 'von $1');
+    if (mit !== text) return mit;
+    if (text.indexOf('vom Sync') >= 0) {
+      return wer ? wer + ' hat diese Seite geändert.' : 'Diese Seite wurde geändert.';
+    }
+    return text;
+  }
+
+  function meldungenBauen() {
+    if (typeof melden !== 'function') return;
+    const alt = melden;
+    window.melden = function (text, knoepfe) {
+      return alt(meldungMitNamen(text), knoepfe);
+    };
   }
 
   function neuesBauen() {
@@ -5281,6 +5314,7 @@
                                ['Formatleiste', formatleistenBauen],
                                ['Rechtsklick', rechtsmenueBauen],
                                ['Neues in der Gruppe', neuesBauen],
+                               ['Meldungen mit Namen', meldungenBauen],
                                ['Bereiche laden', bereicheLaden],
                                ['Verwaltung laden', verwaltungLaden]]) {
       try {
