@@ -84,6 +84,79 @@ SITZUNG_TAGE = 14
 app = FastAPI(title="Notizmappe", docs_url=None, redoc_url=None, openapi_url=None)
 
 
+# --- Kopfzeilen fuer jede Antwort --------------------------------------------
+#
+# Am offenen Netz ist der Reiniger die erste Reihe und das hier die zweite.
+# Zwei Sachen stehen dabei nicht zur Wahl:
+#
+# * `frame-ancestors 'none'` - ohne das laesst sich die Mappe in einen fremden
+#   Rahmen setzen, und der Besucher klickt in Wahrheit hier.
+# * Inline-Skripte nur mit ihrem Hash. In index.html steht ein kurzes Skript,
+#   das Ladefehler faengt; mit `unsafe-inline` waere die Regel fuer Skripte
+#   wertlos, mit einem Hash bleibt genau dieses eine erlaubt. Der Hash wird
+#   beim Start aus der Datei gerechnet - eine neue Desktop-Fassung bringt ihr
+#   eigenes Skript mit, und dann stimmt er wieder.
+#
+# Stile brauchen `unsafe-inline`: die Oberflaeche setzt ihre Stilbloecke zur
+# Laufzeit. Das ist der eine Punkt, an dem die Regel weich ist - ein Stil
+# kann keine Daten abholen.
+INLINE_SKRIPT = re.compile(r"<script(?![^>]*\ssrc=)[^>]*>(.*?)</script>", re.S | re.I)
+
+
+def _skripthashes() -> list[str]:
+    """sha256 jedes Inline-Skripts in den Seiten, die dieser Server ausliefert."""
+    aus = []
+    seiten = [DESKTOP / "app" / "oberflaeche" / "index.html"]
+    seiten += sorted(HIER.glob("*.html"))
+    for seite in seiten:
+        try:
+            roh = seite.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        for stueck in INLINE_SKRIPT.findall(roh):
+            wert = base64.b64encode(hashlib.sha256(stueck.encode("utf-8")).digest()).decode()
+            aus.append(f"'sha256-{wert}'")
+    return sorted(set(aus))
+
+
+def _csp() -> str:
+    return "; ".join([
+        "default-src 'self'",
+        "script-src 'self' " + " ".join(_skripthashes()),
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self' data: blob:",
+        "font-src 'self' data:",
+        "connect-src 'self'",
+        "media-src 'self' data: blob:",
+        "object-src 'none'",
+        "base-uri 'none'",
+        "form-action 'self'",
+        "frame-ancestors 'none'",
+    ])
+
+
+_kopfzeilen = {}
+
+
+@app.middleware("http")
+async def schutzkopfzeilen(bitte: Request, weiter):
+    antwort = await weiter(bitte)
+    if not _kopfzeilen:
+        _kopfzeilen.update({
+            "Content-Security-Policy": _csp(),
+            # Fuer Browser, die frame-ancestors noch nicht kennen.
+            "X-Frame-Options": "DENY",
+            "X-Content-Type-Options": "nosniff",
+            # Kein Verweis auf die eigene Adresse, wenn jemand einem Link aus
+            # einer Notiz folgt: der Pfad verraet, wie die Mappe heisst und wo
+            # sie steht.
+            "Referrer-Policy": "no-referrer",
+        })
+    for name, wert in _kopfzeilen.items():
+        antwort.headers.setdefault(name, wert)
+    return antwort
+
+
 @app.on_event("startup")
 def _beim_start() -> None:
     fehlen = _fehlende_methoden()

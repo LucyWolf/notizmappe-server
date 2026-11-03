@@ -125,6 +125,47 @@ Unterschied, den die Serverfassung haben darf; die Seite selbst bleibt dieselbe.
 
 Ohne Oberfläche geht es auch: die Seite `/benutzer` gibt es weiterhin.
 
+### Per SSH, wenn über den Browser nichts mehr geht
+
+Jemand hat sein Passwort vergessen und keine Mailadresse hinterlegt, der
+zweite Schritt hängt an einem Telefon, das weg ist, oder der letzte Verwalter
+kommt nicht mehr hinein — dann hilft `web/verwalten.py`:
+
+```bash
+docker exec -it notizmappe python3 /srv/web/verwalten.py liste
+docker exec -it notizmappe python3 /srv/web/verwalten.py passwort anna
+docker exec -it notizmappe python3 /srv/web/verwalten.py zweischritt-aus anna
+docker exec -it notizmappe python3 /srv/web/verwalten.py rolle anna Verwalter
+```
+
+Ohne Docker, direkt auf dem Datenordner (`--daten` steht **vor** dem Befehl):
+
+```bash
+python3 web/verwalten.py --daten ./daten liste
+```
+
+| Befehl | |
+|---|---|
+| `liste`, `rollen`, `projekte` | nachsehen, ändert nichts |
+| `passwort <name>` | fragt zweimal; `--passwort X` für Skripte (steht dann im Shell-Verlauf) |
+| `anlegen <name> [--rolle X]` | neuer Zugang |
+| `entfernen <name>` | Zugang weg, **Notizen bleiben liegen** |
+| `rolle <name> <Rolle>` | Rolle zuweisen |
+| `zweischritt-aus <name>` | zweiten Schritt abschalten |
+| `mitglied <projekt> <name> <recht>`, `mitglied-raus` | Projekte besetzen |
+
+Gerechnet wird mit denselben Funktionen wie im Server, nicht mit eigenen:
+**die Sperren gelten auch hier.** Den letzten Zugang, der Benutzer verwalten
+darf, entfernt auch dieses Werkzeug nicht — sonst wäre die Mappe zu, und
+daraus hilft kein Werkzeug mehr heraus. Ein neues Passwort wirft nebenbei
+alle offenen Sitzungen dieses Benutzers weg: die Sitzungsmarke wird aus dem
+Hash gerechnet.
+
+Läuft es als `root` (etwa über `sudo`), gleicht es den Eigentümer von
+`benutzer.json` hinterher dem Datenordner an. Sonst gehört die Datei danach
+`root`, der Server läuft unter einer anderen Nummer — und das fällt erst auf,
+wenn das nächste Mal jemand sein Passwort ändern will.
+
 Selbst bauen statt das fertige Image ziehen: in `docker-compose.yml` `image:`
 auskommentieren und `build: .` setzen.
 
@@ -482,16 +523,60 @@ Im Image steckt kein Reverse Proxy. Steht einer davor (nginx, Caddy), dann
 `NOTIZMAPPE_HTTPS=1` setzen. Im eigenen Netz ohne Zertifikat muss es `0`
 bleiben, sonst wirft der Browser den Keks weg und niemand kommt hinein.
 
-Beispiel nginx:
+Beispiel nginx — **vollständig**, die drei Weiterleitungs-Zeilen gehören
+zusammen:
 
 ```nginx
-location / {
-    proxy_pass http://127.0.0.1:8112;
-    proxy_set_header Host $host;
-    proxy_set_header X-Forwarded-Proto $scheme;
-    client_max_body_size 48m;          # Anhänge kommen als Base64 durch
+server {
+    listen 443 ssl;
+    server_name notizen.beispiel.de;
+
+    # Zertifikat hier (certbot trägt das selbst ein)
+
+    add_header Strict-Transport-Security "max-age=63072000" always;
+
+    location / {
+        proxy_pass http://127.0.0.1:8112;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        client_max_body_size 48m;      # Anhänge kommen als Base64 durch
+    }
 }
 ```
+
+**`X-Forwarded-For` ist keine Kosmetik.** Ohne diese Zeile sieht der Server
+für jeden Zugriff `127.0.0.1`. Die Bremse gegen Durchprobieren zählt je
+Herkunft **und** Name — ist die Herkunft für alle dieselbe, kann ein Fremder
+dich aus deinem eigenen Zugang aussperren, indem er oft genug mit deinem
+Namen danebenliegt. Er braucht das Passwort gar nicht zu erraten, nur Geduld.
+
+**Und der Port gehört zugeklebt.** In `docker-compose.yml` steht
+`"8112:8000"` — das lauscht auf allen Adressen. Wer `http://server:8112`
+direkt aufruft, geht an nginx vorbei: ohne TLS, und der Sitzungs-Keks hat
+dann kein `Secure`. Steht nginx auf demselben Rechner:
+
+```yaml
+ports:
+  - "127.0.0.1:8112:8000"
+```
+
+### Kopfzeilen
+
+Jede Antwort bekommt eine **Content-Security-Policy**, dazu `X-Frame-Options`,
+`X-Content-Type-Options: nosniff` und `Referrer-Policy: no-referrer`. Das ist
+die zweite Reihe hinter dem Reiniger: `frame-ancestors 'none'` verhindert,
+dass jemand die Mappe in einen fremden Rahmen setzt und der Besucher in
+Wahrheit hier klickt.
+
+Skripte laufen nur aus dem eigenen Haus. Das kurze Inline-Skript in
+`index.html`, das Ladefehler fängt, steht mit seinem **sha256-Hash** in der
+Regel — beim Start aus der Datei gerechnet, eine neue Desktop-Fassung bringt
+also ihren eigenen Hash mit. `unsafe-inline` gibt es für Skripte nicht.
+
+Für **Stile** gibt es das: die Oberfläche setzt ihre Stilblöcke zur Laufzeit.
+Das ist der eine weiche Punkt der Regel — ein Stil kann keine Daten abholen.
 
 ## Rechte am Ordner `daten`
 
@@ -643,6 +728,7 @@ Die anderen prüfen je eine Sache, und jede steht wegen eines echten Fehlers da:
 | `test_ablage.py` | NAS-Einstellungen: nichts, was in einer Mount-Option etwas anderes bedeuten könnte |
 | `test_selbst.py` | das Nachladen einer Fassung und vor allem den Weg zurück |
 | `test_leiste.py` | die Formatleiste: dass hinter jedem Knopf der richtige Befehl steckt, und dass im Rechtsklickmenü nicht zwei Leisten übereinander stehen |
+| `test_verwalten.py` | Das Werkzeug für die Kommandozeile — und dass auch es den letzten Verwalter stehen lässt |
 | `test_gruppe.py` | Das **!** in der Gruppe: wer es sieht, wer nicht, und an welcher Zeile es steht |
 | `test_platine.py` | Gerber: ZIP auspacken, Koordinatenformat, Zoll, Bohrdatei — und ob die Platine am Ende wirklich im Bild liegt und von unten gespiegelt ist |
 | `test_modell.py` | STL, OBJ und FBX einlesen, und ob das Teil wirklich im Bild liegt |

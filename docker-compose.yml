@@ -13,6 +13,11 @@ services:
     container_name: notizmappe
     restart: unless-stopped
     ports:
+      # Steht ein Proxy (nginx, Caddy) auf demselben Rechner, gehoert der Port
+      # nur an 127.0.0.1: sonst ist die Mappe unter http://rechner:8112 auch
+      # direkt erreichbar - an nginx vorbei, ohne TLS, und der Sitzungs-Keks
+      # hat dann kein "Secure".
+      #   - "127.0.0.1:8112:8000"
       - "8112:8000"
     volumes:
       # Wo die Notizen liegen. Standard ist ./daten daneben; fuer eine NAS, die

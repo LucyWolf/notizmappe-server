@@ -1095,6 +1095,45 @@ _zeichen = set(_re.findall(r"'([^']+)'", _dort2.group(1))) if _dort2 else set()
 pruefe("und dieselben Aufzaehlungszeichen",
        _zeichen == _listen.ZEICHEN, (sorted(_zeichen), sorted(_listen.ZEICHEN)))
 
+# --- Kopfzeilen fuer das offene Netz -----------------------------------------
+#
+# Am eigenen Netz faellt nichts davon auf. Steht die Mappe im Netz, ist das
+# die zweite Reihe hinter dem Reiniger - und der Hash im script-src ist die
+# Stelle, die still kaputtgehen kann: stimmt er nicht, laedt der Browser das
+# Skript in index.html nicht mehr, und niemand sieht warum.
+print("\nSchutzkopfzeilen")
+import base64 as _b64, hashlib as _hash                     # noqa: E402
+
+_antwort = k.get("/anmelden")
+_csp = _antwort.headers.get("content-security-policy", "")
+pruefe("Jede Antwort bekommt eine CSP", bool(_csp), dict(_antwort.headers))
+pruefe("Niemand darf die Mappe in einen Rahmen setzen",
+       "frame-ancestors 'none'" in _csp and _antwort.headers.get("x-frame-options") == "DENY", _csp)
+pruefe("Kein Raten am Dateityp, kein Verweis nach draussen",
+       _antwort.headers.get("x-content-type-options") == "nosniff"
+       and _antwort.headers.get("referrer-policy") == "no-referrer",
+       dict(_antwort.headers))
+pruefe("Skripte nur von hier - kein unsafe-inline",
+       "unsafe-inline" not in _csp.split("script-src")[1].split(";")[0], _csp)
+
+_index = (DESKTOP / "app/oberflaeche/index.html").read_text(encoding="utf-8")
+_drin = _re.findall(r"<script(?![^>]*\ssrc=)[^>]*>(.*?)</script>", _index, _re.S)
+pruefe("In index.html steht ein Inline-Skript", len(_drin) == 1, len(_drin))
+for _stueck in _drin:
+    _wert = _b64.b64encode(_hash.sha256(_stueck.encode("utf-8")).digest()).decode()
+    pruefe("und sein Hash steht in der CSP", f"'sha256-{_wert}'" in _csp, _csp)
+
+# Die Seite selbst muss es auch bekommen, nicht nur die Anmeldung.
+_seite = k.get("/")
+pruefe("Die Mappe selbst auch",
+       "frame-ancestors 'none'" in _seite.headers.get("content-security-policy", ""),
+       _seite.status_code)
+pruefe("Stile duerfen zur Laufzeit gesetzt werden - sonst ist die Oberflaeche leer",
+       "'unsafe-inline'" in _csp.split("style-src")[1].split(";")[0], _csp)
+pruefe("Bilder aus der Notiz (data:, blob:) gehen durch",
+       "data:" in _csp.split("img-src")[1].split(";")[0]
+       and "blob:" in _csp.split("img-src")[1].split(";")[0], _csp)
+
 print()
 print("alles gruen" if not fehler else f"{len(fehler)} FEHLER:\n - " + "\n - ".join(fehler))
 shutil.rmtree(DATEN, ignore_errors=True)

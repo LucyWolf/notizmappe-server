@@ -54,6 +54,7 @@ MAX_ARCHIV = 40 << 20
 
 PFLICHT = ("VERSION", "web/server.py", "web/benutzer.py", "web/start.py", "web/ablage.py",
            "web/post.py", "web/verlauf.py", "web/listen.py", "web/neues.py",
+           "web/verwalten.py",
            "web/shim.js", "web/anmelden.html",
            "web/vergessen.html", "web/neues-passwort.html",
            "desktop/app/VERSION", "desktop/app/bruecke.py", "desktop/app/speicher.py",
