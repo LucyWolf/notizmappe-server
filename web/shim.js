@@ -166,7 +166,7 @@
       wie.value = d.mappe || '';
       // Leeres Feld heisst nicht "kein Name", sondern "der Standard" - und
       // der steht dann blass im Feld, damit man weiss, was drinsteht.
-      wie.placeholder = d.mappe_jetzt || 'z. B. Keller';
+      wie.placeholder = d.mappe_jetzt || 'z. B. Servermappe';
     }
     zweiLaden();
     zeichneProjekte(d);
@@ -2286,7 +2286,7 @@
     // sonst nur eine Adresse - und "192.168.178.27:8112" sagt niemandem,
     // ob das die zu Hause oder die in der Firma ist.
     const mappenName = el('input', { type: 'text', id: 'v-mappe',
-                                     placeholder: 'z. B. Keller', maxLength: 40 });
+                                     placeholder: 'z. B. Servermappe', maxLength: 40 });
     const mappenKnopf = el('button', { type: 'button', textContent: 'Namen setzen' });
     mappenKnopf.addEventListener('click', async () => {
       try {

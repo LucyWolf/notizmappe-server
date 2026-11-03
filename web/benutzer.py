@@ -447,13 +447,13 @@ def einladung_einloesen(marke: str, name: str, passwort: str) -> str:
 #
 # Wer zwei Installationen hat - eine zu Hause, eine auf dem Server der Firma -,
 # sieht im Fenster sonst nur "Server: http://192.168.178.27:8112". Das sagt
-# nichts. Mit einem Namen steht dort "Server: Keller".
+# nichts. Mit einem Namen steht dort der Name der Mappe.
 #
 # Der Name gehoert zur Mappe, nicht zu einem Benutzer: er steht in derselben
 # Datei wie Zugaenge und Projekte und wird mitgesichert. Setzen darf ihn, wer
 # Benutzer verwalten darf.
 MAPPENNAME_MUSTER = re.compile(r"^[^\x00-\x1f]{0,40}$")
-MAPPENNAME_STANDARD = "Notizmappe"
+MAPPENNAME_STANDARD = "Servermappe"
 # Docker nennt den Rechner im Behaelter nach der Kennung des Behaelters -
 # "3f2a9c1b2d4e" ist als Name schlechter als gar keiner.
 _KENNUNG = re.compile(r"^[0-9a-f]{12}$")

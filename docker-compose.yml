@@ -31,10 +31,10 @@ services:
       - ./einrichtung:/einrichtung
     environment:
       # Wie diese Mappe heisst. Steht im Fenster der Notizmappe oben in der
-      # Leiste, sobald sich jemand von dort anmeldet - "Server: Keller" sagt
+      # Leiste, sobald sich jemand von dort anmeldet - ein eigener Name sagt
       # mehr als eine Adresse. Geht auch spaeter unter Einstellungen -> Name;
-      # ohne beides heisst sie nach dem Rechner, sonst "Notizmappe".
-      # NOTIZMAPPE_NAME: "Keller"
+      # ohne beides heisst sie nach dem Rechner, sonst "Servermappe".
+      # NOTIZMAPPE_NAME: "Servermappe"
       # Auf 1, wenn ein Proxy mit Zertifikat davorsteht (nginx, Caddy). Dann
       # bekommt der Sitzungs-Keks "Secure" und geht nur noch ueber HTTPS.
       # Im eigenen Netz ohne Zertifikat muss das 0 bleiben, sonst wirft der

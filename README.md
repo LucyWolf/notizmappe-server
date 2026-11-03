@@ -95,10 +95,9 @@ Projekts kann niemand hinauswerfen.
 
 ### Der Name dieser Mappe
 
-Unter *Einstellungen → Name* bekommt die Installation einen Namen („Keller",
-„Firma"). Er steht im **Fenster** der Notizmappe oben in der Leiste, sobald
+Unter *Einstellungen → Name* bekommt die Installation einen Namen. Er steht im **Fenster** der Notizmappe oben in der Leiste, sobald
 sich jemand von dort hier anmeldet — statt `Server: http://192.168.178.27:8112`
-steht dann `Server: Keller`. Wer zwei Mappen hat, sieht damit auf einen Blick,
+steht dann `Servermappe`. Wer zwei Mappen hat, sieht damit auf einen Blick,
 in welcher er gerade schreibt. Leer lassen geht; dann steht dort wie bisher die
 Adresse.
 
@@ -113,7 +112,7 @@ wird mitgesichert.
 2. der Name des Rechners, falls er einer ist (im Behälter vergibt Docker
    meist eine Kennung wie `3f2a9c1b2d4e` — die wäre als Name schlechter als
    gar keiner und wird übersprungen),
-3. schlicht **Notizmappe**.
+3. schlicht **Servermappe**.
 
 Im Eingabefeld steht der geltende Name blass drin, solange nichts eingetragen
 ist — so sieht man, was gerade gilt.
