@@ -1,9 +1,10 @@
 # Notizmappe — Serverfassung
 
 Die [Notizmappe](https://github.com/LucyWolf/notizmappe) über eine Webadresse,
-mit Anmeldung, in Docker. Jeder Benutzer hat seinen eigenen Notizordner.
+mit Anmeldung, in Docker. Jeder Benutzer hat seinen eigenen Notizordner; wer
+zusammen an etwas arbeitet, bekommt ein [Projekt](#projekte-zusammen-an-etwas-arbeiten).
 
-Stand: 31.10.2026
+Stand: 03.11.2026
 
 ## Das Wichtigste zuerst: es gibt nur **eine** Oberfläche
 
@@ -290,9 +291,21 @@ Alles, was bleiben muss, liegt im Volume `./daten`:
 ```
 daten/benutzer.json         Zugänge; Passwörter als scrypt-Hash, nie im Klartext
 daten/.sitzungsschluessel   unterschreibt die Sitzungs-Kekse (0600)
+daten/.programm/            nachgeladene Fassungen (siehe Aktualisieren)
 daten/notizen/<benutzer>/   die Notizen - dieselbe Ablage wie am Desktop
-daten/konfig/<benutzer>/    Schriftfavoriten usw., je Benutzer
+daten/projekte/<projekt>/   die Notizen eines Projekts, allen Mitgliedern gemeinsam
+daten/konfig/<benutzer>/    je Benutzer:
+    einstellungen.json        was am Desktop „dieser Rechner" wäre (Schriften)
+    aussehen.json             hell oder dunkel
+    bereich.json              in welchem Bereich er zuletzt war
+    gesehen.json              was er in welchem Projekt zuletzt gesehen hat
 ```
+
+Daneben liegt `./einrichtung` als **eigenes** Volume. Darin steht nur eine
+Marke: dass dieser Server schon einmal eingerichtet war. Sie liegt getrennt
+von den Notizen, weil `daten` auf eine NAS-Freigabe zeigen kann — hängt die
+nicht ein, wäre der Datenordner leer, und die Einrichtungsseite stünde wieder
+offen.
 
 Die Notizen sind **Dateien**: Notizbuch = Ordner, Abschnitt = Unterordner,
 Seite = JSON. Du kannst `daten/notizen/<name>` also auch einfach wegsichern oder
@@ -727,6 +740,7 @@ Die anderen prüfen je eine Sache, und jede steht wegen eines echten Fehlers da:
 | `test_post.py` | Mailversand, Zurücksetzen, Benachrichtigung bei Anmeldeversuchen |
 | `test_ablage.py` | NAS-Einstellungen: nichts, was in einer Mount-Option etwas anderes bedeuten könnte |
 | `test_selbst.py` | das Nachladen einer Fassung und vor allem den Weg zurück |
+| `test_verlauf.py` | dass am Server jede Änderung bleibt, ein Jahr lang — und dass nicht bei jedem Speichern der ganze Ordner durchgesehen wird |
 | `test_leiste.py` | die Formatleiste: dass hinter jedem Knopf der richtige Befehl steckt, und dass im Rechtsklickmenü nicht zwei Leisten übereinander stehen |
 | `test_verwalten.py` | Das Werkzeug für die Kommandozeile — und dass auch es den letzten Verwalter stehen lässt |
 | `test_gruppe.py` | Das **!** in der Gruppe: wer es sieht, wer nicht, und an welcher Zeile es steht |
@@ -737,14 +751,28 @@ Die anderen prüfen je eine Sache, und jede steht wegen eines echten Fehlers da:
 ## Wie es innen aussieht
 
 ```
-web/server.py        Anmeldung, Sitzungen, /bruecke/<name>, Download
-web/benutzer.py      Zugänge: anlegen, prüfen, Passwort setzen (scrypt)
+web/start.py         fährt hoch: Rechte am Datenordner, Proxy-Liste, uvicorn
+web/server.py        Anmeldung, Sitzungen, /bruecke/<name>, Download, Kopfzeilen
+web/benutzer.py      Zugänge, Rollen, Projekte, zweiter Schritt (scrypt)
+web/verwalten.py     dasselbe von der Kommandozeile, wenn der Browser nicht hilft
+web/ablage.py        NAS-Freigabe einhängen
+web/post.py          Mailversand: Zurücksetzen, Hinweis bei Anmeldeversuchen
+web/verlauf.py       die Server-Regel für den Verlauf: alles bleibt, ein Jahr
+web/listen.py        Aufzählungsarten durch den Reiniger lassen
+web/neues.py         was in einer Gruppe seit dem letzten Blick anders ist
+web/selbst.py        eine Fassung nachladen - und der Weg zurück
 web/shim.js          der Stellvertreter für window.pywebview.api
 web/*.html           Anmelden, Einrichten, Benutzerverwaltung - mit der stil.css
                      des Desktops, damit es aussieht wie das Programm
 tools/desktop_holen.sh   holt das Desktop-Programm in fester Fassung
 DESKTOP_VERSION      welche Fassung das ist
 ```
+
+`listen.py` und `neues.py` zeigen, wie hier gearbeitet wird, wenn am Desktop
+etwas fehlt: nicht in `desktop/` hineinschreiben, sondern beim Start die
+Stelle ersetzen (`reinigen._Reiniger.handle_starttag`) oder die Antwort im
+Vorbeigehen ergänzen (der Baum bekommt sein `neu`). Was in `desktop/` liegt,
+ist beim nächsten `desktop_holen.sh` wieder überschrieben.
 
 Die Brücke läuft hinter einer Sperre: `speicher.wurzel()` liest
 `NOTIZEN_ORDNER` bei jedem Aufruf, also wird er je Aufruf gesetzt. Dadurch
