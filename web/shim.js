@@ -162,7 +162,12 @@
       }
     }
     const wie = document.getElementById('v-mappe');
-    if (wie && document.activeElement !== wie) wie.value = d.mappe || '';
+    if (wie && document.activeElement !== wie) {
+      wie.value = d.mappe || '';
+      // Leeres Feld heisst nicht "kein Name", sondern "der Standard" - und
+      // der steht dann blass im Feld, damit man weiss, was drinsteht.
+      wie.placeholder = d.mappe_jetzt || 'z. B. Keller';
+    }
     zweiLaden();
     zeichneProjekte(d);
     if (!d.darf) return;            // Projekte darf man auch ohne Benutzerverwaltung sehen

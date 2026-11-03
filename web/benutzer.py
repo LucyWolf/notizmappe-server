@@ -18,6 +18,7 @@ import hmac
 import json
 import os
 import re
+import socket
 import secrets
 import threading
 import time
@@ -452,10 +453,40 @@ def einladung_einloesen(marke: str, name: str, passwort: str) -> str:
 # Datei wie Zugaenge und Projekte und wird mitgesichert. Setzen darf ihn, wer
 # Benutzer verwalten darf.
 MAPPENNAME_MUSTER = re.compile(r"^[^\x00-\x1f]{0,40}$")
+MAPPENNAME_STANDARD = "Notizmappe"
+# Docker nennt den Rechner im Behaelter nach der Kennung des Behaelters -
+# "3f2a9c1b2d4e" ist als Name schlechter als gar keiner.
+_KENNUNG = re.compile(r"^[0-9a-f]{12}$")
+
+
+def mappenname_gesetzt() -> str:
+    """Nur das, was jemand von Hand eingetragen hat. Leer heisst: der Standard."""
+    return str(_lesen().get("mappe") or "").strip()
 
 
 def mappenname() -> str:
-    return str(_lesen().get("mappe") or "").strip()
+    """Wie diese Mappe heisst - mit Rueckfall, damit nie nichts dasteht.
+
+    Der Reihe nach: was in der Verwaltung eingetragen wurde, sonst
+    NOTIZMAPPE_NAME aus der Umgebung (damit es auch in der
+    docker-compose.yml stehen kann, ohne sich dafuer anzumelden), sonst der
+    Name des Rechners, falls er einer ist - und zuletzt schlicht
+    "Notizmappe".
+    """
+    gesetzt = mappenname_gesetzt()
+    if gesetzt:
+        return gesetzt
+    aus_umgebung = " ".join((os.environ.get("NOTIZMAPPE_NAME") or "").split())[:40]
+    if aus_umgebung:
+        return aus_umgebung
+    try:
+        rechner = socket.gethostname().split(".")[0].strip()
+    except OSError:
+        rechner = ""
+    if rechner and not _KENNUNG.match(rechner) and rechner.lower() not in (
+            "localhost", "docker", "container"):
+        return rechner[:40]
+    return MAPPENNAME_STANDARD
 
 
 def mappenname_setzen(name: str) -> str:

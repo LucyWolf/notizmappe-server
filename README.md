@@ -106,6 +106,18 @@ Setzen darf ihn, wer Benutzer verwalten darf. Der Name gehört zur Mappe, nicht
 zu einem Benutzer — er steht in derselben Datei wie Zugänge und Projekte und
 wird mitgesichert.
 
+**Leer heißt nicht namenlos.** Steht nichts drin, gilt der Reihe nach:
+
+1. `NOTIZMAPPE_NAME` aus der Umgebung — damit der Name in der
+   `docker-compose.yml` stehen kann, ohne dass sich dafür jemand anmeldet,
+2. der Name des Rechners, falls er einer ist (im Behälter vergibt Docker
+   meist eine Kennung wie `3f2a9c1b2d4e` — die wäre als Name schlechter als
+   gar keiner und wird übersprungen),
+3. schlicht **Notizmappe**.
+
+Im Eingabefeld steht der geltende Name blass drin, solange nichts eingetragen
+ist — so sieht man, was gerade gilt.
+
 ### Was sich geändert hat, steht mit **!** da
 
 In einem Projekt arbeiten mehrere im selben Ordner. Hat jemand anders eine

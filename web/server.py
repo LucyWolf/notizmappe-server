@@ -1458,7 +1458,10 @@ def verwaltung(bitte: Request):
         "darf_projekte": "benutzer" in nutzer.rechte_von(wer),
         "einladungen": nutzer.einladungen() if "benutzer" in meine else [],
         "einladung_minuten": nutzer.EINLADUNG_MINUTEN,
-        "mappe": nutzer.mappenname(),
+        # Beides: was eingetragen ist (leer heisst "Standard") und was
+        # deshalb gerade wirklich dasteht.
+        "mappe": nutzer.mappenname_gesetzt(),
+        "mappe_jetzt": nutzer.mappenname(),
     }
 
 

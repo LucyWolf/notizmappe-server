@@ -1100,10 +1100,19 @@ pruefe("und dieselben Aufzaehlungszeichen",
 # Wer zwei Installationen hat, sieht im Fenster sonst nur "Server:
 # http://192.168.178.27:8112". Das sagt nichts.
 print("\nDer Name der Mappe")
-pruefe("ohne Namen steht da nichts",
-       k.get("/bereiche").json().get("mappe") == "", k.get("/bereiche").json())
-_ordner_vorher = ruf(k, "einstellungen")[1].get("ordner")
-pruefe("und in der Leiste steht Server", _ordner_vorher.startswith("Server:"), _ordner_vorher)
+# Ohne Eintrag steht trotzdem etwas da: NOTIZMAPPE_NAME, sonst der Name des
+# Rechners, sonst "Notizmappe". Leer waere die schlechteste Auskunft.
+os.environ.pop("NOTIZMAPPE_NAME", None)
+pruefe("ohne Eintrag steht trotzdem ein Name da",
+       bool(k.get("/bereiche").json().get("mappe")), k.get("/bereiche").json())
+pruefe("eingetragen ist aber nichts",
+       k.get("/verwaltung").json().get("mappe") == "", k.get("/verwaltung").json().get("mappe"))
+os.environ["NOTIZMAPPE_NAME"] = "Aus der Umgebung"
+pruefe("NOTIZMAPPE_NAME sticht den Rechnernamen",
+       k.get("/bereiche").json()["mappe"] == "Aus der Umgebung")
+pruefe("und steht auch in der Leiste",
+       ruf(k, "einstellungen")[1].get("ordner", "").startswith("Aus der Umgebung:"),
+       ruf(k, "einstellungen")[1].get("ordner"))
 
 _a = k.post("/verwaltung/mappe", json={"name": "  Keller   oben  "},
             headers={"X-Notizmappe": "1"})
@@ -1126,10 +1135,14 @@ _a = k.post("/verwaltung/mappe", json={"name": "x" * 90}, headers={"X-Notizmappe
 pruefe("ein langer Name wird gekuerzt statt abgelehnt",
        _a.status_code == 200 and len(_a.json()["mappe"]) == 40, _a.text)
 k.post("/verwaltung/mappe", json={"name": ""}, headers={"X-Notizmappe": "1"})
-pruefe("und wegnehmen geht auch",
-       k.get("/bereiche").json()["mappe"] == ""
-       and ruf(k, "einstellungen")[1]["ordner"].startswith("Server:"),
-       ruf(k, "einstellungen")[1].get("ordner"))
+pruefe("und wegnehmen faellt auf den Standard zurueck, nicht auf nichts",
+       k.get("/verwaltung").json()["mappe"] == ""
+       and k.get("/bereiche").json()["mappe"] == "Aus der Umgebung",
+       (k.get("/verwaltung").json()["mappe"], k.get("/bereiche").json()["mappe"]))
+pruefe("die Verwaltung sagt auch, was gerade gilt",
+       k.get("/verwaltung").json().get("mappe_jetzt") == "Aus der Umgebung",
+       k.get("/verwaltung").json().get("mappe_jetzt"))
+os.environ.pop("NOTIZMAPPE_NAME", None)
 
 # --- Kopfzeilen fuer das offene Netz -----------------------------------------
 #
