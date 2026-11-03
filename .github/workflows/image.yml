@@ -45,6 +45,7 @@ jobs:
           python tests/test_verlauf.py
           python tests/test_leiste.py
           python tests/test_platine.py
+          python tests/test_gruppe.py
 
   bauen:
     needs: pruefen

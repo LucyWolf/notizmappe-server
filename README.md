@@ -92,6 +92,25 @@ Projekte anlegen darf, wer das Recht `projekte` hat. Wer in einem Projekt
 müsste für jede Kleinigkeit jemand von oben kommen. Den letzten Verwalter eines
 Projekts kann niemand hinauswerfen.
 
+### Was sich geändert hat, steht mit **!** da
+
+In einem Projekt arbeiten mehrere im selben Ordner. Hat jemand anders eine
+Seite geändert oder eine neue angelegt, steht in der Leiste hinter ihr ein
+**!** — und auch hinter dem Abschnitt und dem Notizbuch darüber, denn
+zugeklappt sieht man die Seite sonst gar nicht. Beim Daraufzeigen steht, wie
+viele es darunter sind. Aufmachen lässt das Zeichen verschwinden.
+
+Wer selbst speichert, anlegt oder umbenennt, bekommt kein Zeichen an seiner
+eigenen Arbeit. Und wer neu in ein Projekt kommt, findet nicht hinter jeder
+Seite eines: beim ersten Blick gilt alles als gesehen. Ein Zeichen, das
+überall steht, sagt nichts.
+
+Gemerkt wird das **je Benutzer**, in seinem Konfigordner (`gesehen.json`), und
+nicht in der Seite. Eine Leseliste in der Seite wäre eine Änderung an der
+Seite — jedes Aufmachen würde die Datei anfassen und bei allen anderen als
+neue Änderung auftauchen: ein Zeichen, das sich selbst erzeugt. In den eigenen
+Notizen gibt es das alles nicht, dort ändert nur einer etwas.
+
 Die Rechte werden **am Server durchgesetzt**, nicht in der Oberfläche: jede
 Brückenmethode hat ein Recht, das sie braucht. Ein Recht, das man mit einem
 eigenen Aufruf umgehen kann, wäre keins — deshalb prüft der Test genau das.
@@ -624,6 +643,7 @@ Die anderen prüfen je eine Sache, und jede steht wegen eines echten Fehlers da:
 | `test_ablage.py` | NAS-Einstellungen: nichts, was in einer Mount-Option etwas anderes bedeuten könnte |
 | `test_selbst.py` | das Nachladen einer Fassung und vor allem den Weg zurück |
 | `test_leiste.py` | die Formatleiste: dass hinter jedem Knopf der richtige Befehl steckt, und dass im Rechtsklickmenü nicht zwei Leisten übereinander stehen |
+| `test_gruppe.py` | Das **!** in der Gruppe: wer es sieht, wer nicht, und an welcher Zeile es steht |
 | `test_platine.py` | Gerber: ZIP auspacken, Koordinatenformat, Zoll, Bohrdatei — und ob die Platine am Ende wirklich im Bild liegt und von unten gespiegelt ist |
 | `test_modell.py` | STL, OBJ und FBX einlesen, und ob das Teil wirklich im Bild liegt |
 | `test_reiter.py`, `test_zerren.py`, `test_glaetten.py`, `test_balken.py` | Oberflächensachen in einem nachgebauten DOM: Reiter, Griffe, Glätten, Update-Balken |

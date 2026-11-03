@@ -38,6 +38,7 @@ from starlette.concurrency import run_in_threadpool
 import ablage
 import benutzer as nutzer
 import listen
+import neues
 import post
 import selbst
 import verlauf
@@ -1567,6 +1568,44 @@ async def bruecke(methode: str, bitte: Request):
     return JSONResponse(await run_in_threadpool(_antwort, name, methode, rumpf))
 
 
+# Welche Aufrufe heissen "der hat die Seite gesehen". Anlegen und Umbenennen
+# gehoeren dazu: sonst steht hinter der Seite, die man gerade selbst angelegt
+# hat, ein Zeichen - und nach dem Umbenennen hat sie einen neuen Namen und
+# faengt damit fuer alle wieder von vorne an, auch fuer den, der umbenannt hat.
+GESEHEN_BEI = ("seite_lesen", "seite_speichern", "seite_anlegen", "seite_umbenennen")
+
+
+def _seitenpfad(methode: str, args: list, aus) -> list:
+    """Welche Seite meint dieser Aufruf? [] wenn keine."""
+    if methode == "seite_lesen" and len(args) == 3:
+        return [str(a) for a in args]
+    if methode == "seite_speichern" and len(args) == 1 and isinstance(args[0], dict):
+        d = args[0]
+        return [str(d.get("notizbuch") or ""), str(d.get("abschnitt") or ""),
+                str(d.get("name") or "")]
+    # Der Name entsteht erst beim Anlegen - er steht in der Antwort, nicht im
+    # Aufruf.
+    if methode in ("seite_anlegen", "seite_umbenennen") and len(args) >= 2:
+        if isinstance(aus, dict) and aus.get("name"):
+            return [str(args[0]), str(args[1]), str(aus["name"])]
+    return []
+
+
+def _seitenstand(name: str, teile: list) -> int:
+    """Wann wurde diese Seite zuletzt geschrieben? 0, wenn es sie nicht gibt."""
+    if len(teile) != 3 or not all(teile):
+        return 0
+    # Keine zusammengesetzten Namen: ein ".." im Pfad soll hier nicht
+    # irgendwo anders hinzeigen.
+    if any(("/" in t) or ("\\" in t) or t in (".", "..") for t in teile):
+        return 0
+    datei = arbeitsordner(name).joinpath(*teile[:2], teile[2] + ".json")
+    try:
+        return int(datei.stat().st_mtime)
+    except OSError:
+        return 0
+
+
 def _antwort(name: str, methode: str, rumpf: dict):
     try:
         args = _args_pruefen(rumpf.get("args") or [])
@@ -1594,6 +1633,17 @@ def _antwort(name: str, methode: str, rumpf: dict):
         bereich = bereich_lesen(name)
         aus = dict(aus)
         aus["ordner"] = f"Projekt: {bereich}" if bereich else f"Server: {name}"
+    # In einer Gruppe: was sich seit dem letzten Blick geaendert hat, bekommt
+    # im Baum ein Zeichen - und was man aufmacht oder speichert, gilt als
+    # gesehen. In den eigenen Notizen gibt es beides nicht.
+    bereich = bereich_lesen(name)
+    if bereich and isinstance(aus, dict):
+        konfig = nutzer.konfigordner(name)
+        if methode == "baum":
+            aus = neues.markieren(konfig, bereich, aus)
+        elif methode in GESEHEN_BEI:
+            teile = _seitenpfad(methode, args, aus)
+            neues.merken(konfig, bereich, teile, _seitenstand(name, teile))
     if methode == "einstellungen" and isinstance(aus, dict):
         aus = dict(aus)
         # Die Oberflaeche richtet sich danach: nicht am selben Rechner, also kein

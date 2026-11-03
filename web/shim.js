@@ -5171,6 +5171,95 @@
     beobachter.observe(flaeche || document.body, { childList: true });
   }
 
+  /* --- Was in der Gruppe neu ist ------------------------------------------- */
+  //
+  // In einem Projekt arbeiten mehrere im selben Ordner. Der Server haengt
+  // deshalb an jede Seite im Baum ein "neu", die sich seit dem letzten Blick
+  // dieses Benutzers geaendert hat; hier wird daraus ein Ausrufezeichen in der
+  // Leiste. Gezeichnet wird der Baum drueben in mappe.js - deshalb wird
+  // baumZeichnen umschlossen statt die Datei angefasst.
+  //
+  // Das Zeichen steht auch am Abschnitt und am Notizbuch darueber: ein
+  // zugeklapptes Notizbuch zeigt sonst nichts an, und genau dann braucht man
+  // den Hinweis.
+
+  function neuesZeichen(zeile, titel) {
+    if (!zeile || zeile.querySelector('.neumarke')) return;
+    const marke = el('span', { className: 'neumarke', textContent: '!', title: titel });
+    const name = zeile.querySelector('.name');
+    if (name) name.after(marke); else zeile.append(marke);
+  }
+
+  function neuesZahl(wieviele) {
+    return wieviele === 1 ? 'Eine geänderte Seite darin'
+                          : wieviele + ' geänderte Seiten darin';
+  }
+
+  function neuesGelesen(seite, zeile) {
+    // Aufgemacht heisst gesehen: der Server merkt sich das beim Lesen der
+    // Seite, hier verschwindet das Zeichen sofort - sonst steht es noch da,
+    // bis der Baum das naechste Mal geladen wird.
+    if (zeile.dataset.neuklick) return;
+    zeile.dataset.neuklick = '1';
+    const name = zeile.querySelector('.name');
+    if (!name) return;
+    name.addEventListener('click', function () {
+      seite.neu = false;
+      neuesMarkieren();
+    });
+  }
+
+  function neuesMarkieren() {
+    const baum = document.getElementById('baum');
+    if (!baum || typeof baumDaten === 'undefined' || !Array.isArray(baumDaten)) return;
+    for (const marke of baum.querySelectorAll('.neumarke')) marke.remove();
+    const buecher = baum.children;
+    baumDaten.forEach(function (buch, i) {
+      const bd = buecher[i];
+      if (!bd || !bd.classList.contains('buch')) return;
+      const abschnitte = bd.querySelectorAll(':scope > .abschnitt');
+      let imBuch = 0;
+      (buch.abschnitte || []).forEach(function (ab, j) {
+        const ad = abschnitte[j];
+        if (!ad) return;
+        const zeilen = ad.querySelectorAll(':scope > .seite');
+        let imAbschnitt = 0;
+        (ab.seiten || []).forEach(function (seite, k) {
+          const zeile = zeilen[k];
+          if (!zeile) return;
+          neuesGelesen(seite, zeile);
+          if (!seite.neu) return;
+          imAbschnitt++;
+          neuesZeichen(zeile, 'Geändert, seit du zuletzt hier warst');
+        });
+        if (imAbschnitt) neuesZeichen(ad.firstElementChild, neuesZahl(imAbschnitt));
+        imBuch += imAbschnitt;
+      });
+      if (imBuch) neuesZeichen(bd.firstElementChild, neuesZahl(imBuch));
+    });
+  }
+
+  function neuesBauen() {
+    if (typeof baumZeichnen !== 'function') return;
+    const stil = document.createElement('style');
+    stil.textContent = `
+      .neumarke {
+        flex: 0 0 auto; color: var(--akzent); font-weight: 700;
+        font-size: 13px; line-height: 1; padding: 0 2px; cursor: default;
+      }
+    `;
+    document.head.append(stil);
+    const alt = baumZeichnen;
+    window.baumZeichnen = function () {
+      const aus = alt.apply(this, arguments);
+      // Lieber ohne Zeichen als mit kaputter Leiste: was hier schiefgeht,
+      // darf den Baum nicht mitreissen.
+      try { neuesMarkieren(); } catch (f) { console.error('[notizmappe] neu:', f); }
+      return aus;
+    };
+    neuesMarkieren();
+  }
+
   // Beim Öffnen der Einstellungen neu laden - Rollen können sich geändert haben.
   window.addEventListener('DOMContentLoaded', function () {
     // Jeder Schritt fuer sich. Vorher lief das als eine Kette: ein Fehler im
@@ -5191,6 +5280,7 @@
                                ['3D-Anhänge', modelleBauen],
                                ['Formatleiste', formatleistenBauen],
                                ['Rechtsklick', rechtsmenueBauen],
+                               ['Neues in der Gruppe', neuesBauen],
                                ['Bereiche laden', bereicheLaden],
                                ['Verwaltung laden', verwaltungLaden]]) {
       try {
