@@ -393,11 +393,21 @@ pruefe("und keines ist hoeher als 340 oder flacher als 90",
 # ist dann vollstaendig da, nur in die Breite gezogen: ein Fehler, den kein
 # Rechentest sieht, weil gezeichnet wird in die richtige Groesse.
 print("\nDas Fenster traegt die Zeichenfläche")
+# Nur der Stilblock, nicht die ganze Datei: in JavaScript stehen auch
+# geschweifte Klammern, und die bringen die Regelsuche durcheinander.
+stilblock = next((t.group(1) for t in re.finditer(r"= `(.*?)`;", shim, re.S)
+                  if ".modell" in t.group(1)), "")
+pruefe("der Stilblock der Kästen steht in shim.js", bool(stilblock))
 for fenster in (".kasten-3d .modell", ".kasten-pcb .modell"):
-    regel = re.search(re.escape(fenster) + r"\s*\{(.*?)\}", shim, re.S)
+    # Die Regel darf auch mit anderen Wählern zusammenstehen. Kommentare
+    # fliegen vorher heraus - vor dem Wähler wie in der Regel.
+    def ohne(text):
+        return re.sub(r"/\*.*?\*/", "", text, flags=re.S)
+    regel = next((t for t in re.finditer(r"([^{}]+)\{([^{}]*)\}", stilblock)
+                  if fenster in [w.strip() for w in ohne(t.group(1)).split(",")]), None)
     # Ohne die Kommentare: sonst genuegt es, dass im Kommentar darueber steht,
     # was fehlt. Genau so ist diese Prüfung beim ersten Versuch grün geblieben.
-    inhalt = re.sub(r"/\*.*?\*/", "", regel.group(1), flags=re.S) if regel else ""
+    inhalt = ohne(regel.group(2)) if regel else ""
     pruefe(f"{fenster} ist positioniert", "position: relative" in inhalt,
            inhalt.strip() or "keine Regel")
     pruefe(f"{fenster} schneidet ab", "overflow: hidden" in inhalt,

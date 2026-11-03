@@ -5118,7 +5118,9 @@
     if (!window.IntersectionObserver) return;
     const stil = document.createElement('style');
     stil.textContent = `
-      .kasten-3d .modell {
+      /* Die Platine sitzt im selben Rahmen wie ein 3D-Modell: gleicher Rand,
+         gleiche Rundung, gleicher Grund. Nur die Hoehe setzt pcbFenster. */
+      .kasten-3d .modell, .kasten-pcb .modell {
         position: relative; width: 100%; aspect-ratio: 4 / 3;
         background: var(--flaeche); border: 1px solid var(--kasten-rand);
         border-radius: 6px; overflow: hidden;
@@ -5133,7 +5135,7 @@
         display: flex; align-items: center; justify-content: center;
         text-align: center; color: var(--matt); font-size: 12px; padding: 8px;
       }
-      .kasten-3d .modell .lade {
+      .kasten-3d .modell .lade, .kasten-pcb .modell .lade {
         position: absolute; inset: 0; margin: 0; display: flex;
         align-items: center; justify-content: center;
         color: var(--matt); font-size: 12px; pointer-events: none;
@@ -5141,41 +5143,19 @@
       .kasten-3d .datei { margin-top: 6px; }
       .kasten-3d .datei .zeichen { display: none; }
       .kasten-3d .dzahl { color: var(--matt); font-size: 11px; white-space: nowrap; }
-      .kasten-pcb .modell {
-        /* Ohne position: relative haengt die Zeichenflaeche am Kasten statt am
-           Fenster - und wird ueber dessen ganze Breite gezerrt. */
-        position: relative; overflow: hidden;
-        aspect-ratio: 4 / 3; background: #101214; border-radius: 4px;
-        margin: 0 auto; max-width: 100%;
-      }
       .kasten-pcb .modell canvas {
         position: absolute; inset: 0; width: 100%; height: 100%;
         display: block; touch-action: none; cursor: grab;
       }
       .kasten-pcb .pcbseite {
-        position: absolute; right: 5px; top: 5px; z-index: 2;
-        padding: 2px 7px; border: 1px solid rgba(232,234,236,.25); border-radius: 4px;
-        background: rgba(16,18,20,.55); color: #e8eaec; font: inherit;
-        font-size: 11px; cursor: pointer; opacity: .35; transition: opacity .12s;
+        position: absolute; right: 6px; top: 6px; z-index: 2;
+        padding: 3px 8px; border: 1px solid var(--linie); border-radius: 4px;
+        background: color-mix(in srgb, var(--flaeche) 80%, transparent);
+        color: var(--schrift); font: inherit; font-size: 11px; cursor: pointer;
       }
-      .kasten-pcb:hover .pcbseite, .kasten-pcb .pcbseite:focus { opacity: 1; }
-      /* Unter einer Platine steht kein Kaestchen mit Rahmen, sondern eine
-         ruhige Zeile - sonst wiegt die Beschriftung mehr als das Bild. */
-      .kasten-pcb .datei {
-        margin-top: 5px; padding: 0; border: 0; background: transparent;
-        justify-content: center; gap: 5px; font-size: 11px; color: var(--matt);
-      }
-      .kasten-pcb .datei:hover { border-color: transparent; }
-      .kasten-pcb .datei:hover .dname { text-decoration: underline; }
+      .kasten-pcb .datei { margin-top: 6px; }
       .kasten-pcb .datei .zeichen { display: none; }
-      .kasten-pcb .datei .dname {
-        flex: 0 1 auto; min-width: 0; color: var(--matt);
-      }
-      .kasten-pcb .datei .dgroesse { font-size: 11px; }
-      .kasten-pcb .datei .dzahl { white-space: nowrap; }
-      .kasten-pcb .datei .dgroesse::before, .kasten-pcb .datei .dzahl::before {
-        content: "· ";
-      }
+      .kasten-pcb .dzahl { color: var(--matt); font-size: 11px; white-space: nowrap; }
       .kasten .modellfehler {
         margin: 4px 0 0; color: var(--warnung); font-size: 11px; line-height: 1.4;
       }

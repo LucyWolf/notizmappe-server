@@ -524,9 +524,9 @@ und ein Knopf oben rechts dreht sie auf die Unterseite.
 
 Das Fenster ist so breit wie der Kasten; nur die **Höhe** richtet sich nach der
 Platine — ein langes schmales Brett bekommt ein hohes Fenster, ein flaches ein
-flaches. Darunter steht der Dateiname als ruhige Zeile mit Maßen und Zahl der
-Bohrungen, nicht als Kästchen mit Rahmen: die Beschriftung soll nicht mehr
-wiegen als das Bild.
+flaches. Rahmen, Rundung und Grund sind dieselben wie bei einem 3D-Modell, und
+darunter steht dieselbe Kachel wie sonst — mit Maßen und Zahl der Bohrungen
+dahinter.
 
 Was im Umriss als geschlossener Zug **innerhalb** der Platine steht, ist ein
 Ausschnitt und bleibt leer — ein Frässchlitz quer durch das Brett sieht
