@@ -61,6 +61,19 @@ except selbst.SelbstFehler:
 pruefe("ein Archiv kommt nicht aus dem Zielordner heraus",
        not (TMP / "entkommen.txt").exists() and not (ziel.parent / "entkommen.txt").exists())
 
+# --- Was aeltere Installationen verlangen ------------------------------------
+#
+# Eine laufende Fassung prueft das nachgeladene Paket gegen IHRE Liste der
+# Pflichtdateien, nicht gegen die neue. Faellt eine Datei weg, die eine
+# aeltere Fassung verlangt, lehnt die das Paket ab ("In der neuen Fassung
+# fehlt ... - nicht aktiviert") und kommt aus eigener Kraft nie wieder hoch.
+# Genau das ist mit web/listen.py passiert.
+print("\nWas aeltere Fassungen noch verlangen")
+ALT_PFLICHT = ("web/listen.py",)      # aus Fassungen bis 1.2.44
+for datei in ALT_PFLICHT:
+    pruefe(f"{datei} liegt noch im Paket", (WURZEL / datei).is_file(),
+           "sonst nimmt eine aeltere Installation das Update nicht an")
+
 print()
 print("Welche Fassung gilt")
 daten = TMP / "daten"
