@@ -150,8 +150,16 @@ pruefe("Der Titel kommt unveraendert zurueck - er ist Text", "<img" in titel, ti
 _mappe = (DESKTOP / "app/oberflaeche/mappe.js").read_text(encoding="utf-8")
 _hinein = [z.strip() for z in _mappe.splitlines()
            if re.search(r"\.innerHTML\s*=", z)]
-pruefe("In mappe.js wird nur der gereinigte Seiteninhalt als HTML eingesetzt",
-       _hinein and all("e.html" in z for z in _hinein), _hinein[:3])
+# Seit die Formatleiste in der gemeinsamen Oberflaeche liegt, gibt es eine
+# zweite Stelle: die Knoepfe bekommen ihr Zeichen als SVG. Das ist eine feste
+# Zeichenkette aus dem Programm, kein Text aus einer Notiz - sie steht
+# deshalb namentlich hier und nicht als Ausnahme "irgendwas mit innerHTML".
+ERLAUBT_HTML = ("e.html", "k.innerHTML = inhalt;")
+pruefe("In mappe.js wird nur Gereinigtes und Eigenes als HTML eingesetzt",
+       _hinein and all(any(g in z for g in ERLAUBT_HTML) for z in _hinein),
+       _hinein[:3])
+pruefe("und das Eigene ist ein Bild aus dem Programm, kein Text von aussen",
+       "function flBild" in _mappe and "<svg class=\"fl-bild\"" in _mappe)
 pruefe("und der Titel nirgends",
        not any("titel" in z.lower() for z in _hinein), _hinein[:3])
 

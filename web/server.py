@@ -37,7 +37,6 @@ from starlette.concurrency import run_in_threadpool
 
 import ablage
 import benutzer as nutzer
-import listen
 import neues
 import post
 import selbst
@@ -62,8 +61,6 @@ import speicher                                                    # noqa: E402
 # lang. Eingerichtet wird das, bevor die Bruecke steht - sonst liefe das erste
 # Speichern noch nach der alten Regel. Siehe web/verlauf.py.
 verlauf.einrichten(speicher)
-# Und nummerierte Listen duerfen sagen, welche Art Nummer sie haben wollen.
-listen.einrichten()
 
 BRUECKE = bruecke_modul.Bruecke()
 DESKTOP_FASSUNG = bruecke_modul.VERSION
@@ -189,7 +186,8 @@ def _beim_start() -> None:
 ERLAUBT = {
     "baum", "notizbuch_anlegen", "abschnitt_anlegen", "seite_anlegen",
     "seite_lesen", "seite_speichern", "seite_umbenennen", "stand", "loeschen",
-    "anhang_ablegen", "anhang_bild", "einstellungen", "schriften", "favorit_setzen",
+    "anhang_ablegen", "anhang_bild", "anhang_roh", "einstellungen", "schriften",
+    "favorit_setzen",
     # Verlauf und Papierkorb: reine Dateiarbeit im Ordner des angemeldeten
     # Benutzers. Der Reiter dafuer kommt mit der Oberflaeche des Desktops
     # automatisch mit - ohne diese Zeilen waeren alle drei Knoepfe dort tot.

@@ -39,12 +39,9 @@ jobs:
           python tests/test_balken.py
           python tests/test_post.py
           python tests/test_reiter.py
-          python tests/test_modell.py
           python tests/test_namen.py
           python tests/test_unsinn.py
           python tests/test_verlauf.py
-          python tests/test_leiste.py
-          python tests/test_platine.py
           python tests/test_gruppe.py
           python tests/test_verwalten.py
           python tests/test_tuer.py

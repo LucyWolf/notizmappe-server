@@ -96,7 +96,11 @@ else:
 # Und die Oberflaeche redet wirklich nur ueber die eine Schnittstelle - sonst
 # haette der Stellvertreter Luecken.
 js = (DESKTOP / "app/oberflaeche/mappe.js").read_text(encoding="utf-8")
-anders = set(re.findall(r"window\.pywebview\.(\w+)", js)) - {"api"}
+# Ohne Kommentare: ein Kommentar, der erklaert, warum man etwas NICHT liest,
+# darf diese Pruefung nicht ausloesen. (Genau das ist passiert.)
+_ohne = re.sub(r"/\*.*?\*/", "", js, flags=re.S)
+_ohne = re.sub(r"^\s*(//|\*).*$", "", _ohne, flags=re.M)
+anders = set(re.findall(r"window\.pywebview\.(\w+)", _ohne)) - {"api"}
 pruefe("die Oberflaeche benutzt nur window.pywebview.api", not anders, str(anders))
 
 # --- Der Stellvertreter muss überhaupt laufen können -------------------------
@@ -125,7 +129,7 @@ except Exception as f:                                              # noqa: BLE0
 html = (DESKTOP / "app/oberflaeche/index.html").read_text(encoding="utf-8")
 for anker in ('id="zahnrad"', 'class="fussrechts"',
               'id="dateileiste"', 'class="dateipunkt"', 'class="dateiseite"',
-              'data-punkt="konto"', 'data-punkt="optionen"',
+              'data-punkt="server"', 'data-punkt="optionen"',
               'id="einstellungen"', 'class="tafel"',
               'id="e-version"', 'id="e-verfuegbar"', 'id="e-updatehinweis"'):
     pruefe(f"die Oberflaeche hat noch {anker}", anker in html)
@@ -196,13 +200,13 @@ pruefe("das Menue und seine vier Punkte gibt es",
 pruefe("Schriftliste und Farben stehen in der Mini-Leiste",
        'id="minileiste"' in html and 'data-befehl="fontName"' in html
        and 'id="farben"' in html)
-pruefe("und der Stellvertreter spiegelt sie von dort",
-       'select[data-befehl="fontName"]' in shim
-       and "'#farben button[data-farbe]'" in shim)
+pruefe("und die Formatleiste spiegelt sie von dort",
+       'select[data-befehl="fontName"]' in js
+       and "'#farben button[data-farbe]'" in js)
 # Die alten Knoepfe der Mini-Leiste bleiben stehen, nur versteckt: an ihnen
 # haengen drueben die Schriftliste und die Farben.
 pruefe("die alte Mini-Leiste wird nicht weggeworfen, sondern beiseitegelegt",
-       "id: 'minialt'" in shim and "while (leiste.firstChild) alt.append" in shim)
+       "id: 'minialt'" in js and "while (leiste.firstChild) alt.append" in js)
 
 # Die 3D-Anzeige tauscht den Inhalt eines Datei-Kastens aus. Sie haengt damit
 # an vier Dingen drueben: an der Klasse des Kastens, am Dateinamen im Element,
@@ -275,7 +279,7 @@ pruefe("drueben steigt Entf bei versteckter Malleiste aus",
 # um andere Leute. Das Profil ist deshalb ein Fenster und kein Reiter, und in
 # das Menue unten gehoert die Verwaltung nicht - sonst gibt es zwei Wege zur
 # selben Seite, und einer davon fuehrt an der Datei-Ebene vorbei.
-pruefe("das Profil ist ein Fenster", "el('dialog', { id: 'profilfenster' }" in shim)
+pruefe("das Profil ist ein Fenster", "el('dialog', { id: 'profilfenster' }" in js)
 # Die Serveroptionen - Benutzer, Mailversand - werden in die Tafel der
 # Optionen gehaengt. Faellt die dort drueben weg, baut der Stellvertreter
 # lautlos nichts mehr: ein nicht gefundener Platz meldet sich nicht.
@@ -283,10 +287,11 @@ pruefe("die Optionen-Seite hat noch die Tafel zum Einhaengen",
        bool(re.search(r'data-punkt="optionen"[^>]*>\s*<h2>Optionen</h2>\s*'
                       r'<div id="einstellungen">\s*<div class="tafel">', html)))
 pruefe("und die Datei-Leiste hat den Punkt, der hier System heisst",
-       'class="dateipunkt" data-punkt="konto"' in html)
+       'class="dateipunkt" data-punkt="server"' in html)
 
-pruefe("der Menuepunkt oeffnet es", "punkt('Mein Profil', profilOeffnen)" in shim)
-pruefe("und legt keinen Reiter mehr an", 'data-punkt="profil"' not in shim)
+pruefe("der Menuepunkt oeffnet es", "profilOeffnen()" in js)
+pruefe("und legt keinen Reiter mehr an",
+       'data-punkt="profil"' not in shim and 'data-punkt="profil"' not in html)
 pruefe("die Benutzerverwaltung steht nicht im Profilmenue",
        "Benutzer verwalten" not in shim)
 pruefe("sie haengt unter Optionen in der Datei-Ebene",

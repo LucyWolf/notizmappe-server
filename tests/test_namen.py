@@ -2,7 +2,7 @@
 
     .venv/bin/python tests/test_namen.py
 
-Diese Prüfung gibt es wegen eines echten Fehlers: `modellHolen` stand im
+Diese Prüfung gibt es wegen eines echten Fehlers: eine Funktion stand im
 Entwurf, wurde beim Schreiben vergessen und trotzdem aufgerufen. Die Syntax
 war in Ordnung, der Aufbau lief durch - nur im Browser flog ein ReferenceError,
 und der landete in einem `catch`, das daraus eine harmlose Meldung machte.
@@ -150,7 +150,10 @@ pruefe("jeder gelesene Name in shim.js kommt irgendwoher",
 
 # Gegenprobe: die Prüfung muss den Fehler auch wirklich finden. Ohne das
 # könnte sie stillschweigend nichts mehr tun.
-probe = shimquelle.replace("function modellHolen(", "function modellHolenX(", 1)
+# Irgendeine Funktion, die es in shim.js gibt und die auch gerufen wird.
+# (Frueher war das modellHolen - die Vorschau liegt inzwischen in der
+# gemeinsamen Oberflaeche, und mit ihr diese Pruefung.)
+probe = shimquelle.replace("function verwaltungLaden(", "function verwaltungLadenX(", 1)
 if probe != shimquelle:
     pbaum = esprima.parseScript(probe).toDict()
     perklaert, keine_lesung2, pgelesen = set(), set(), {}
@@ -163,9 +166,9 @@ if probe != shimquelle:
     fehlt = [n for n in pgelesen if n not in perklaert and n not in oben
              and n not in BROWSER]
     pruefe("und sie fällt wirklich auf, wenn eine Funktion fehlt",
-           fehlt == ["modellHolen"], fehlt)
+           fehlt == ["verwaltungLaden"], fehlt)
 else:
-    pruefe("die Gegenprobe findet modellHolen", False, "Funktion heißt anders")
+    pruefe("die Gegenprobe findet verwaltungLaden", False, "Funktion heißt anders")
 
 # --- Dasselbe Netz fuer die Python-Seite -------------------------------------
 #

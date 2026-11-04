@@ -540,8 +540,8 @@ pruefe("Der Reiter Konto heißt System",
        and "reiter.textContent = 'System'" in shimtext)
 # Umbenannt wird nur die Beschriftung: an data-punkt haengt die Umschaltung
 # der Datei-Ebene, und die kommt aus der gemeinsamen Oberflaeche.
-pruefe("Der Schlüssel data-punkt bleibt konto",
-       'data-punkt="konto"' in shimtext)
+pruefe("Der Schlüssel data-punkt bleibt server",
+       'data-punkt="server"' in shimtext)
 pruefe("Wo die Notizen liegen, steht unter System statt auf eigenem Reiter",
        "const seite = systemseite();" in shimtext
        and 'data-punkt="speicher"' not in shimtext)
@@ -551,7 +551,11 @@ pruefe("Aber sie bleiben im Gerüst stehen",
        "kind.remove()" not in shimtext.split("function einstellungenAnpassen")[1].split("function abschnittBauen")[0])
 for was in ("Aus OneNote übernehmen", "Sperre", "Version", "Schriften"):
     pruefe("Behandelt: " + was, ("'" + was + "'") in shimtext, was)
-pruefe("Es gibt einen Abmeldeknopf", "Abmelden" in shimtext and "/abmelden" in shimtext)
+# Der Abmeldeknopf steht seit 1.2.4 in der gemeinsamen Oberflaeche - dort
+# haengt er am Profil, und in dieser Fassung fuehrt er auf /abmelden.
+_mappetext = (DESKTOP / "app/oberflaeche/mappe.js").read_text(encoding="utf-8")
+pruefe("Es gibt einen Abmeldeknopf",
+       "Abmelden" in _mappetext and "location.href = '/abmelden'" in _mappetext)
 # Eigener Klient: ein Abmelden hier würde sonst alle folgenden Prüfungen
 # mitreißen - genau das ist beim ersten Versuch passiert.
 abmelder = TestClient(server.app, follow_redirects=False)
@@ -1048,13 +1052,12 @@ pruefe("ein erfundener Name schickt nichts", verschickt == [], str(verschickt))
 
 # --- Nummerierte Listen behalten ihre Art ------------------------------------
 #
-# Der Reiniger drueben laesst an <ol> nichts durch. Fuer die
-# Nummerierungsbibliothek bringt web/listen.py ihm ein einziges Attribut bei -
-# mit fester Werteliste. Geprueft wird am echten Reiniger, nicht an der Liste:
-# wird die Fensterfassung einmal umgebaut, muss das hier auffallen.
+# Der Reiniger kennt an <ol> und <ul> genau ein Attribut: data-art, mit
+# fester Werteliste. Frueher brachte web/listen.py ihm das zur Laufzeit bei;
+# seit die Fensterfassung die Listen selbst kann, steht es dort. Geprueft
+# wird am echten Reiniger - wird er einmal umgebaut, faellt das hier auf.
 print("\nNummerierte Listen")
 import reinigen as _rein                                           # noqa: E402
-import listen as _listen                                           # noqa: E402
 
 pruefe("die Art der Nummer bleibt stehen",
        _rein.html('<ol data-art="1)"><li>eins</li></ol>')
@@ -1083,17 +1086,26 @@ pruefe("an anderen Elementen gilt es nicht",
 pruefe("style und class bleiben draussen",
        _rein.html('<ol style="x" class="y"><li>a</li></ol>') == '<ol><li>a</li></ol>',
        _rein.html('<ol style="x" class="y"><li>a</li></ol>'))
-# Dieselbe Liste steht in shim.js - stehen dort Arten, die der Server nicht
-# kennt, waeren sie nach dem ersten Speichern weg.
-_shim = (WURZEL / "web/shim.js").read_text(encoding="utf-8")
-_dort = _re.search(r"const FL_NUMMERN = \[(.*?)\];", _shim, _re.S)
-_arten = set(_re.findall(r"'([^']+)'", _dort.group(1))) if _dort else set()
-pruefe("shim.js und listen.py kennen dieselben Arten",
-       _arten == _listen.ARTEN, (sorted(_arten), sorted(_listen.ARTEN)))
-_dort2 = _re.search(r"const FL_ZEICHEN = \[(.*?)\];", _shim, _re.S)
-_zeichen = set(_re.findall(r"'([^']+)'", _dort2.group(1))) if _dort2 else set()
+# Dieselbe Liste steht in der Oberflaeche - stehen dort Arten, die der
+# Reiniger nicht kennt, waeren sie nach dem ersten Speichern weg. Beides
+# liegt jetzt im Desktop-Repo; geprueft wird gegen die geholte Fassung.
+_mappe = (DESKTOP / "app/oberflaeche/mappe.js").read_text(encoding="utf-8")
+_rein = (DESKTOP / "app/reinigen.py").read_text(encoding="utf-8")
+
+
+def _menge(text, muster):
+    t = _re.search(muster, text, _re.S)
+    return set(_re.findall(r"'([^']+)'", t.group(1))) if t else set()
+
+
+_arten = _menge(_mappe, r"const FL_NUMMERN = \[(.*?)\];")
+_erlaubt = _menge(_rein, r"LISTENARTEN = \{(.*?)\}")
+pruefe("Oberflaeche und Reiniger kennen dieselben Arten",
+       _arten and _arten == _erlaubt, (sorted(_arten), sorted(_erlaubt)))
+_zeichen = _menge(_mappe, r"const FL_ZEICHEN = \[(.*?)\];")
+_erlaubt2 = _menge(_rein, r"LISTENZEICHEN = \{(.*?)\}")
 pruefe("und dieselben Aufzaehlungszeichen",
-       _zeichen == _listen.ZEICHEN, (sorted(_zeichen), sorted(_listen.ZEICHEN)))
+       _zeichen and _zeichen == _erlaubt2, (sorted(_zeichen), sorted(_erlaubt2)))
 
 # --- Wie diese Mappe heisst --------------------------------------------------
 #

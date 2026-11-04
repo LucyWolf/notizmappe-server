@@ -22,7 +22,19 @@ einen Stellvertreter hin, der jeden Aufruf als `POST /bruecke/xyz` schickt. An
 Stellvertreter), sonst nichts.
 
 `tests/test_gleich.py` prüft das nach: keine Kopien im Repo, ausgelieferte
-Dateien Byte für Byte identisch, an `index.html` genau eine Zeile mehr. Und
+Dateien Byte für Byte identisch, an `index.html` genau eine Zeile mehr.
+
+**Was in `shim.js` steht, ist das Mindeste.** Formatleiste, Rechtsklickmenü,
+3D-Anhänge, Platinen und das ganze Profil wurden hier gebaut, solange es sie
+im Fenster nicht gab — mit Desktop 1.2.5 sind sie dort angekommen, und der
+Shim hat sie abgegeben (5300 → 2686 Zeilen). Was bleibt, ist, was es nur hier
+gibt: der Stellvertreter für die Brücke, Benutzer und Rollen, Projekte und
+Bereichswahl, zwei Schritte, Mailversand, Ablage, das **!** für Änderungen in
+Gruppen und der Hinweis auf eine neue Fassung des Servers.
+
+Die Regel dahinter: **was beide Fassungen können sollen, gehört ins
+Desktop-Repo.** Alles, was der Shim zur Laufzeit einsetzt, sieht nur die
+Serverfassung — und ist damit ein Unterschied, den niemand gewollt hat. Und
 `.github/workflows/nachziehen.yml` zieht `DESKTOP_VERSION` täglich nach, wenn
 der Desktop ein neues Release hat — damit niemand daran denken muss.
 
