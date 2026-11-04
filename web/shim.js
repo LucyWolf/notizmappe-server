@@ -778,9 +778,8 @@
      hier gerade" - also steht dort jetzt Name und Profil, und die
      Einstellungen haengen darin.
 
-     Das Zahnrad wird nur versteckt, nicht entfernt: ein Dutzend Stellen in der
-     gemeinsamen Oberflaeche zeigen auf #zahnrad, und der Punkt "Einstellungen"
-     im Menue klickt es einfach an. So bleibt der Weg dorthin genau einer. */
+     Seit 1.2.6 gibt es das Zahnrad gar nicht mehr - auch im Fenster nicht.
+     Der Weg zu den Einstellungen ist die Datei-Ebene, und zwar der einzige. */
 
   /* ------------------------------------------------------------------ Ablage
 
@@ -2694,8 +2693,11 @@
         console.error('[notizmappe] ' + name + ' ließ sich nicht aufbauen:', f);
       }
     }
-    const zahnrad = document.getElementById('zahnrad');
-    if (zahnrad) zahnrad.addEventListener('click', function () { setTimeout(verwaltungLaden, 50); });
+    // Frueher hing das am Zahnrad unten in der Leiste. Das gibt es seit
+    // 1.2.6 nicht mehr - die Einstellungen stehen in der Datei-Ebene, und
+    // die laedt beim Oeffnen selbst nach.
+    const reiter = document.querySelector('#dateileiste .dateipunkt[data-punkt="optionen"]');
+    if (reiter) reiter.addEventListener('click', function () { setTimeout(verwaltungLaden, 50); });
   });
 
   window.pywebview = { api: stellvertreter, platform: 'server' };

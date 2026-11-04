@@ -127,7 +127,7 @@ except Exception as f:                                              # noqa: BLE0
 # ein fehlender Knopf. Genau diese Sorte Fehler faellt sonst erst dem Menschen
 # vor dem Bildschirm auf.
 html = (DESKTOP / "app/oberflaeche/index.html").read_text(encoding="utf-8")
-for anker in ('id="zahnrad"', 'class="fussrechts"',
+for anker in ('class="fussrechts"',
               'id="dateileiste"', 'class="dateipunkt"', 'class="dateiseite"',
               'data-punkt="server"', 'data-punkt="optionen"',
               'id="einstellungen"', 'class="tafel"',
