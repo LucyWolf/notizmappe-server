@@ -150,8 +150,15 @@ pruefe("Ein anderer Name mit derselben Unterschrift nicht",
        mit(f"jemand:{ablauf}:{marke}:{unterschrift}") == 303)
 pruefe("Ein längerer Ablauf mit derselben Unterschrift nicht",
        mit(f"{name}:{int(ablauf) + 99999}:{marke}:{unterschrift}") == 303)
-pruefe("Ein abgelaufener Keks nicht", mit(server.keks_bauen("chefin")
-                                          .replace(str(ablauf), "1000000000")) == 303)
+# Richtig unterschrieben, aber die Zeit ist abgelaufen - nur so prüft das
+# wirklich die Ablaufschranke. Vorher stand hier ein keks_bauen() samt
+# .replace(str(ablauf), ...): der Ablauf darin ist der von jetzt, der
+# ersetzte Text der aus dem Keks weiter oben. Fiel eine Sekunde dazwischen,
+# traf das Muster nicht, der Keks blieb gültig - und der Test wurde rot,
+# ohne dass etwas kaputt war.
+_kern = f"chefin:1000000000:{server.nutzer.sitzungsmarke('chefin')}"
+pruefe("Ein abgelaufener Keks nicht",
+       mit(f"{_kern}:{server._unterschreiben(_kern)}") == 303)
 pruefe("Gar kein Keks nicht", mit("") == 303)
 pruefe("Und auch nichts Zusammengereimtes", mit("chefin") == 303 and mit("a:b:c:d") == 303)
 
