@@ -154,7 +154,14 @@ _hinein = [z.strip() for z in _mappe.splitlines()
 # zweite Stelle: die Knoepfe bekommen ihr Zeichen als SVG. Das ist eine feste
 # Zeichenkette aus dem Programm, kein Text aus einer Notiz - sie steht
 # deshalb namentlich hier und nicht als Ausnahme "irgendwas mit innerHTML".
-ERLAUBT_HTML = ("e.html", "k.innerHTML = inhalt;")
+#
+# Die dritte ist die Vorschau im Formelfenster. Dort steht zwar getippter
+# Text drin, aber er kommt nicht als Markup an: formelMathML() baut das
+# MathML selbst und schickt jedes Stueck durch formelSchutz(). Geprueft
+# wird das unten gleich mit - eine Ausnahme, die man nur glauben kann, ist
+# keine.
+ERLAUBT_HTML = ("e.html", "k.innerHTML = inhalt;",
+                "schau.innerHTML = feld.value.trim() ? formelMathML(feld.value) : '';")
 pruefe("In mappe.js wird nur Gereinigtes und Eigenes als HTML eingesetzt",
        _hinein and all(any(g in z for g in ERLAUBT_HTML) for z in _hinein),
        _hinein[:3])
@@ -162,6 +169,17 @@ pruefe("und das Eigene ist ein Bild aus dem Programm, kein Text von aussen",
        "function flBild" in _mappe and "<svg class=\"fl-bild\"" in _mappe)
 pruefe("und der Titel nirgends",
        not any("titel" in z.lower() for z in _hinein), _hinein[:3])
+# Die Ausnahme fuer die Formelvorschau haelt nur, solange der Parser jedes
+# Stueck durchschuetzt. Beides nachsehen: dass es formelSchutz gibt, und
+# dass kein Zeichen ohne ihn in eine MathML-Marke wandert.
+_formel = re.search(r"^function formelLesen\(.*?^\}", _mappe, re.S | re.M)
+pruefe("der Formelparser steht in mappe.js", bool(_formel))
+if _formel:
+    # Nur mi, mn, mo und mtext tragen Text; in allen anderen steht schon
+    # gebautes MathML.
+    _marken = re.findall(r"<(?:mi|mn|mo|mtext)>\$\{([^}]+)\}", _formel.group(0))
+    pruefe("und schickt jedes Zeichen durch formelSchutz",
+           len(_marken) >= 3 and all("formelSchutz(" in m for m in _marken), _marken)
 
 print("\nAnhänge")
 neu = ruf("seite_anlegen", buch, teil, "Anhangseite")["name"]

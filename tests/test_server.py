@@ -358,13 +358,19 @@ ANGRIFFE = (
     '<body onload=alert(1)>',
     '<p style="background:url(javascript:alert(1))">x</p>',
     '<math><mtext><script>alert(1)</script></mtext></math>',
+    '<math><maction actiontype="toggle"><mi>a</mi></maction></math>',
+    '<math display="block" onclick="alert(1)"><mi>a</mi></math>',
+    '<math><mglyph src="https://boese.example/x.png"></math>',
     '<base href="https://boese.example/">',
     '<meta http-equiv="refresh" content="0;url=https://boese.example">',
     '<link rel=stylesheet href="https://boese.example/x.css">',
 )
+# <math> stand hier, solange MathML verboten war. Seit es Formeln gibt, ist
+# es erlaubt - aber ohne jedes Attribut, und mglyph (laedt ein Bild) und
+# maction (fuehrt beim Klicken etwas aus) bleiben draussen.
 BOESE = ("<script", "onerror", "onclick", "onload", "javascript:", "<iframe",
          "<object", "<style", "<base", "http-equiv", "<link", "<form", "<svg",
-         "<math", "data:text/html")
+         "<mglyph", "<maction", "display=", "data:text/html")
 durch = []
 lage, stand_ = ruf(k, "seite_lesen", buch, absch, seite)
 rev = int(stand_.get("rev", 1))
@@ -379,6 +385,19 @@ for gift in ANGRIFFE:
     if any(w in raus for w in BOESE):
         durch.append(f"{gift[:40]} -> {raus[:60]}")
 pruefe("Kein Angriff ueberlebt das Speichern", not durch, " | ".join(durch[:3]))
+
+# Gegenstueck: eine echte Formel muss bleiben. Sonst koennte man MathML
+# wieder ganz verbieten und die Zeile darueber bliebe gruen.
+formel = ('<math><mrow><mfrac><mi>a</mi><mn>2</mn></mfrac></mrow></math>')
+lage, _ = ruf(k, "seite_speichern", {"notizbuch": buch, "abschnitt": absch,
+                                     "name": seite, "rev": rev, "titel": seite,
+                                     "elemente": [{"id": "x", "typ": "text", "x": 0,
+                                                   "y": 0, "b": 100, "html": formel}]})
+rev = int(_.get("rev", rev + 1))
+lage, d = ruf(k, "seite_lesen", buch, absch, seite)
+pruefe("Eine Formel aber schon",
+       (d.get("elemente") or [{}])[0].get("html", "") == formel,
+       (d.get("elemente") or [{}])[0].get("html", ""))
 
 # --- Rollen und Rechte -------------------------------------------------------
 #
