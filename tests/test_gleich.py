@@ -233,14 +233,17 @@ pruefe("die Kachel heisst datei und hat Namen und Groesse",
 pruefe("und sie ist eine Zeile, in die die Dreieckszahl passt",
        ".kasten-datei .datei {" in stil and "display: flex" in stil)
 
-# Ein Fehler drueben, der hier geradegerueckt wird: die Klasse fuers Schieben
-# heisst im Stil .schiebt, gesetzt wird .zieht. Faellt das hier um, war es
-# drueben behoben - dann kann der Ausgleich raus.
+# Frueher hiess die Klasse fuers Schieben im Stil .schiebt, gesetzt wurde
+# .zieht - die Hand bekam nie pointer-events. Der Ausgleich stand hier im
+# Shim; seit Oberflaeche 1.2.25 ist es drueben behoben und der Ausgleich
+# ist raus. Faellt das hier um, ist es drueben zurueckgefallen.
 stil_kennt = set(re.findall(r"#malblatt\.([a-z]+)", stil))
 js_setzt = set(re.findall(r"malblatt\.classList\.toggle\('([a-z]+)'", js))
-pruefe("der Klassenfehler .zieht/.schiebt besteht drueben noch",
-       "zieht" in js_setzt and "zieht" not in stil_kennt,
+pruefe("jede gesetzte Malblatt-Klasse steht auch im Stil",
+       js_setzt <= stil_kennt,
        f"Stil: {sorted(stil_kennt)}, JS: {sorted(js_setzt)}")
+pruefe("und der Ausgleich im Shim ist weg",
+       "#malblatt.zieht" not in Path("web/shim.js").read_text(encoding="utf-8"))
 
 # --- Rahmen aufziehen und Strg+A -----------------------------------------
 #

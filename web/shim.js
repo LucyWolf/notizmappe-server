@@ -806,6 +806,7 @@
         '--papier': '#fffefb', '--linie': '#e3e0d8', '--schrift': '#1f1d1a',
         '--matt': '#78736a', '--leiste': '#f4f1ea', '--flaeche': '#f7f5f0',
         '--akzent': '#7a5cff', '--warnung': '#b23b2e', '--kasten-rand': '#d8d4ca',
+        '--hintergrundlinie': '#d9e2ef',
       },
     },
     dunkel: {
@@ -814,6 +815,7 @@
         '--papier': '#1b1a18', '--linie': '#332f2a', '--schrift': '#e8e4dc',
         '--matt': '#938d83', '--leiste': '#121110', '--flaeche': '#232220',
         '--akzent': '#9d86ff', '--warnung': '#ff8d7e', '--kasten-rand': '#3a3631',
+        '--hintergrundlinie': '#2d3340',
       },
     },
     mitternacht: {
@@ -822,6 +824,7 @@
         '--papier': '#0f1420', '--linie': '#243049', '--schrift': '#dce6f5',
         '--matt': '#7e8da8', '--leiste': '#080c14', '--flaeche': '#172033',
         '--akzent': '#4f9dff', '--warnung': '#ff7b6b', '--kasten-rand': '#2b3a56',
+        '--hintergrundlinie': '#22304a',
       },
     },
     sepia: {
@@ -830,6 +833,7 @@
         '--papier': '#f6ecd9', '--linie': '#ddcdaf', '--schrift': '#3b2f21',
         '--matt': '#8a7557', '--leiste': '#efe2c9', '--flaeche': '#f1e5cd',
         '--akzent': '#a4601f', '--warnung': '#9c3320', '--kasten-rand': '#d3c0a0',
+        '--hintergrundlinie': '#dfd0b2',
       },
     },
     wald: {
@@ -838,6 +842,7 @@
         '--papier': '#121a16', '--linie': '#27362d', '--schrift': '#dfeae2',
         '--matt': '#82998b', '--leiste': '#0c120f', '--flaeche': '#1a2520',
         '--akzent': '#5fd39a', '--warnung': '#ff9178', '--kasten-rand': '#2e4036',
+        '--hintergrundlinie': '#26362c',
       },
     },
     flieder: {
@@ -846,6 +851,7 @@
         '--papier': '#1a1626', '--linie': '#342b4d', '--schrift': '#e9e2f7',
         '--matt': '#9b8fba', '--leiste': '#120f1b', '--flaeche': '#231d33',
         '--akzent': '#b388ff', '--warnung': '#ff8da8', '--kasten-rand': '#3c3157',
+        '--hintergrundlinie': '#332a4c',
       },
     },
     kontrast: {
@@ -854,6 +860,7 @@
         '--papier': '#000000', '--linie': '#6f6f6f', '--schrift': '#ffffff',
         '--matt': '#cfcfcf', '--leiste': '#000000', '--flaeche': '#161616',
         '--akzent': '#ffd400', '--warnung': '#ff6a5a', '--kasten-rand': '#8a8a8a',
+        '--hintergrundlinie': '#5a5a5a',
       },
     },
   };
@@ -901,13 +908,13 @@
     farbfelderFuellen();
   }
 
-  // Die neun Namen mit Klartext - "--kasten-rand" sagt niemandem etwas.
+  // Die zehn Namen mit Klartext - "--kasten-rand" sagt niemandem etwas.
   const FARBNAMEN = [
     ['--papier', 'Hintergrund'], ['--schrift', 'Schrift'],
     ['--leiste', 'Leisten'], ['--flaeche', 'Eingabefelder'],
     ['--linie', 'Linien'], ['--matt', 'Nebentext'],
     ['--akzent', 'Akzent'], ['--warnung', 'Warnung'],
-    ['--kasten-rand', 'Kastenrand'],
+    ['--kasten-rand', 'Kastenrand'], ['--hintergrundlinie', 'Seitenraster'],
   ];
 
   function farbfelderFuellen() {
@@ -2329,10 +2336,6 @@
       #m-loeschen, #m-gruppe { font-size: 14px; }
       #m-glatt { font-size: 15px; }
       #m-glatt[data-stufe="stark"] { font-weight: 700; }
-      /* In der Oberflaeche heisst die Klasse fuers Schieben .schiebt, gesetzt
-         wird aber .zieht - die Hand bekommt damit nie pointer-events und tut
-         gar nichts. Hier geradegerueckt, bis es drueben behoben ist. */
-      #malblatt.zieht { pointer-events: auto; cursor: grab; }
       #ablage-stand code { color: var(--schrift); }
       #serververwaltung h3 {
         margin: 22px 0 8px; font-size: 13px; text-transform: uppercase;

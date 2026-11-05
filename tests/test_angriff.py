@@ -161,6 +161,10 @@ _hinein = [z.strip() for z in _mappe.splitlines()
 # wird das unten gleich mit - eine Ausnahme, die man nur glauben kann, ist
 # keine.
 ERLAUBT_HTML = ("e.html", "k.innerHTML = inhalt;",
+                # Der Reiter Zeichnen: das Stiftsymbol und die umgehaengten
+                # Knoepfe. Beides sind feste Bilder aus dem Programm - dass
+                # da nichts von aussen hineinkommt, wird unten geprueft.
+                "k.innerHTML = stiftBild(s);", "if (bild) k.innerHTML = bild;",
                 "schau.innerHTML = feld.value.trim() ? formelMathML(feld.value) : '';")
 pruefe("In mappe.js wird nur Gereinigtes und Eigenes als HTML eingesetzt",
        _hinein and all(any(g in z for g in ERLAUBT_HTML) for z in _hinein),
@@ -169,6 +173,28 @@ pruefe("und das Eigene ist ein Bild aus dem Programm, kein Text von aussen",
        "function flBild" in _mappe and "<svg class=\"fl-bild\"" in _mappe)
 pruefe("und der Titel nirgends",
        not any("titel" in z.lower() for z in _hinein), _hinein[:3])
+# Die Ausnahme fuers Stiftsymbol haelt nur, solange dort nichts eingesetzt
+# wird. Der Name eines Stifts kommt aus dem Browserspeicher - er darf das
+# Bild nie erreichen, sonst steht dort, was jemand hineingeschrieben hat.
+_stiftbild = re.search(r"^function stiftBild\(.*?^\}", _mappe, re.S | re.M)
+pruefe("stiftBild steht in mappe.js", bool(_stiftbild))
+if _stiftbild:
+    pruefe("und setzt nichts in das Bild ein",
+           "${" not in _stiftbild.group(0) and ".name" not in _stiftbild.group(0),
+           _stiftbild.group(0)[:200])
+    # Die Farbe geht als CSS-Variable hinein, nicht in den Text - und sie
+    # wird beim Lesen aus dem Speicher gegen ein Muster geprueft.
+    pruefe("die Farbe kommt nur als var(--stiftfarbe) vor",
+           "var(--stiftfarbe)" in _stiftbild.group(0) and "s.f" not in _stiftbild.group(0))
+    pruefe("und wird beim Einlesen geprueft",
+           "/^#[0-9a-fA-F]{6}$/.test(s.f)" in _mappe)
+# Die umgehaengten Knoepfe bekommen nur FL_-Konstanten aus dem Programm.
+_malleiste = re.search(r"^function malleisteBauen\(.*?^\}", _mappe, re.S | re.M)
+pruefe("malleisteBauen steht in mappe.js", bool(_malleiste))
+if _malleiste:
+    _bilder = re.findall(r"alt\('[^']+', ([A-Za-z_]+)", _malleiste.group(0))
+    pruefe("und setzt nur FL_-Bilder ein",
+           len(_bilder) >= 6 and all(b.startswith("FL_") for b in _bilder), _bilder)
 # Die Ausnahme fuer die Formelvorschau haelt nur, solange der Parser jedes
 # Stueck durchschuetzt. Beides nachsehen: dass es formelSchutz gibt, und
 # dass kein Zeichen ohne ihn in eine MathML-Marke wandert.
