@@ -1285,6 +1285,56 @@ async def bereich_wechseln(bitte: Request):
     return {"jetzt": jetzt}
 
 
+@app.get("/autoren")
+async def autoren(bitte: Request):
+    """Wer hat im Projekt woran zuletzt gearbeitet (Reiter Verlauf).
+
+    Nur im Projekt. In den eigenen Notizen steht im Feld `geraet` die
+    Zufallskennung des eigenen Browsers - "Autor" waere dort ein grosses
+    Wort fuer "dieser Rechner hier".
+    """
+    wer = angemeldet(bitte)
+    if not wer:
+        return JSONResponse({"fehler": "Nicht angemeldet"}, status_code=401)
+    bereich = bereich_lesen(wer)
+    if not bereich:
+        return JSONResponse({"fehler": "Das gibt es nur in einem Projekt."},
+                            status_code=400)
+    baum = await run_in_threadpool(_ausfuehren, wer, "baum", [])
+    namen = {b["name"] for b in nutzer.liste()}
+    return await run_in_threadpool(neues.autoren, arbeitsordner(wer), baum, namen)
+
+
+@app.post("/gelesen")
+async def gelesen(bitte: Request):
+    """Alles im Projekt als gesehen ablegen (Reiter Verlauf).
+
+    Nur im Projekt: in den eigenen Notizen fuehrt der Server gar keine
+    Leseliste, dort gibt es nichts zu markieren. Die Oberflaeche zeigt den
+    Knopf deshalb auch nur dort - hier steht die Absicherung dazu, damit
+    nicht eine veraltete Oberflaeche etwas anlegt, was es nicht geben soll.
+    """
+    wer = angemeldet(bitte)
+    if not wer:
+        return JSONResponse({"fehler": "Nicht angemeldet"}, status_code=401)
+    if bitte.headers.get("x-notizmappe") != "1":
+        return JSONResponse({"fehler": "Falscher Aufruf"}, status_code=400)
+    bereich = bereich_lesen(wer)
+    if not bereich:
+        return JSONResponse({"fehler": "Das gibt es nur in einem Projekt."},
+                            status_code=400)
+    d = await _rumpf_von(bitte)
+    buch = str(d.get("notizbuch") or "")[:200]
+    abschnitt = str(d.get("abschnitt") or "")[:200]
+    baum = await run_in_threadpool(_ausfuehren, wer, "baum", [])
+    if not isinstance(baum, dict):
+        return JSONResponse({"fehler": "Der Baum liess sich nicht lesen."},
+                            status_code=500)
+    wieviele = neues.alles_gesehen(nutzer.konfigordner(wer), bereich, baum,
+                                   buch, abschnitt)
+    return {"gelesen": wieviele}
+
+
 @app.get("/zwei-schritte")
 def zwei_schritte_lesen(bitte: Request):
     wer = angemeldet(bitte)

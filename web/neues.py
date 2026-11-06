@@ -129,6 +129,90 @@ def wer_dazu(ordner: Path, antwort: dict, namen: set) -> dict:
     return antwort
 
 
+def alles_gesehen(konfig: Path, projekt: str, antwort: dict,
+                  buch: str = "", abschnitt: str = "") -> int:
+    """Alles als gesehen ablegen - der Reiter Verlauf, "Als gelesen markieren".
+
+    Ohne das bleibt ein Zeichen so lange stehen, bis man jede einzelne Seite
+    aufgemacht hat. Wer aus dem Urlaub kommt und dreissig Zeichen vorfindet,
+    will nicht dreissig Seiten anklicken, nur damit sie verschwinden.
+
+    `buch` und `abschnitt` schraenken ein: leer heisst alles. Zurueck kommt,
+    wie viele Seiten dadurch ihr Zeichen verlieren - null heisst, es war
+    schon alles gelesen, und der Aufrufer kann das sagen, statt "fertig" zu
+    melden, wo nichts war.
+    """
+    if not projekt or not isinstance(antwort, dict):
+        return 0
+    daten = _lesen(konfig)
+    unter = dict(daten.get(projekt) or {})
+    wieviele = 0
+    for schluessel, seite in _seiten(antwort):
+        geaendert = seite.get("geaendert")
+        if not isinstance(geaendert, int):
+            continue
+        teile = schluessel.split("/")
+        if buch and (len(teile) < 1 or teile[0] != buch):
+            continue
+        if abschnitt and (len(teile) < 2 or teile[1] != abschnitt):
+            continue
+        if unter.get(schluessel) != geaendert:
+            wieviele += 1
+        unter[schluessel] = geaendert
+    if unter != daten.get(projekt):
+        daten[projekt] = unter
+        _schreiben(konfig, daten)
+    return wieviele
+
+
+MAX_DURCHSEHEN = 2000
+
+
+def autoren(ordner: Path, antwort: dict, namen: set) -> dict:
+    """Wer hat welche Seite zuletzt gespeichert - für den ganzen Baum.
+
+    `wer_dazu` sieht absichtlich nur bei den markierten Seiten nach: das sind
+    ein paar, und der Baum wird bei jedem Klick geladen. Hier wird jede Seite
+    aufgemacht, dafür aber nur, wenn jemand ausdrücklich danach fragt.
+
+    Über `MAX_DURCHSEHEN` hinaus wird abgebrochen und das gesagt, statt bei
+    zehntausend Seiten minutenlang zu lesen und dabei zu schweigen.
+    """
+    aus = {"autoren": [], "seiten": [], "vollstaendig": True}
+    if not isinstance(antwort, dict):
+        return aus
+    gefunden = {}
+    gesehen = 0
+    for schluessel, seite in _seiten(antwort):
+        teile = schluessel.split("/")
+        if len(teile) != 3 or any(t in ("", ".", "..") for t in teile):
+            continue
+        if gesehen >= MAX_DURCHSEHEN:
+            aus["vollstaendig"] = False
+            break
+        gesehen += 1
+        try:
+            roh = json.loads((Path(ordner) / teile[0] / teile[1]
+                              / (teile[2] + ".json")).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        wer = str(roh.get("geraet") or "") if isinstance(roh, dict) else ""
+        # Nur echte Zugaenge. Steht dort eine Geraetekennung vom Desktop, ist
+        # das kein Autor, sondern eine Zahlenreihe - die hilft niemandem.
+        if wer not in namen:
+            continue
+        gefunden[wer] = gefunden.get(wer, 0) + 1
+        aus["seiten"].append({
+            "notizbuch": teile[0], "abschnitt": teile[1], "name": teile[2],
+            "titel": str(seite.get("titel") or teile[2]),
+            "wer": wer,
+            "geaendert": seite.get("geaendert") if isinstance(seite.get("geaendert"), int) else 0,
+        })
+    aus["autoren"] = [{"name": k, "seiten": v}
+                      for k, v in sorted(gefunden.items(), key=lambda z: (-z[1], z[0]))]
+    return aus
+
+
 def merken(konfig: Path, projekt: str, teile: list, zeit: int) -> None:
     """Diese Seite hat der Benutzer jetzt gesehen - mit diesem Stand."""
     if not projekt or len(teile) != 3 or not all(teile) or not isinstance(zeit, int):

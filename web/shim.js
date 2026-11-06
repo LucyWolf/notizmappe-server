@@ -381,6 +381,9 @@
                                  textContent: `Projekt: ${p.name} (${p.recht})` }));
     }
     meinBereich = d.jetzt || '';
+    // Jetzt erst steht fest, ob die vier Projekt-Knoepfe im Reiter Verlauf
+    // einen Sinn haben. Die Leiste selbst ist womoeglich schon gebaut.
+    try { verlaufExtraBauen(); } catch (f) { console.error('[notizmappe] verlauf:', f); }
     wahl.hidden = !(d.projekte || []).length;
     const anzeige = document.getElementById('bereichjetzt');
     if (anzeige) {
@@ -2616,9 +2619,7 @@
           neuesGelesen(seite, zeile);
           if (!seite.neu) return;
           imAbschnitt++;
-          neuesZeichen(zeile, seite.wer
-            ? 'Geändert von ' + seite.wer + ', seit du zuletzt hier warst'
-            : 'Geändert, seit du zuletzt hier warst');
+          neuesZeichen(zeile, autorenText(seite));
         });
         if (imAbschnitt) neuesZeichen(ad.firstElementChild, neuesZahl(imAbschnitt));
         imBuch += imAbschnitt;
@@ -2666,10 +2667,179 @@
       // Lieber ohne Zeichen als mit kaputter Leiste: was hier schiefgeht,
       // darf den Baum nicht mitreissen.
       try { neuesMarkieren(); } catch (f) { console.error('[notizmappe] neu:', f); }
+      try { ungelesenFrischen(); } catch (f) { console.error('[notizmappe] ungelesen:', f); }
       return aus;
     };
     neuesMarkieren();
   }
+
+  /* --- Der Reiter Verlauf in einem Projekt ---------------------------------
+   *
+   * Drüben in mappe.js stehen die drei Knöpfe, die überall gelten:
+   * Seitenversionen, Notizbuch-Papierkorb, Letzte Änderungen.
+   *
+   * Vier weitere gibt es in OneNote, und sie setzen alle dasselbe voraus:
+   * dass mehrere im selben Ordner arbeiten. In eigenen Notizen - auch auf
+   * dem Server - schreibt nur einer, im Feld `geraet` steht dort die
+   * Zufallskennung seines Browsers, und neues.py führt dort bewusst keine
+   * Leseliste. Diese vier erscheinen deshalb nur in einem Projekt.
+   *
+   * Ausgegraut stehen zu lassen wäre schlechter als weglassen: ein Knopf,
+   * der nur erklärt, dass er nichts tut, löst nichts. Innerhalb eines
+   * Projekts ist ausgegraut dagegen ehrlich - dann heißt es wirklich
+   * "gerade ist nichts ungelesen".
+   */
+
+  const AUTOREN_AUS = 'notizmappe.autorenaus';
+  let autorenAus = false;
+  try { autorenAus = localStorage.getItem(AUTOREN_AUS) === '1'; } catch (f) { /* dann eben nicht */ }
+  let verlaufWirt = null;
+  let knopfUngelesen = null;
+
+  function autorenText(seite) {
+    if (autorenAus || !seite.wer) return 'Geändert, seit du zuletzt hier warst';
+    return 'Geändert von ' + seite.wer + ', seit du zuletzt hier warst';
+  }
+
+  function alleSeiten() {
+    const aus = [];
+    if (typeof baumDaten === 'undefined' || !Array.isArray(baumDaten)) return aus;
+    for (const buch of baumDaten) {
+      for (const ab of buch.abschnitte || []) {
+        for (const s of ab.seiten || []) {
+          aus.push({ buch: buch.name, abschnitt: ab.name, seite: s });
+        }
+      }
+    }
+    return aus;
+  }
+
+  // Das nächste ungelesene - von der offenen Seite aus weiter, und am Ende
+  // wieder von vorn. Sonst käme man an die Zeichen oberhalb nie heran.
+  function naechstesUngelesen() {
+    const alle = alleSeiten();
+    if (!alle.length) return null;
+    const jetzt = (typeof offen !== 'undefined' && offen) ? offen.name : '';
+    const wo = alle.findIndex(function (e) { return e.seite.name === jetzt; });
+    for (let i = 1; i <= alle.length; i += 1) {
+      const e = alle[(wo + i + alle.length) % alle.length];
+      if (e && e.seite.neu) return e;
+    }
+    return null;
+  }
+
+  function ungelesenFrischen() {
+    if (!knopfUngelesen) return;
+    knopfUngelesen.disabled = !naechstesUngelesen();
+  }
+
+  const BILD_AUTOR = flBild('<circle cx="6.5" cy="5" r="2.8"/>'
+                            + '<path d="M2 13.5c0-2.5 2-4.2 4.5-4.2 1 0 1.9.3 2.6.7"/>'
+                            + '<circle cx="11.5" cy="11" r="2.6"/>'
+                            + '<path d="m13.4 12.9 1.6 1.6"/>');
+  const BILD_AUTOR_AUS = flBild('<circle cx="7" cy="5" r="2.8"/>'
+                                + '<path d="M2.5 13.5c0-2.5 2-4.2 4.5-4.2s4.5 1.7 4.5 4.2"/>'
+                                + '<path d="M2 2l12 12"/>');
+  const BILD_GELESEN = flBild('<rect x="2.5" y="1.5" width="11" height="13" rx="1"/>'
+                              + '<path d="m5.2 8.2 2 2 3.6-4"/>');
+  const BILD_UNGELESEN = flBild('<rect x="1.5" y="2" width="8" height="12" rx="1"/>'
+                                + '<path d="M11 8h4M13 6l2 2-2 2"/>');
+
+  async function autorenSuchen() {
+    let d;
+    try { d = await hol('/autoren'); } catch (f) { melden(f.message); return; }
+    const seiten = d.seiten || [];
+    const zeigen = function (nur) {
+      const zeilen = seiten
+        .filter(function (s) { return !nur || s.wer === nur; })
+        .sort(function (a, b) { return (b.geaendert || 0) - (a.geaendert || 0); })
+        .slice(0, 200)
+        .map(function (s) {
+          return {
+            wann: s.geaendert ? wann(s.geaendert) : '—',
+            was: s.titel + '  ·  ' + s.wer + '  ·  ' + s.notizbuch + ' / ' + s.abschnitt,
+            knoepfe: [['Öffnen', async function () {
+              verlaufZu();
+              await seiteOeffnen(s.notizbuch, s.abschnitt, s.name);
+            }]],
+          };
+        });
+      const knoepfe = [['Alle', function () { zeigen(''); }]].concat(
+        (d.autoren || []).map(function (a) {
+          return [a.name + ' (' + a.seiten + ')', function () { zeigen(a.name); }];
+        }));
+      verlaufFenster('Nach Autor suchen',
+        'Wer zuletzt an welcher Seite gespeichert hat, neueste zuerst.'
+        + (d.vollstaendig === false
+           ? ' Es wurden nicht alle Seiten durchgesehen - dafür sind es zu viele.'
+           : '')
+        + (seiten.length ? '' : ' Hier hat noch niemand etwas gespeichert.'),
+        zeilen, knoepfe);
+    };
+    zeigen('');
+  }
+
+  async function alsGelesen(was) {
+    const rumpf = {};
+    const da = (typeof offen !== 'undefined' && offen) ? offen : null;
+    if (was !== 'alles' && !da) {
+      melden('Dafür erst eine Seite aufmachen - sonst ist nicht klar, welcher Abschnitt gemeint ist.');
+      return;
+    }
+    if (was === 'abschnitt') { rumpf.notizbuch = da.notizbuch; rumpf.abschnitt = da.abschnitt; }
+    if (was === 'buch') rumpf.notizbuch = da.notizbuch;
+    try {
+      const d = await hol('/gelesen', rumpf);
+      await baumLaden();
+      sagen(d.gelesen ? d.gelesen + ' als gelesen markiert'
+                      : 'Es war schon alles gelesen');
+    } catch (f) { melden(f.message); }
+  }
+
+  function verlaufExtraBauen() {
+    if (!verlaufWirt || !meinBereich) return;
+    const reihe = verlaufWirt.querySelector('.fl-reihe');
+    if (!reihe || reihe.querySelector('.nurprojekt')) return;
+
+    const autor = mitWort(flTaste(flWort(BILD_AUTOR, 'Nach Autor suchen'),
+                                  'Nach Autor suchen', autorenSuchen));
+    const ausblenden = mitWort(flTaste(flWort(BILD_AUTOR_AUS, 'Autoren ausblenden'),
+                                       'Autoren ausblenden', function (k) {
+      autorenAus = !autorenAus;
+      try { localStorage.setItem(AUTOREN_AUS, autorenAus ? '1' : ''); } catch (f) { /* egal */ }
+      k.classList.toggle('an', autorenAus);
+      neuesMarkieren();
+    }));
+    ausblenden.classList.toggle('an', autorenAus);
+    const gelesen = mitWort(flKlappe(verlaufWirt, 'Als gelesen markieren',
+                                     flWort(BILD_GELESEN, 'Als gelesen markieren'),
+                                     [['abschnitt', 'Dieser Abschnitt', ''],
+                                      ['buch', 'Dieses Notizbuch', ''],
+                                      ['alles', 'Alles im Projekt', '']],
+                                     alsGelesen));
+    knopfUngelesen = mitWort(flTaste(flWort(BILD_UNGELESEN, 'Nächstes ungelesenes Element'),
+                                     'Nächstes ungelesenes Element', async function () {
+      const e = naechstesUngelesen();
+      if (!e) return;
+      await seiteOeffnen(e.buch, e.abschnitt, e.seite.name);
+    }));
+
+    const trenner = function () {
+      const s = el('span', { className: 'fl-trenner nurprojekt' });
+      return s;
+    };
+    for (const k of [autor, ausblenden]) k.classList.add('nurprojekt');
+    for (const k of [gelesen, knopfUngelesen]) k.classList.add('nurprojekt');
+    reihe.append(trenner(), autor, ausblenden, trenner(), gelesen, knopfUngelesen);
+    ungelesenFrischen();
+    // Die Leiste ist breiter geworden - sie soll nachsehen, was noch passt.
+    document.dispatchEvent(new Event('notizmappe-reiter'));
+  }
+
+  document.addEventListener('notizmappe-verlaufleiste', function (ev) {
+    verlaufWirt = ev.detail && ev.detail.wirt;
+    verlaufExtraBauen();
+  });
 
   // Beim Öffnen der Einstellungen neu laden - Rollen können sich geändert haben.
   window.addEventListener('DOMContentLoaded', function () {

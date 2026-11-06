@@ -216,6 +216,70 @@ pruefe("und es wird dafür auch keine Liste angelegt",
        or "" not in json.loads((server.nutzer.konfigordner("bert") / "gesehen.json")
                                .read_text(encoding="utf-8")))
 
+# --- Der Reiter Verlauf: nur im Projekt --------------------------------------
+#
+# "Als gelesen markieren" und "Nach Autor suchen" gibt es nur dort, wo
+# mehrere im selben Ordner arbeiten. In eigenen Notizen fuehrt der Server
+# gar keine Leseliste, und im Feld `geraet` steht die Zufallskennung des
+# eigenen Browsers - "Autor" waere dort ein grosses Wort fuer "dieser
+# Rechner hier". Die Oberflaeche zeigt die Knoepfe deshalb nur im Projekt;
+# hier steht die Absicherung, damit eine veraltete Oberflaeche nichts
+# anlegt, was es nicht geben soll.
+print("\nVerlauf: was nur im Projekt geht")
+# Anna steht gerade in ihren eigenen Notizen.
+pruefe("Als gelesen markieren geht dort nicht",
+       A.post("/gelesen", json={}, headers={"X-Notizmappe": "1"}).status_code == 400)
+pruefe("Nach Autor suchen auch nicht", A.get("/autoren").status_code == 400)
+
+A.post("/bereich", json={"bereich": "Hausbau"}, headers={"X-Notizmappe": "1"})
+drittes = ruf(A, "seite_anlegen", buch, teil, "Treppe")["name"]
+zweitbuch = ruf(A, "notizbuch_anlegen", "Aussen")["name"]
+zweitteil = ruf(A, "abschnitt_anlegen", zweitbuch, "Garten")["name"]
+viertes = ruf(A, "seite_anlegen", zweitbuch, zweitteil, "Zaun")["name"]
+pruefe("Bert hat jetzt zwei ungelesene Seiten",
+       sorted(neu_bei(B)) == sorted([drittes, viertes]), neu_bei(B))
+
+# Eingeschraenkt auf ein Notizbuch: das andere bleibt stehen. Sonst waere
+# "dieses Notizbuch" dasselbe wie "alles", und man koennte nicht nur das
+# wegraeumen, was man gerade durchgesehen hat.
+nur_buch = B.post("/gelesen", json={"notizbuch": buch},
+                  headers={"X-Notizmappe": "1"}).json()
+pruefe("Ein Notizbuch als gelesen markieren zaehlt nur dessen Seiten",
+       nur_buch.get("gelesen") == 1, nur_buch)
+pruefe("und laesst das andere Notizbuch in Ruhe", neu_bei(B) == [viertes], neu_bei(B))
+
+alles = B.post("/gelesen", json={}, headers={"X-Notizmappe": "1"}).json()
+pruefe("Alles als gelesen markieren nimmt den Rest",
+       alles.get("gelesen") == 1 and neu_bei(B) == [], (alles, neu_bei(B)))
+nochmal = B.post("/gelesen", json={}, headers={"X-Notizmappe": "1"}).json()
+# Null heisst "war schon alles gelesen" - die Oberflaeche sagt genau das,
+# statt "fertig" zu melden, wo nichts war.
+pruefe("ein zweites Mal zaehlt nichts mehr", nochmal.get("gelesen") == 0, nochmal)
+
+# Nach Autor suchen sieht jede Seite an, nicht nur die markierten - deshalb
+# findet es auch die, die Bert laengst gelesen hat.
+wer = B.get("/autoren").json()
+pruefe("Nach Autor suchen findet Anna",
+       [a["name"] for a in wer.get("autoren") or []] == ["anna"], wer.get("autoren"))
+# Gezaehlt wird, wer zuletzt *gespeichert* hat. Eine Seite, die nur
+# angelegt und nie beschrieben wurde, hat niemanden - im Feld `geraet`
+# steht dann nichts, und einen Autor zu erfinden waere falsch.
+pruefe("gezaehlt wird, wer gespeichert hat - nicht, wer angelegt hat",
+       (wer["autoren"][0]["seiten"] if wer.get("autoren") else 0) == 1,
+       wer.get("autoren"))
+pruefe("eine nur angelegte Seite steht nicht in der Liste",
+       drittes not in [s["name"] for s in wer.get("seiten") or []],
+       wer.get("seiten"))
+pruefe("die gespeicherte dagegen schon",
+       seite in [s["name"] for s in wer.get("seiten") or []], wer.get("seiten"))
+pruefe("die Liste nennt Notizbuch, Abschnitt und Titel",
+       all(s.get("notizbuch") and s.get("abschnitt") and s.get("titel")
+           and s.get("wer") == "anna" for s in wer.get("seiten") or []),
+       (wer.get("seiten") or [])[:2])
+pruefe("und sie ist vollstaendig", wer.get("vollstaendig") is True, wer)
+
+A.post("/bereich", json={"bereich": ""}, headers={"X-Notizmappe": "1"})
+
 # --- Und wo steht das Zeichen in der Leiste? ---------------------------------
 #
 # Der Baum wird drueben in mappe.js gezeichnet; shim.js haengt sich dahinter
@@ -226,6 +290,7 @@ print("\nDas Zeichen in der Leiste")
 shim = (WURZEL / "web/shim.js").read_text(encoding="utf-8")
 teile = []
 for muster, name in ((r"^  function el\(.*?^  \}", "el"),
+                     (r"^  function autorenText\(.*?^  \}", "autorenText"),
                      (r"^  function neuesZeichen\(.*?^  \}", "neuesZeichen"),
                      (r"^  function neuesZahl\(.*?^  \}", "neuesZahl"),
                      (r"^  function neuesGelesen\(.*?^  \}", "neuesGelesen"),
@@ -328,6 +393,8 @@ for (const buch of baumDaten) {
   }
   wurzel.append(bd);
 }
+let autorenAus = false;
+function ungelesenFrischen() {}
 """ + "\n".join(teile) + r"""
 
 function marken() {
@@ -347,6 +414,14 @@ aus.buchtitel = wurzel.children[0].firstElementChild.querySelector('.neumarke').
 aus.zeichen = wurzel.querySelectorAll('.neumarke')[0].textContent;
 aus.hinweis_mit_namen = wurzel.querySelectorAll('.seite').filter(hat)
   .map((z) => z.querySelector('.neumarke').title);
+// "Autoren ausblenden" im Reiter Verlauf: dieselben Zeichen, ohne Namen.
+autorenAus = true;
+neuesMarkieren();
+aus.hinweis_ohne_namen = wurzel.querySelectorAll('.seite').filter(hat)
+  .map((z) => z.querySelector('.neumarke').title);
+aus.anzahl_ohne_namen = marken();
+autorenAus = false;
+neuesMarkieren();
 // Aufgemacht: das Zeichen muss an der Seite und am Abschnitt darueber weg.
 const garten = abschnitte[2];
 garten.querySelectorAll('.seite')[0].querySelector('.name').klick();
@@ -398,6 +473,15 @@ pruefe("am Zeichen steht, wer es war",
 pruefe("und bei einer Seite ohne Namen nur, dass sich etwas geändert hat",
        j["hinweis_mit_namen"][1] == "Geändert, seit du zuletzt hier warst",
        j["hinweis_mit_namen"])
+# "Autoren ausblenden": das Zeichen bleibt, der Name verschwindet. Wer in
+# einer Gruppe nicht sehen will, wer was war, will trotzdem sehen, dass
+# sich etwas geändert hat.
+pruefe("Autoren ausblenden nimmt den Namen weg",
+       all(h == "Geändert, seit du zuletzt hier warst"
+           for h in j["hinweis_ohne_namen"]), j["hinweis_ohne_namen"])
+pruefe("und lässt die Zeichen stehen",
+       j["anzahl_ohne_namen"] == j["anzahl"],
+       (j["anzahl_ohne_namen"], j["anzahl"]))
 
 print("\nDie Meldungen an der offenen Seite")
 pruefe("In den eigenen Notizen bleibt der Text, wie er ist",
