@@ -13,8 +13,11 @@ zwei. Geprüft wird deshalb nicht "sieht ähnlich aus", sondern:
 4. Die geholte Fassung ist die, die in DESKTOP_VERSION steht.
 """
 import hashlib
+import json
 import os
 import re
+import shutil
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -344,9 +347,96 @@ ohne_rueckfall = set(re.findall(r"var\((--[a-z-]+)\)", stil + shim))
 pruefe("keine Farbe ohne Definition und ohne Rückfall",
        not (ohne_rueckfall - wurzel), str(sorted(ohne_rueckfall - wurzel)))
 
+# --- Was shim.js schon beim Laden braucht ------------------------------------
+#
+# shim.js wird **vor** mappe.js geladen - der Stellvertreter für
+# window.pywebview muss stehen, bevor mappe.js ihn sucht (siehe server.py).
+# Auf der obersten Ebene gibt es also noch nichts aus mappe.js. Ein Aufruf
+# dort ist ein ReferenceError, und der reißt den ganzen Shim mit: kein
+# Login, kein Baum, nur eine rote Zeile. Genau so ist v1.2.67 ausgefallen -
+# eine Symbolkonstante rief flBild() auf, das es noch nicht gab.
+#
+# Geprüft wird nicht durch Lesen, sondern durch Laufenlassen: shim.js wird
+# in einer Umgebung ausgeführt, die nur Browser-Namen kennt. Was darüber
+# hinaus auf der obersten Ebene gebraucht wird, fliegt auf.
+print("\nshim.js läuft auch ohne mappe.js an")
+
+PROBE = r"""
+const fs = require('fs');
+const BROWSER = new Set([
+  'document', 'window', 'navigator', 'location', 'localStorage', 'sessionStorage',
+  'console', 'fetch', 'setTimeout', 'setInterval', 'clearTimeout', 'clearInterval',
+  'requestAnimationFrame', 'cancelAnimationFrame', 'getComputedStyle', 'matchMedia',
+  'Event', 'CustomEvent', 'MouseEvent', 'KeyboardEvent', 'FormData', 'URL',
+  'URLSearchParams', 'Blob', 'File', 'FileReader', 'Image', 'Audio', 'atob', 'btoa',
+  'alert', 'confirm', 'prompt', 'crypto', 'MutationObserver', 'ResizeObserver',
+  'IntersectionObserver', 'AbortController', 'TextEncoder', 'TextDecoder',
+  'MediaRecorder', 'SpeechRecognition', 'webkitSpeechRecognition', 'DOMParser',
+  'HTMLElement', 'Node', 'NodeFilter', 'Range', 'Selection', 'CSS', 'performance',
+  'screen', 'history', 'self', 'globalThis', 'structuredClone',
+]);
+function attrappe() {
+  return new Proxy(function () {}, {
+    get(ziel, name) {
+      if (name === Symbol.toPrimitive || name === 'toString') return () => '';
+      if (name === Symbol.iterator) return function* () {};
+      if (name === 'then') return undefined;      // kein Thenable sein
+      if (!(name in ziel)) ziel[name] = attrappe();
+      return ziel[name];
+    },
+    set(ziel, name, wert) { ziel[name] = wert; return true; },
+    apply() { return attrappe(); },
+    construct() { return attrappe(); },
+    has() { return true; },
+  });
+}
+const umgebung = new Proxy({}, {
+  // Nur Browser-Namen gelten als vorhanden. Alles andere faellt durch und
+  // wird zum ReferenceError - und genau den suchen wir.
+  has(_z, name) { return BROWSER.has(name); },
+  get(ziel, name) {
+    // Nach einem has() fragt `with` nach @@unscopables. Kaeme dort eine
+    // Attrappe zurueck, waere jeder Name "unscopable" und fiele wieder
+    // heraus - die Umgebung taete dann gar nichts.
+    if (name === Symbol.unscopables) return undefined;
+    if (!(name in ziel)) ziel[name] = attrappe();
+    return ziel[name];
+  },
+  set(ziel, name, wert) { ziel[name] = wert; return true; },
+});
+const quelle = fs.readFileSync(process.argv[2], 'utf8');
+// Nicht-strikt, damit `with` erlaubt ist: nur so laesst sich steuern,
+// welche freien Namen es gibt und welche nicht.
+const lauf = new Function('umgebung', 'with (umgebung) {\n' + quelle + '\n}');
+try {
+  lauf(umgebung);
+  process.stdout.write(JSON.stringify({ ok: true }) + '\n');
+} catch (f) {
+  process.stdout.write(JSON.stringify({ ok: false, was: String(f) }) + '\n');
+}
+"""
+
+ordner = Path(tempfile.mkdtemp(prefix="shimstart-"))
+(ordner / "probe.js").write_text(PROBE, encoding="utf-8")
+(ordner / "shim.js").write_text(shim, encoding="utf-8")
+if shutil.which("node"):
+    befehl = ["node", str(ordner / "probe.js"), str(ordner / "shim.js")]
+elif shutil.which("docker"):
+    befehl = ["docker", "run", "--rm", "-v", f"{ordner}:/p:ro", "node:alpine",
+              "node", "/p/probe.js", "/p/shim.js"]
+else:
+    befehl = None
+    print("  --  weder node noch docker da, der Start von shim.js ist ungeprueft")
+if befehl:
+    lauf = subprocess.run(befehl, capture_output=True, text=True)
+    zeilen = (lauf.stdout or "").strip().splitlines()
+    ergebnis = json.loads(zeilen[-1]) if zeilen else {"ok": False, "was": lauf.stderr[-400:]}
+    pruefe("shim.js kommt ohne mappe.js durch seine oberste Ebene",
+           ergebnis.get("ok") is True, ergebnis.get("was"))
+    shutil.rmtree(ordner, ignore_errors=True)
+
 print()
 print("Desktop und Server sind dieselbe Oberflaeche" if not fehler
       else f"{len(fehler)} FEHLER:\n - " + "\n - ".join(fehler))
-import shutil                                               # noqa: E402
 shutil.rmtree(DATEN, ignore_errors=True)
 sys.exit(1 if fehler else 0)

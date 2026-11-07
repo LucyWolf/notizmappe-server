@@ -2733,17 +2733,26 @@
     knopfUngelesen.disabled = !naechstesUngelesen();
   }
 
-  const BILD_AUTOR = flBild('<circle cx="6.5" cy="5" r="2.8"/>'
-                            + '<path d="M2 13.5c0-2.5 2-4.2 4.5-4.2 1 0 1.9.3 2.6.7"/>'
-                            + '<circle cx="11.5" cy="11" r="2.6"/>'
-                            + '<path d="m13.4 12.9 1.6 1.6"/>');
-  const BILD_AUTOR_AUS = flBild('<circle cx="7" cy="5" r="2.8"/>'
-                                + '<path d="M2.5 13.5c0-2.5 2-4.2 4.5-4.2s4.5 1.7 4.5 4.2"/>'
-                                + '<path d="M2 2l12 12"/>');
-  const BILD_GELESEN = flBild('<rect x="2.5" y="1.5" width="11" height="13" rx="1"/>'
-                              + '<path d="m5.2 8.2 2 2 3.6-4"/>');
-  const BILD_UNGELESEN = flBild('<rect x="1.5" y="2" width="8" height="12" rx="1"/>'
-                                + '<path d="M11 8h4M13 6l2 2-2 2"/>');
+  /* Die Symbole erst beim Bauen zeichnen lassen, nicht hier oben.
+     flBild() steht in mappe.js, und shim.js wird **davor** geladen - der
+     Stellvertreter muss stehen, bevor mappe.js ihn sucht. Ein Aufruf auf
+     dieser Ebene ist deshalb ein ReferenceError, und der reisst den
+     ganzen Shim mit: kein Login, kein Baum, nichts. */
+  function verlaufBilder() {
+    return {
+      autor: flBild('<circle cx="6.5" cy="5" r="2.8"/>'
+                    + '<path d="M2 13.5c0-2.5 2-4.2 4.5-4.2 1 0 1.9.3 2.6.7"/>'
+                    + '<circle cx="11.5" cy="11" r="2.6"/>'
+                    + '<path d="m13.4 12.9 1.6 1.6"/>'),
+      autorAus: flBild('<circle cx="7" cy="5" r="2.8"/>'
+                       + '<path d="M2.5 13.5c0-2.5 2-4.2 4.5-4.2s4.5 1.7 4.5 4.2"/>'
+                       + '<path d="M2 2l12 12"/>'),
+      gelesen: flBild('<rect x="2.5" y="1.5" width="11" height="13" rx="1"/>'
+                      + '<path d="m5.2 8.2 2 2 3.6-4"/>'),
+      ungelesen: flBild('<rect x="1.5" y="2" width="8" height="12" rx="1"/>'
+                        + '<path d="M11 8h4M13 6l2 2-2 2"/>'),
+    };
+  }
 
   async function autorenSuchen() {
     let d;
@@ -2801,9 +2810,10 @@
     const reihe = verlaufWirt.querySelector('.fl-reihe');
     if (!reihe || reihe.querySelector('.nurprojekt')) return;
 
-    const autor = mitWort(flTaste(flWort(BILD_AUTOR, 'Nach Autor suchen'),
+    const bild = verlaufBilder();
+    const autor = mitWort(flTaste(flWort(bild.autor, 'Nach Autor suchen'),
                                   'Nach Autor suchen', autorenSuchen));
-    const ausblenden = mitWort(flTaste(flWort(BILD_AUTOR_AUS, 'Autoren ausblenden'),
+    const ausblenden = mitWort(flTaste(flWort(bild.autorAus, 'Autoren ausblenden'),
                                        'Autoren ausblenden', function (k) {
       autorenAus = !autorenAus;
       try { localStorage.setItem(AUTOREN_AUS, autorenAus ? '1' : ''); } catch (f) { /* egal */ }
@@ -2812,12 +2822,12 @@
     }));
     ausblenden.classList.toggle('an', autorenAus);
     const gelesen = mitWort(flKlappe(verlaufWirt, 'Als gelesen markieren',
-                                     flWort(BILD_GELESEN, 'Als gelesen markieren'),
+                                     flWort(bild.gelesen, 'Als gelesen markieren'),
                                      [['abschnitt', 'Dieser Abschnitt', ''],
                                       ['buch', 'Dieses Notizbuch', ''],
                                       ['alles', 'Alles im Projekt', '']],
                                      alsGelesen));
-    knopfUngelesen = mitWort(flTaste(flWort(BILD_UNGELESEN, 'Nächstes ungelesenes Element'),
+    knopfUngelesen = mitWort(flTaste(flWort(bild.ungelesen, 'Nächstes ungelesenes Element'),
                                      'Nächstes ungelesenes Element', async function () {
       const e = naechstesUngelesen();
       if (!e) return;
