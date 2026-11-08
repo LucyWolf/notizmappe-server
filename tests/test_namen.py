@@ -129,7 +129,11 @@ pruefe("shim.js lässt sich lesen und hat Namen drin", len(gelesen) > 50, len(ge
 pruefe("und erklärt selbst welche", len(erklaert) > 50, len(erklaert))
 
 # Was die gemeinsame Oberfläche oben anlegt - daran darf shim.js hängen.
-mappequelle = (DESKTOP / "app/oberflaeche/mappe.js").read_text(encoding="utf-8")
+# mappe.js und verwaltung.js legen beide oben Namen an, an die sich
+# shim.js haengen darf - verwaltung.js seit Oberflaeche 1.2.29 das
+# window.Verwaltung, ueber das die Verwaltung angestossen wird.
+mappequelle = "\n".join((DESKTOP / "app/oberflaeche" / n_).read_text(encoding="utf-8")
+                        for n_ in ("mappe.js", "verwaltung.js"))
 oben = set()
 for satz in esprima.parseScript(mappequelle).toDict()["body"]:
     art = satz.get("type")
@@ -141,6 +145,12 @@ for satz in esprima.parseScript(mappequelle).toDict()["body"]:
     elif art in ("ClassDeclaration",) and satz.get("id"):
         oben.add(satz["id"]["name"])
 
+# ... und was sie ausdruecklich ans window haengt. verwaltung.js steckt in
+# einer eigenen Klammer (IIFE) - dort oben steht nichts, der Name entsteht
+# erst mit window.Verwaltung = {...}. Ohne das waere er hier unbekannt.
+for treffer in re.finditer(r"^\s*window\.([A-Za-z_$][\w$]*)\s*=", mappequelle, re.M):
+    oben.add(treffer.group(1))
+
 pruefe("mappe.js legt oben Namen an, an die sich hängen lässt", len(oben) > 20, len(oben))
 
 unbekannt = sorted(n for n in gelesen if n not in erklaert and n not in oben
@@ -151,9 +161,9 @@ pruefe("jeder gelesene Name in shim.js kommt irgendwoher",
 # Gegenprobe: die Prüfung muss den Fehler auch wirklich finden. Ohne das
 # könnte sie stillschweigend nichts mehr tun.
 # Irgendeine Funktion, die es in shim.js gibt und die auch gerufen wird.
-# (Frueher war das modellHolen - die Vorschau liegt inzwischen in der
-# gemeinsamen Oberflaeche, und mit ihr diese Pruefung.)
-probe = shimquelle.replace("function verwaltungLaden(", "function verwaltungLadenX(", 1)
+# (Frueher modellHolen, dann verwaltungLaden - beide liegen inzwischen in
+# der gemeinsamen Oberflaeche, und mit ihnen diese Pruefung.)
+probe = shimquelle.replace("function bereicheLaden(", "function bereicheLadenX(", 1)
 if probe != shimquelle:
     pbaum = esprima.parseScript(probe).toDict()
     perklaert, keine_lesung2, pgelesen = set(), set(), {}
@@ -166,9 +176,9 @@ if probe != shimquelle:
     fehlt = [n for n in pgelesen if n not in perklaert and n not in oben
              and n not in BROWSER]
     pruefe("und sie fällt wirklich auf, wenn eine Funktion fehlt",
-           fehlt == ["verwaltungLaden"], fehlt)
+           fehlt == ["bereicheLaden"], fehlt)
 else:
-    pruefe("die Gegenprobe findet verwaltungLaden", False, "Funktion heißt anders")
+    pruefe("die Gegenprobe findet bereicheLaden", False, "Funktion heißt anders")
 
 # --- Dasselbe Netz fuer die Python-Seite -------------------------------------
 #

@@ -1638,7 +1638,14 @@ def benutzer_entfernen(bitte: Request, name: str = Form("")):
                             "Die Notizen liegen weiter im Datenordner.", status_code=303)
 
 
-MITGELIEFERT = {"mappe.js": "application/javascript", "stil.css": "text/css",
+MITGELIEFERT = {"mappe.js": "application/javascript",
+                # Die Verwaltung des Servers. Liegt seit 1.2.29 beim uebrigen
+                # Oberflaechencode im Desktop-Repo statt in shim.js: das
+                # Fenster soll sie auch anzeigen koennen, wenn es mit einem
+                # Server verbunden ist, und zweimal gebaut liefe sie
+                # auseinander.
+                "verwaltung.js": "application/javascript",
+                "stil.css": "text/css",
                 "icon.png": "image/png", "icon-128.png": "image/png"}
 
 

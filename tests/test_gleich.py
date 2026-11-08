@@ -45,7 +45,7 @@ for p in WURZEL.rglob("*"):
     teile = set(p.parts)
     if {".git", ".venv", "desktop", "daten", "__pycache__"} & teile:
         continue
-    if p.name in ("index.html", "mappe.js", "stil.css") and p.name not in EIGEN:
+    if p.name in ("index.html", "mappe.js", "verwaltung.js", "stil.css") and p.name not in EIGEN:
         kopien.append(str(p.relative_to(WURZEL)))
 pruefe("keine Kopie der Oberflaeche in diesem Repo", not kopien, ", ".join(kopien))
 
@@ -74,7 +74,7 @@ def summe(roh: bytes) -> str:
     return hashlib.sha256(roh).hexdigest()[:16]
 
 
-for datei in ("mappe.js", "stil.css", "icon.png", "icon-128.png"):
+for datei in ("mappe.js", "verwaltung.js", "stil.css", "icon.png", "icon-128.png"):
     geliefert = k.get("/" + datei).content
     original = (DESKTOP / "app/oberflaeche" / datei).read_bytes()
     pruefe(f"{datei} ist Byte fuer Byte die Desktop-Datei", geliefert == original,
@@ -272,6 +272,11 @@ pruefe("verschieben und loeschen fassen die Kaesten mit an",
        "function kaestenSchieben" in shim and "kastenWeg(k.dataset.id)" in shim)
 pruefe("ein markierter Kasten sieht markiert aus",
        ".kasten.mitgewaehlt {" in shim)
+# Der Stilblock lag im Verwaltungsteil, der nach verwaltung.js gewandert ist.
+# Was shim.js selbst einsetzt, muss seinen Stil auch selbst mitbringen.
+pruefe("und der Stil dafuer steht in shim.js, nicht in der Verwaltung",
+       "function stilBauen" in shim
+       and ".kasten.mitgewaehlt" not in (DESKTOP / "app/oberflaeche/verwaltung.js").read_text(encoding="utf-8"))
 # Entf steigt drueben aus, sobald die Malleiste versteckt ist - also im
 # Start-Reiter. Hier muss es trotzdem gehen.
 pruefe("Entf wird selbst behandelt",
@@ -300,8 +305,12 @@ pruefe("und legt keinen Reiter mehr an",
        'data-punkt="profil"' not in shim and 'data-punkt="profil"' not in html)
 pruefe("die Benutzerverwaltung steht nicht im Profilmenue",
        "Benutzer verwalten" not in shim)
+# Seit Oberflaeche 1.2.29 steht die Verwaltung in der gemeinsamen Datei:
+# das Fenster soll sie auch zeigen, wenn es an einem Server haengt.
+_verwaltung = (DESKTOP / "app/oberflaeche/verwaltung.js").read_text(encoding="utf-8")
 pruefe("sie haengt unter Optionen in der Datei-Ebene",
-       bool(re.search(r"function abschnittBauen\(\) \{\s*if \(!optionentafel\(\)", shim)))
+       bool(re.search(r"function abschnittBauen\(\) \{\s*if \(!optionentafel\(\)", _verwaltung)))
+pruefe("und steht nicht mehr in shim.js", "function abschnittBauen" not in shim)
 # Das Design hing am Profil: als Reiter wurde es beim Start mitgebaut, als
 # Fenster erst beim Oeffnen - bis dahin saesse man im Standarddesign.
 pruefe("das Design wird beim Start geladen, nicht erst mit dem Profil",

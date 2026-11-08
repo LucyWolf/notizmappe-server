@@ -22,6 +22,11 @@ from pathlib import Path
 
 WURZEL = Path(__file__).resolve().parent.parent
 shim = (WURZEL / "web/shim.js").read_text(encoding="utf-8")
+# Die Verwaltung und die Reiterleiste liegen seit Oberflaeche 1.2.29 in
+# der gemeinsamen Datei - das Fenster zeigt sie auch, wenn es mit einem
+# Server verbunden ist. Geprueft wird, wo der Code steht.
+verwaltung = (WURZEL / "desktop/app/oberflaeche/verwaltung.js").read_text(encoding="utf-8")
+shim = shim + "\n" + verwaltung
 fehler = []
 
 
@@ -44,7 +49,7 @@ for muster, name in ((r"^  function el\(.*?^  \}", "el"),
                      (r"^  function reiterblaetter\(.*?^  \}", "reiterblaetter"),
                      (r"^  function optionenReiterBauen\(.*?^  \}", "optionenReiterBauen")):
     treffer = re.search(muster, shim, re.S | re.M)
-    pruefe(f"{name} steht in shim.js", bool(treffer))
+    pruefe(f"{name} steht in shim.js oder verwaltung.js", bool(treffer))
     if treffer:
         teile.append(treffer.group(0))
 if fehler:

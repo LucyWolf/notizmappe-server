@@ -546,14 +546,18 @@ d = gast2.get("/verwaltung").json()
 pruefe("Auch wer nichts verwalten darf, erfährt wer er ist",
        d.get("ich") == "nurlesen" and isinstance(d.get("meine_rechte"), list), d)
 shimtext = (WURZEL / "web/shim.js").read_text(encoding="utf-8")
+# Die Verwaltung steht seit Oberflaeche 1.2.29 in der gemeinsamen Datei -
+# das Fenster zeigt sie auch, wenn es mit einem Server verbunden ist. Was
+# dort steht, wird dort geprueft; was in shim.js bleibt, hier.
+_verwtext = (DESKTOP / "app/oberflaeche/verwaltung.js").read_text(encoding="utf-8")
 pruefe("Benutzer, Rollen und Mailversand stehen unter Optionen",
-       "optionAnhaengen(abschnitt);" in shimtext
-       and "optionAnhaengen(el('section', { id: 'postteil' }" in shimtext)
+       "optionAnhaengen(abschnitt);" in _verwtext
+       and "optionAnhaengen(el('section', { id: 'postteil' }" in _verwtext)
 # Jeder Abschnitt dort bekommt einen Reiter. Was dabei schiefgehen kann,
 # prueft tests/test_reiter.py in einem nachgebauten DOM.
 pruefe("und bekommen oben eine Reiterleiste",
-       "['Optionen-Reiter', optionenReiterBauen]" in shimtext
-       and "id: 'optionenreiter'" in shimtext)
+       "['Optionen-Reiter', Verwaltung.reiterBauen]" in shimtext
+       and "id: 'optionenreiter'" in _verwtext)
 pruefe("Der Reiter Konto heißt System",
        "kopf.textContent = 'System'" in shimtext
        and "reiter.textContent = 'System'" in shimtext)
@@ -562,12 +566,13 @@ pruefe("Der Reiter Konto heißt System",
 pruefe("Der Schlüssel data-punkt bleibt server",
        'data-punkt="server"' in shimtext)
 pruefe("Wo die Notizen liegen, steht unter System statt auf eigenem Reiter",
-       "const seite = systemseite();" in shimtext
-       and 'data-punkt="speicher"' not in shimtext)
+       "const seite = systemseite();" in _verwtext
+       and 'data-punkt="speicher"' not in shimtext
+       and 'data-punkt="speicher"' not in _verwtext)
 pruefe("Die Desktop-Sachen auf der Systemseite verschwinden dort",
        "kind.hidden = true" in shimtext)
 pruefe("Aber sie bleiben im Gerüst stehen",
-       "kind.remove()" not in shimtext.split("function einstellungenAnpassen")[1].split("function abschnittBauen")[0])
+       "kind.remove()" not in shimtext.split("function einstellungenAnpassen")[1].split("function bereichBauen")[0])
 for was in ("Aus OneNote übernehmen", "Sperre", "Version", "Schriften"):
     pruefe("Behandelt: " + was, ("'" + was + "'") in shimtext, was)
 # Der Abmeldeknopf steht seit 1.2.4 in der gemeinsamen Oberflaeche - dort
