@@ -239,6 +239,32 @@ for weg in (f"/anhang?notizbuch={buch}&abschnitt={teil}&name={neu}&datei=../../.
            a.status_code != 200 or b"salz" not in a.content,
            (a.status_code, a.content[:60]))
 
+print()
+print("--- Nichts davon gehört in einen Zwischenspeicher ---")
+# In keiner dieser Antworten steht ein Set-Cookie. Ein Reverse Proxy mit
+# eingeschaltetem Cache darf sie deshalb aufheben und dem Naechsten vorlegen -
+# und dann sieht jemand die Mailzugangsdaten einer fremden Sitzung, oder
+# umgekehrt eine leere Verwaltung, obwohl alles eingetragen ist.
+for weg in ("/post", "/verwaltung", "/profil", "/bereiche", "/ablage"):
+    a = k.get(weg, headers={"X-Notizmappe": "1"})
+    pruefe(f"{weg} darf nicht zwischengespeichert werden",
+           a.headers.get("cache-control") == "no-store",
+           (a.status_code, a.headers.get("cache-control")))
+
+a = k.post("/bruecke/stand", json={"args": []}, headers={"X-Notizmappe": "1"})
+pruefe("Auch die Brücke nicht",
+       a.headers.get("cache-control") == "no-store", a.headers.get("cache-control"))
+
+a = k.get(f"/anhang?notizbuch={buch}&abschnitt={teil}&name={neu}&datei={name_drin}")
+pruefe("Und ein Anhang erst recht nicht",
+       a.headers.get("cache-control") == "no-store", a.headers.get("cache-control"))
+
+# Die Gegenprobe: die Oberflaechendateien sind nicht geheim und sollen im
+# Browser liegen bleiben duerfen, sonst holt er nach jedem Klick alles neu.
+a = k.get("/stil.css")
+pruefe("stil.css bleibt auf no-cache und darf im Browser bleiben",
+       a.headers.get("cache-control") == "no-cache", a.headers.get("cache-control"))
+
 shutil.rmtree(DATEN, ignore_errors=True)
 print()
 if fehler:

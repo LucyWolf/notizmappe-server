@@ -148,6 +148,16 @@ async def schutzkopfzeilen(bitte: Request, weiter):
             # einer Notiz folgt: der Pfad verraet, wie die Mappe heisst und wo
             # sie steht.
             "Referrer-Policy": "no-referrer",
+            # Nichts von hier gehoert in einen Zwischenspeicher. Die Antworten
+            # haengen alle am Keks, aber in ihnen steht kein Set-Cookie - ein
+            # Reverse Proxy mit eingeschaltetem Cache darf sie deshalb
+            # aufheben und dem Naechsten vorlegen. Dann sieht jemand die
+            # Mailzugangsdaten oder die Benutzerliste einer fremden Sitzung,
+            # oder umgekehrt eine leere Verwaltung, obwohl alles eingetragen
+            # ist. setdefault laesst die beiden Stellen in Ruhe, die bewusst
+            # etwas anderes sagen: die Oberflaechendateien stehen auf
+            # "no-cache" und duerfen im Browser bleiben.
+            "Cache-Control": "no-store",
         })
     for name, wert in _kopfzeilen.items():
         antwort.headers.setdefault(name, wert)
