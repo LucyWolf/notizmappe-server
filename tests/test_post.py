@@ -17,6 +17,7 @@ hineingegeben wurde.
 """
 import json
 import os
+import re
 import stat
 import sys
 import tempfile
@@ -340,6 +341,40 @@ pruefe("im Fenster die aus der Verbindung",
        "'/api/ferne'" in _verwaltung)
 pruefe("und ohne Antwort bleibt die Zeile einfach leer",
        "if (wo && hinweis)" in _verwaltung)
+
+# Ein Haken im Fenster ist noch keine Einstellung am Server - abgeschickt
+# wird erst beim Speichern. Das stand nirgends und sah aus, als uebertrage
+# die App nichts.
+pruefe("solange nicht gespeichert ist, steht das auch da",
+       "steht noch nicht am Server" in _verwaltung)
+pruefe("und zwar sobald irgendein Feld angefasst wird",
+       "feld.addEventListener('change', nichtGespeichert)" in _verwaltung
+       and "feld.addEventListener('input', nichtGespeichert)" in _verwaltung)
+for feld in ("an", "anbieter", "server", "port", "sicherheit", "benutzer",
+             "passwort", "absender", "stelle"):
+    pruefe(f"auch {feld} haengt daran",
+           re.search(r"for \(const feld of \[[^\]]*\b" + feld + r"\b[^\]]*\]",
+                     _verwaltung, re.S) is not None)
+
+print()
+print("--- Das Adressfeld bleibt nicht leer ---")
+# Leer heisst: der Server lehnt das Einschalten ab und speichert dann gar
+# nichts (400). Das sah aus, als uebertrage die App nichts - dabei kam jedes
+# Mal eine Ablehnung zurueck, die niemand gelesen hat.
+pruefe("ist nichts eingetragen, steht die Adresse der Verbindung drin",
+       "if (wo && !(d.stelle || ''))" in _verwaltung
+       and "po-stelle').value = wo" in _verwaltung)
+pruefe("der Server nimmt sie weiterhin nur aus dem Formular",
+       "stelle=rumpf.get" in (WURZEL / "web/server.py").read_text(encoding="utf-8")
+       .replace(" ", "")
+       and "MUSTER_STELLE.match(stelle)" in (WURZEL / "web/post.py").read_text(encoding="utf-8"))
+pruefe("eine Ablehnung wird rot statt grau",
+       "#po-hinweis.schlecht" in _verwaltung and "var(--warnung)" in _verwaltung)
+pruefe("und das Feld, an dem es scheitert, bekommt einen Rahmen",
+       "input.schlecht" in _verwaltung and "feld.classList.add('schlecht')" in _verwaltung)
+pruefe("beide Knoepfe melden Ablehnungen so", _verwaltung.count("abgelehnt(f.message)") >= 2)
+pruefe("und beim naechsten Versuch ist die Markierung wieder weg",
+       "sauber()" in _verwaltung and "classList.remove('schlecht')" in _verwaltung)
 
 import shutil                                               # noqa: E402
 shutil.rmtree(DATEN, ignore_errors=True)
