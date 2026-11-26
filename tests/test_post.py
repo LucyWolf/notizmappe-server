@@ -87,6 +87,25 @@ pruefe("ohne neues Passwort bleibt das alte stehen",
        json.loads(datei.read_text(encoding="utf-8"))["passwort"] == "geheim123")
 pruefe("der Versand gilt als eingerichtet", post.eingerichtet())
 
+# Leerer Absender: bei fast jedem Anbieter ist der Anmeldename die eigene
+# Adresse. Dann soll man sie nicht zweimal eintippen muessen.
+post.setzen(an=True, server="mail.gmx.net", port=587, sicherheit="starttls",
+            benutzer="info@gmx.de", passwort=None, absender="",
+            stelle="https://notizen.example.de")
+pruefe("ohne Absender gilt der Anmeldename", post.stand()["absender"] == "info@gmx.de",
+       post.stand()["absender"])
+try:
+    post.setzen(an=True, server="mail.example.de", port=587, sicherheit="starttls",
+                benutzer="notizmappe", passwort=None, absender="",
+                stelle="https://notizen.example.de")
+    pruefe("ist der Anmeldename keine Adresse, fehlt der Absender weiterhin", False)
+except post.PostFehler:
+    pruefe("ist der Anmeldename keine Adresse, fehlt der Absender weiterhin", True)
+# Wieder in den Zustand von vorher, damit es weitergeht wie bisher.
+post.setzen(an=True, server="mail.example.de", port=587, sicherheit="starttls",
+            benutzer="notizmappe", passwort=None, absender="anders@example.de",
+            stelle="https://notizen.example.de")
+
 # --- Nichts hinausschmuggeln ------------------------------------------------
 try:
     post.senden("wer@example.de", "Betreff\nBcc: still@woanders.de", "egal")
@@ -279,6 +298,32 @@ post.anmeldemail("gast@example.de", "gast", False, "10.0.0.9", 4)
 text = verschickt[-1]["text"]
 pruefe("in der Nachricht steht, woher der Versuch kam", "10.0.0.9" in text, text)
 pruefe("und wie viele Versuche verschluckt wurden", "4 weitere" in text, text)
+
+# --- Die Maske dazu ---------------------------------------------------------
+#
+# Host und Port kennt bei Gmail oder GMX niemand auswendig. Die Auswahl füllt
+# sie aus - im Browser, nicht hier: der Server bekommt ganz normal Host und
+# Port geschickt und prüft sie wie zuvor.
+_verwaltung = (DESKTOP / "app/oberflaeche/verwaltung.js").read_text(encoding="utf-8")
+pruefe("es gibt eine Anbieter-Auswahl", "id: 'po-anbieter'" in _verwaltung)
+for anbieter, wirt in (("gmail", "smtp.gmail.com"), ("outlook", "smtp.office365.com"),
+                       ("gmx", "mail.gmx.net"), ("webde", "smtp.web.de"),
+                       ("yahoo", "smtp.mail.yahoo.com")):
+    pruefe(f"und sie kennt {anbieter}",
+           anbieter in _verwaltung and wirt in _verwaltung)
+pruefe("von Hand geht weiterhin", "von Hand eintragen" in _verwaltung)
+pruefe("und rührt dann nichts an", "if (!a) return;" in _verwaltung)
+pruefe("gefüllt werden nur Server, Port und Verschlüsselung",
+       "server.value = a.server" in _verwaltung and "port.value = a.port" in _verwaltung
+       and "sicherheit.value = a.sicherheit" in _verwaltung)
+pruefe("ein bekannter Server wird beim Laden wiedererkannt",
+       "po-anbieter').value = wahl" in _verwaltung)
+pruefe("beim Passwort steht, dass es oft ein App-Passwort ist",
+       "App-Passwort" in _verwaltung)
+pruefe("und beim Absender, dass leer der Anmeldename ist",
+       "leer = wie der Anmeldename" in _verwaltung)
+pruefe("der Server entscheidet weiter selbst über Host und Port",
+       "MUSTER_WIRT.match(server)" in (WURZEL / "web/post.py").read_text(encoding="utf-8"))
 
 import shutil                                               # noqa: E402
 shutil.rmtree(DATEN, ignore_errors=True)

@@ -101,6 +101,12 @@ def setzen(an: bool, server: str, port, sicherheit: str, benutzer: str,
     except (TypeError, ValueError):
         raise PostFehler("Der Port muss eine Zahl sein")
 
+    # Bei fast jedem Anbieter ist der Anmeldename die eigene Adresse, und
+    # verschickt werden darf ohnehin nur in deren Namen. Dann muss man sie
+    # nicht zweimal eintippen: leer heisst "dieselbe".
+    if not absender and "@" in benutzer:
+        absender = benutzer
+
     if an:
         if not MUSTER_WIRT.match(server):
             raise PostFehler("Der Mailserver sieht nicht wie ein Rechnername aus")
