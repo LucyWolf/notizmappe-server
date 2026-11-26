@@ -325,6 +325,22 @@ pruefe("und beim Absender, dass leer der Anmeldename ist",
 pruefe("der Server entscheidet weiter selbst über Host und Port",
        "MUSTER_WIRT.match(server)" in (WURZEL / "web/post.py").read_text(encoding="utf-8"))
 
+print()
+print("--- Und auf welchem Server landet das? ---")
+# Zwei Container, oder eine Antwort aus einem Zwischenspeicher: dann stellt
+# man im Fenster den einen ein und schaut im Browser auf den anderen. Das sah
+# aus wie "das Speichern überträgt nichts".
+pruefe("beim Laden steht da, welcher Server eingestellt wird",
+       "Eingestellt wird der Server" in _verwaltung)
+pruefe("und nach dem Speichern, wo es jetzt steht",
+       "Steht jetzt auf" in _verwaltung)
+pruefe("im Browser ist das die Adresse der Seite",
+       "window.location.origin" in _verwaltung)
+pruefe("im Fenster die aus der Verbindung",
+       "'/api/ferne'" in _verwaltung)
+pruefe("und ohne Antwort bleibt die Zeile einfach leer",
+       "if (wo && hinweis)" in _verwaltung)
+
 import shutil                                               # noqa: E402
 shutil.rmtree(DATEN, ignore_errors=True)
 print()
