@@ -733,6 +733,123 @@ pruefe("Ein Benutzer darf das nicht bei anderen",
        gast2.post("/zwei-schritte", json={"was": "aus", "benutzer": "lucy"},
                   headers={"X-Notizmappe": "1"}).status_code == 403)
 
+# --- Zweiter Schritt per Mail ------------------------------------------------
+#
+# Zweiter Weg neben der App, unabhaengig an- und abschaltbar. Die gefaehrliche
+# Stelle ist die Pruefung: sie liess frueher jeden durch, bei dem die App aus
+# war ("gar nicht eingeschaltet"). Ist nur der Mailweg an, waere das die offene
+# Tuer - Passwort genuegt, Code egal.
+print("\nZweiter Schritt per Mail")
+server.nutzer.anlegen("mailzwei", "mailpasswort1", rolle="Benutzer")
+MZ = TestClient(server.app, follow_redirects=False)
+MZ.post("/anmelden", data={"name": "mailzwei", "passwort": "mailpasswort1"})
+
+pruefe("Ohne Adresse im Profil gibt es den Mailweg nicht",
+       MZ.get("/zwei-schritte").json()["mail_moeglich"] is False)
+a = MZ.post("/zwei-schritte", json={"was": "mail", "an": True},
+            headers={"X-Notizmappe": "1"})
+pruefe("und er lässt sich auch nicht einschalten",
+       a.status_code == 400 and "Mailadresse" in a.json().get("fehler", ""), a.text)
+
+server.nutzer.email_setzen("mailzwei", "mailzwei@example.de")
+a = MZ.post("/zwei-schritte", json={"was": "mail", "an": True},
+            headers={"X-Notizmappe": "1"})
+pruefe("Mit Adresse geht er an", a.status_code == 200 and a.json().get("mail") is True, a.text)
+pruefe("Die App bleibt davon unberührt", MZ.get("/zwei-schritte").json()["an"] is False)
+
+nur_mail = TestClient(server.app, follow_redirects=False)
+a = nur_mail.post("/anmelden", data={"name": "mailzwei", "passwort": "mailpasswort1"})
+pruefe("Nur der Mailweg führt trotzdem zum zweiten Schritt",
+       a.headers.get("location") == "/zweiter-schritt", a.headers.get("location"))
+pruefe("Und das Passwort allein öffnet nichts", nur_mail.get("/").status_code == 303)
+a = nur_mail.post("/zweiter-schritt", data={"code": "123456"})
+pruefe("Ein geratener Code kommt nicht durch",
+       "fehler=" in a.headers.get("location", ""), a.headers.get("location"))
+
+code = server.nutzer.mailcode_erzeugen("mailzwei")
+pruefe("Der Code aus der Mail hat sechs Ziffern", len(code) == 6 and code.isdigit(), code)
+a = nur_mail.post("/zweiter-schritt", data={"code": code})
+pruefe("und lässt hinein", a.headers.get("location") == "/" and nur_mail.get("/").status_code == 200,
+       a.headers.get("location"))
+
+wieder = TestClient(server.app, follow_redirects=False)
+wieder.post("/anmelden", data={"name": "mailzwei", "passwort": "mailpasswort1"})
+pruefe("Derselbe Code gilt kein zweites Mal",
+       "fehler=" in wieder.post("/zweiter-schritt",
+                                data={"code": code}).headers.get("location", ""))
+
+# Abgelaufen: die Uhr laesst sich nicht vorstellen, also das Ablaufdatum
+# zurueckdatieren - so als waeren elf Minuten vergangen.
+alt = server.nutzer.mailcode_erzeugen("mailzwei")
+_d = server.nutzer._lesen()
+_d["benutzer"]["mailzwei"]["zweimail"]["bis"] = time.time() - 1
+server.nutzer._schreiben(_d)
+pruefe("Ein abgelaufener Code gilt nicht",
+       server.nutzer.mailcode_pruefen("mailzwei", alt) is False)
+
+viele = server.nutzer.mailcode_erzeugen("mailzwei")
+for _ in range(server.nutzer.MAILCODE_VERSUCHE):
+    server.nutzer.mailcode_pruefen("mailzwei", "000000")
+pruefe("Nach zu vielen Fehlgriffen ist der Code tot - auch der richtige",
+       server.nutzer.mailcode_pruefen("mailzwei", viele) is False)
+
+# Beide Wege an: jeder gilt fuer sich.
+vm = MZ.post("/zwei-schritte", json={"was": "vorbereiten"},
+             headers={"X-Notizmappe": "1"}).json()
+MZ.post("/zwei-schritte", json={"was": "einschalten",
+                                "code": server.nutzer._totp(vm["geheim"],
+                                                            int(time.time() // 30))},
+        headers={"X-Notizmappe": "1"})
+stand = MZ.get("/zwei-schritte").json()
+pruefe("Beide zusammen gehen", stand["an"] is True and stand["mail"] is True, stand)
+beide = TestClient(server.app, follow_redirects=False)
+beide.post("/anmelden", data={"name": "mailzwei", "passwort": "mailpasswort1"})
+mcode = server.nutzer.mailcode_erzeugen("mailzwei")
+pruefe("Mit beiden an geht der Mailcode weiterhin",
+       beide.post("/zweiter-schritt", data={"code": mcode}).headers.get("location") == "/")
+beide2 = TestClient(server.app, follow_redirects=False)
+beide2.post("/anmelden", data={"name": "mailzwei", "passwort": "mailpasswort1"})
+pruefe("und der Code aus der App auch",
+       beide2.post("/zweiter-schritt",
+                   data={"code": server.nutzer._totp(vm["geheim"],
+                                                     int(time.time() // 30) + 1)}
+                   ).headers.get("location") == "/")
+
+# Der Knopf auf der Codeseite: ohne halbe Anmeldung ist er nichts wert.
+pruefe("Code anfordern geht nur mit halber Anmeldung",
+       TestClient(server.app, follow_redirects=False).post(
+           "/zweiter-schritt/mail").headers.get("location")
+       == "/anmelden?fehler=Bitte+neu+anmelden.")
+
+verschickt = []
+_echt_senden = server.post.senden
+server.post.senden = lambda ziel, betreff, text: verschickt.append((ziel, betreff, text))
+knopf = TestClient(server.app, follow_redirects=False)
+knopf.post("/anmelden", data={"name": "mailzwei", "passwort": "mailpasswort1"})
+a = knopf.post("/zweiter-schritt/mail")
+pruefe("Mit halber Anmeldung geht eine Mail raus",
+       len(verschickt) == 1 and verschickt[0][0] == "mailzwei@example.de", verschickt)
+pruefe("und die Seite sagt es", "hinweis=" in a.headers.get("location", ""))
+_ziffern = [w for w in verschickt[0][2].split() if w.isdigit() and len(w) == 6]
+pruefe("Der Code steht in der Nachricht", len(_ziffern) == 1, verschickt[0][2][:80])
+nach_knopf = TestClient(server.app, follow_redirects=False)
+nach_knopf.post("/anmelden", data={"name": "mailzwei", "passwort": "mailpasswort1"})
+pruefe("und er lässt hinein",
+       nach_knopf.post("/zweiter-schritt",
+                       data={"code": _ziffern[0]}).headers.get("location") == "/")
+server.post.senden = _echt_senden
+
+# Abschalten: der Mailweg geht eigens aus, und dann genuegt wieder das Passwort.
+MZ.post("/zwei-schritte", json={"was": "aus"}, headers={"X-Notizmappe": "1"})
+MZ.post("/zwei-schritte", json={"was": "mail", "an": False}, headers={"X-Notizmappe": "1"})
+pruefe("Beides aus - und das Passwort genügt wieder",
+       TestClient(server.app, follow_redirects=False).post(
+           "/anmelden", data={"name": "mailzwei", "passwort": "mailpasswort1"}
+       ).headers.get("location") == "/")
+pruefe("Einschalten für jemand anderen geht auch hier nicht",
+       k.post("/zwei-schritte", json={"was": "mail", "an": True, "benutzer": "mailzwei"},
+              headers={"X-Notizmappe": "1"}).status_code == 403)
+
 # Ein eigener Kopf laesst sich von einer fremden Seite nicht mitschicken. Die
 # Bruecke prueft das laengst - die Routen, an denen die Zugangsdaten fuer Mail
 # und NAS haengen, taten es nicht.

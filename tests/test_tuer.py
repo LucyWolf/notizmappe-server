@@ -64,6 +64,8 @@ OFFEN = {
     ("POST", "/neues-passwort"): "dito",
     ("GET", "/zweiter-schritt"): "zwischen Passwort und Code - mit halbem Keks",
     ("POST", "/zweiter-schritt"): "dito",
+    ("POST", "/zweiter-schritt/mail"): "schickt den Code an die hinterlegte Adresse - "
+                                       "auch nur mit halbem Keks und derselben Bremse",
     ("GET", "/einladung/{marke}"): "eine Einladung ist für jemanden, den es noch nicht gibt",
     ("POST", "/einladung/{marke}"): "dito",
     ("GET", "/abmelden"): "abmelden darf immer jeder",

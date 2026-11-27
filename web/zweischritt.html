@@ -11,7 +11,7 @@
 <div id="sperrschirm">
   <div class="tafel" role="dialog" aria-label="Zweiter Schritt">
     <h2>Noch ein Schritt</h2>
-    <p>Gib den Code aus deiner Authenticator-App ein, {{wer}}.</p>
+    <p>{{woher}}, {{wer}}.</p>
     <form method="post" action="/zweiter-schritt" autocomplete="off">
       <p class="ordnerzeile">
         <input type="text" name="code" placeholder="123456" inputmode="numeric"
@@ -20,7 +20,9 @@
       </p>
     </form>
     <p class="fehlerzeile">{{fehler}}</p>
-    <details>
+    <p class="hinweis">{{hinweis}}</p>
+    {{mailform}}
+    <details {{appteil}}>
       <summary>Kein Zugriff auf die App?</summary>
       <p class="hinweis">Dann nimm einen deiner Notfallcodes — in dasselbe Feld.
         Jeder gilt genau einmal. Sind alle verbraucht und die App ist weg, kann

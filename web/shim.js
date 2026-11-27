@@ -131,11 +131,15 @@
 
   /* verwaltung.js ist die gemeinsame Oberflaeche fuer die Verwaltung und
      kennt diesen Weg nicht von sich aus - im Fenster geht er ueber die
-     Bruecke. Also wird er hier hingelegt, und ebenso der Anstoss fuer
-     "Zwei Schritte": der steht in jeder Fassung woanders. */
+     Bruecke. Also wird er hier hingelegt.
+
+     "Zwei Schritte beim Anmelden" stand bis 1.2.53 ebenfalls hier und damit
+     nur im Browser: im Fenster blieb der Kasten leer, und wer den zweiten
+     Schritt einrichten wollte, musste den Server im Browser aufmachen.
+     Jetzt liegt er bei der uebrigen Verwaltung in verwaltung.js - derselbe
+     Grund wie damals beim Mailversand. */
   function haken() {
     window.NOTIZMAPPE_HOL = hol;
-    window.NOTIZMAPPE_ZWEI_LADEN = zweiLaden;
     window.NOTIZMAPPE_BEREICHE = bereicheLaden;
   }
 
@@ -247,97 +251,6 @@
       #bereichwahl { height: 26px; border: 1px solid var(--linie); border-radius: 6px;
         background: var(--papier); color: var(--schrift); font-size: 12px; max-width: 220px; }`;
     document.head.append(stil);
-  }
-
-  /* --- Zwei Schritte beim Anmelden ---------------------------------------
-   *
-   * Der Ablauf ist absichtlich dreistufig: QR zeigen, Notfallcodes zeigen,
-   * und erst einschalten, wenn ein Code aus der App stimmt. Wer sein
-   * Geheimnis nie in die App bekommen hat, sperrt sich sonst selbst aus - und
-   * die Notfallcodes muss man gesehen haben, bevor man sie braucht.
-   */
-  let zweiVorbereitet = null;
-
-  async function zweiLaden() {
-    const wo = document.getElementById('v-zwei');
-    if (!wo) return;
-    let d;
-    try { d = await hol('/zwei-schritte'); } catch (f) { return; }
-    wo.textContent = '';
-    if (zweiVorbereitet) { zweiEinrichtenZeigen(wo); return; }
-    wo.append(el('p', { className: 'zeile2' }, [
-      el('span', { textContent: 'Zweiter Schritt beim Anmelden' }),
-      el('span', { textContent: d.an ? `an · ${d.codes_uebrig} Notfallcodes übrig` : 'aus' }),
-    ]));
-    const knopf = el('button', { type: 'button',
-      textContent: d.an ? 'Abschalten' : 'Einrichten' });
-    knopf.addEventListener('click', async () => {
-      if (d.an) {
-        if (!confirm('Zweiten Schritt abschalten? Danach genügt wieder das Passwort allein.')) return;
-        try { await hol('/zwei-schritte', { was: 'aus' }); zweiLaden(); Verwaltung.laden(); }
-        catch (f) { sagen(f.message); }
-        return;
-      }
-      try {
-        zweiVorbereitet = await hol('/zwei-schritte', { was: 'vorbereiten' });
-        zweiLaden();
-      } catch (f) { sagen(f.message); }
-    });
-    wo.append(el('p', { className: 'knoepfe' }, [knopf]));
-    if (!d.an) {
-      wo.append(el('p', { className: 'hinweis', textContent:
-        'Zusätzlich zum Passwort ein Code aus einer Authenticator-App. '
-        + 'Beim Einrichten bekommst du Notfallcodes für den Fall, dass das Telefon weg ist.' }));
-    }
-  }
-
-  function zweiEinrichtenZeigen(wo) {
-    const v = zweiVorbereitet;
-    const qr = el('div', { className: 'qrkasten' });
-    qr.innerHTML = v.qr;                     // kommt vom eigenen Server, kein fremder Inhalt
-
-    const codefeld = el('input', { type: 'text', placeholder: '123456',
-                                   inputMode: 'numeric', autocomplete: 'one-time-code' });
-    const fertig = el('button', { type: 'button', textContent: 'Einschalten' });
-    fertig.addEventListener('click', async () => {
-      try {
-        await hol('/zwei-schritte', { was: 'einschalten', code: codefeld.value });
-        zweiVorbereitet = null;
-        sagen('Zwei Schritte sind an. Beim nächsten Anmelden fragt er nach dem Code.');
-        zweiLaden();
-        Verwaltung.laden();
-      } catch (f) { sagen(f.message); }
-    });
-    const abbrechen = el('button', { type: 'button', textContent: 'Abbrechen' });
-    abbrechen.addEventListener('click', () => { zweiVorbereitet = null; zweiLaden(); });
-
-    const codes = el('div', { className: 'notfallcodes' });
-    for (const c of v.codes) codes.append(el('code', { textContent: c }));
-    const kopieren = el('button', { type: 'button', textContent: 'Codes kopieren' });
-    kopieren.addEventListener('click', async () => {
-      try {
-        await navigator.clipboard.writeText(v.codes.join('\n'));
-        sagen('Notfallcodes kopiert - sicher ablegen, nicht neben dem Passwort.');
-      } catch (f) { sagen('Bitte abschreiben - die Zwischenablage ging nicht.'); }
-    });
-
-    wo.append(
-      el('h4', { textContent: '1. In der App einlesen' }),
-      qr,
-      el('p', { className: 'hinweis', textContent:
-        'Geht die Kamera nicht, trag dieses Geheimnis von Hand ein:' }),
-      el('code', { className: 'geheimnis', textContent: v.geheim }),
-      el('h4', { textContent: '2. Notfallcodes aufschreiben' }),
-      el('p', { className: 'hinweis', textContent:
-        'Jeder gilt genau einmal. Sie sind der Weg hinein, wenn das Telefon weg ist - '
-        + 'und sie werden danach nie wieder angezeigt.' }),
-      codes,
-      el('p', { className: 'knoepfe' }, [kopieren]),
-      el('h4', { textContent: '3. Mit einem Code aus der App bestätigen' }),
-      el('p', { className: 'hinweis', textContent:
-        'Erst damit wird eingeschaltet - so steht fest, dass die App wirklich funktioniert.' }),
-      el('p', { className: 'ordnerzeile' }, [codefeld, fertig, abbrechen]),
-    );
   }
 
   function systemseite() {

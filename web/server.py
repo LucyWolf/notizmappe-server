@@ -597,7 +597,7 @@ def anmelden(bitte: Request, name: str = Form(""), passwort: str = Form("")):
                                 status_code=303,
                                 background=anmeldung_melden(bitte, name, False))
     geklappt(wer)
-    if nutzer.zwei_schritte_stand(b["name"])["an"]:
+    if nutzer.zweiter_schritt_noetig(b["name"]):
         antwort = RedirectResponse("/zweiter-schritt", status_code=303)
         antwort.set_cookie(HALBKEKS, halbkeks_bauen(b["name"]),
                            max_age=HALB_MINUTEN * 60, httponly=True,
@@ -708,11 +708,55 @@ def neues_passwort(marke: str = Form(""), passwort: str = Form(""),
 
 
 @app.get("/zweiter-schritt", response_class=HTMLResponse)
-def zweiter_schritt_seite(bitte: Request, fehler: str = ""):
+def zweiter_schritt_seite(bitte: Request, fehler: str = "", hinweis: str = ""):
     wer = halbkeks_lesen(bitte.cookies.get(HALBKEKS))
     if not wer:
         return RedirectResponse("/anmelden", status_code=303)
-    return HTMLResponse(_vorlage("zweischritt.html", wer=_text(wer), fehler=_text(fehler)))
+    stand = nutzer.zwei_schritte_stand(wer)
+    # Die Seite sagt nur das, was fuer diesen Zugang auch gilt: ohne App kein
+    # Satz ueber die App, ohne Mailweg kein Knopf dafuer.
+    return HTMLResponse(_vorlage(
+        "zweischritt.html", wer=_text(wer), fehler=_text(fehler),
+        hinweis=_text(hinweis),
+        woher=("Gib den Code aus deiner Authenticator-App ein"
+               if stand["an"] else "Gib den Code aus der Mail ein"),
+        mailform=('<form method="post" action="/zweiter-schritt/mail">'
+                  '<button type="submit" class="flach">Code per Mail schicken</button>'
+                  '</form>' if stand["mail"] else ""),
+        appteil=("" if stand["an"] else "hidden")))
+
+
+@app.post("/zweiter-schritt/mail")
+def zweiter_schritt_mail(bitte: Request):
+    """Einen frischen Code an die Adresse aus dem Profil schicken.
+
+    Dieselbe Bremse wie die Codeeingabe, und sie zaehlt mit: sonst waere der
+    Knopf ein Weg, jemandem beliebig viele Mails zu schicken - das Passwort
+    reicht dafuer, der zweite Schritt ist ja noch offen.
+    """
+    wer = halbkeks_lesen(bitte.cookies.get(HALBKEKS))
+    if not wer:
+        return RedirectResponse("/anmelden?fehler=Bitte+neu+anmelden.", status_code=303)
+    bremse = bremsschluessel(bitte, wer + "/zweitermail")
+    warte = gebremst(bremse)
+    if warte:
+        return RedirectResponse(
+            f"/zweiter-schritt?fehler=Zu+viele+Versuche.+Bitte+{warte}+Sekunden+warten.",
+            status_code=303)
+    fehlversuch(bremse)
+    ziel = nutzer.email_von(wer)
+    try:
+        code = nutzer.mailcode_erzeugen(wer)
+        post.senden(ziel, "Notizmappe: Code zum Anmelden",
+                    f"Dein Code lautet: {code}\n\n"
+                    f"Er gilt {nutzer.MAILCODE_MINUTEN} Minuten und genau einmal.\n\n"
+                    "Hast du dich gerade nicht angemeldet, dann kennt jemand dein "
+                    "Passwort - ändere es, sobald du wieder hineinkommst.\n")
+    except (nutzer.BenutzerFehler, post.PostFehler) as f:
+        return RedirectResponse(f"/zweiter-schritt?fehler={urllib.parse.quote_plus(str(f))}",
+                                status_code=303)
+    return RedirectResponse("/zweiter-schritt?hinweis=Der+Code+ist+unterwegs.",
+                            status_code=303)
 
 
 @app.post("/zweiter-schritt")
@@ -1021,7 +1065,9 @@ def profil_lesen(bitte: Request):
     return {"ich": wer, "rechte": rechte,
             "rolle": ("Verwalter" if "benutzer" in rechte
                       else ("Benutzer" if "schreiben" in rechte else "Gast")),
-            "zwei": nutzer.zwei_schritte_stand(wer)["an"],
+            # Einer der beiden Wege genuegt - die Oberflaeche fragt damit nur,
+            # ob nach dem Passwort noch etwas kommt.
+            "zwei": nutzer.zweiter_schritt_noetig(wer),
             "email": nutzer.email_von(wer),
             "melde": nutzer.meldung_von(wer),
             "post_an": post.eingerichtet(),
@@ -1388,6 +1434,15 @@ async def zwei_schritte(bitte: Request):
             nutzer.zwei_schritte_einschalten(wer, str(d.get("code") or ""))
         elif was == "aus":
             nutzer.zwei_schritte_aus(ziel)
+        elif was == "mail":
+            # Der zweite Weg, unabhaengig von der App. Einschalten nur fuer
+            # sich selbst - die Mails gingen sonst an jemand anderen, und
+            # wer sie nicht liest, kommt nicht mehr hinein. Abschalten darf
+            # ein Verwalter auch hier, aus demselben Grund wie oben.
+            if ziel != wer and d.get("an"):
+                return JSONResponse({"fehler": "Einschalten muss jeder selbst."},
+                                    status_code=403)
+            nutzer.mail_schritt_setzen(ziel, bool(d.get("an")))
         else:
             return JSONResponse({"fehler": "Unbekannt"}, status_code=400)
     except nutzer.BenutzerFehler as f:

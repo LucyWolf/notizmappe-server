@@ -259,11 +259,112 @@ def notfallcodes_erzeugen() -> list[str]:
     return aus
 
 
+# --- Zweiter Schritt per Mail ------------------------------------------------
+#
+# Zweiter Weg neben der App, unabhaengig davon an- und abschaltbar. Er liegt
+# bewusst unter einem eigenen Schluessel ("zweimail"): "zwei" wird beim
+# Abschalten der App komplett weggeworfen, und das darf den Mailweg nicht
+# mitnehmen. Fehlt der Schluessel - jede bestehende Installation -, ist er aus.
+#
+# Der Code ist schwaecher als die App und das steht auch so in der
+# Oberflaeche: wer das Postfach hat, hat den Zugang. Er hat ihn allerdings
+# ohnehin, denn das Zuruecksetzen des Passworts geht an dieselbe Adresse.
+MAILCODE_MINUTEN = 10
+MAILCODE_VERSUCHE = 5
+
+
+def _mailcode_neu() -> str:
+    return f"{secrets.randbelow(1000000):06d}"
+
+
 def zwei_schritte_stand(name: str) -> dict:
     b = _lesen()["benutzer"].get((name or "").strip().lower()) or {}
     zwei = b.get("zwei") or {}
+    mail = b.get("zweimail") or {}
     return {"an": bool(zwei.get("an")),
-            "codes_uebrig": len(zwei.get("codes") or []) if zwei.get("an") else 0}
+            "codes_uebrig": len(zwei.get("codes") or []) if zwei.get("an") else 0,
+            "mail": bool(mail.get("an")),
+            # Ohne Adresse im Profil kaeme der Code nirgends an - dann darf
+            # die Oberflaeche den Schalter gar nicht erst anbieten.
+            "mail_moeglich": bool(b.get("email"))}
+
+
+def zweiter_schritt_noetig(name: str) -> bool:
+    """Kommt nach dem Passwort noch etwas? Einer von beiden genuegt."""
+    stand = zwei_schritte_stand(name)
+    return bool(stand["an"] or stand["mail"])
+
+
+def mail_schritt_setzen(name: str, an: bool) -> None:
+    name = (name or "").strip().lower()
+    with _sperre:
+        daten = _lesen()
+        b = daten["benutzer"].get(name)
+        if not b:
+            raise BenutzerFehler("Den Benutzer gibt es nicht")
+        if an and not b.get("email"):
+            raise BenutzerFehler("Erst eine Mailadresse im Profil eintragen - "
+                                 "dorthin geht der Code.")
+        if an:
+            b["zweimail"] = {"an": True}
+        else:
+            b.pop("zweimail", None)
+        _schreiben(daten)
+
+
+def mailcode_erzeugen(name: str) -> str:
+    """Einen frischen Code hinterlegen und zurueckgeben - zum Verschicken.
+
+    Der neue ersetzt den alten: zwei gueltige Codes gleichzeitig waeren zwei
+    Chancen zu raten, und wer zweimal drueckt, nimmt ohnehin den letzten.
+    """
+    name = (name or "").strip().lower()
+    code = _mailcode_neu()
+    with _sperre:
+        daten = _lesen()
+        b = daten["benutzer"].get(name) or {}
+        mail = b.get("zweimail") or {}
+        if not mail.get("an"):
+            raise BenutzerFehler("Für diesen Zugang ist der Code per Mail nicht an")
+        mail["code"] = _codehash(code)
+        mail["bis"] = time.time() + MAILCODE_MINUTEN * 60
+        mail["versuche"] = 0
+        b["zweimail"] = mail
+        _schreiben(daten)
+    return code
+
+
+def mailcode_pruefen(name: str, code: str) -> bool:
+    """Gilt genau einmal, zehn Minuten, und nach fuenf Fehlgriffen gar nicht mehr.
+
+    Die Versuche zaehlen am Code, nicht an der Anmeldung: die Bremse drueben
+    zaehlt je Adresse, und wer von vielen Adressen aus raet, kaeme sonst an
+    ihr vorbei.
+    """
+    name = (name or "").strip().lower()
+    with _sperre:
+        daten = _lesen()
+        b = daten["benutzer"].get(name) or {}
+        mail = b.get("zweimail") or {}
+        if not mail.get("an") or not mail.get("code"):
+            return False
+        if time.time() > float(mail.get("bis") or 0):
+            mail.pop("code", None)
+            _schreiben(daten)
+            return False
+        if int(mail.get("versuche") or 0) >= MAILCODE_VERSUCHE:
+            mail.pop("code", None)
+            _schreiben(daten)
+            return False
+        if not secrets.compare_digest(_codehash(str(code or "").strip()), mail["code"]):
+            mail["versuche"] = int(mail.get("versuche") or 0) + 1
+            _schreiben(daten)
+            return False
+        mail.pop("code", None)                  # verbraucht
+        mail.pop("bis", None)
+        mail["versuche"] = 0
+        _schreiben(daten)
+        return True
 
 
 def zwei_schritte_vorbereiten(name: str) -> dict:
@@ -329,13 +430,20 @@ def zweiter_schritt_verbraucht(name: str, code: str) -> bool:
 
 
 def zweiter_schritt_pruefen(name: str, code: str) -> bool:
-    """Code aus der App - oder einer der Notfallcodes, der dabei verbraucht wird."""
+    """Code aus der App, einer der Notfallcodes - oder der Code aus der Mail.
+
+    Sind beide Wege an, zaehlt jeder fuer sich: wer die App dabei hat, tippt
+    ihren Code, wer sie verloren hat, laesst sich einen schicken. Nur wenn
+    **keiner** von beiden an ist, ist der zweite Schritt gar nicht gefordert.
+    """
     name = (name or "").strip().lower()
-    with _sperre:
+    if not zweiter_schritt_noetig(name):
+        return True                             # gar nicht eingeschaltet
+    with _sperre:                               # RLock: mailcode_pruefen nimmt sie erneut
         daten = _lesen()
         zwei = (daten["benutzer"].get(name) or {}).get("zwei") or {}
         if not zwei.get("an"):
-            return True                         # gar nicht eingeschaltet
+            return mailcode_pruefen(name, code)
         zaehler = totp_zaehler(zwei.get("geheim", ""), code,
                                int(zwei.get("zuletzt") or -1))
         if zaehler is not None:
@@ -350,7 +458,10 @@ def zweiter_schritt_pruefen(name: str, code: str) -> bool:
             zwei["codes"].remove(gesucht)       # jeder Code gilt einmal
             _schreiben(daten)
             return True
-    return False
+        # Beide Wege an: was nicht aus der App kam, kann der Code aus der Mail
+        # sein. Ist der Mailweg aus oder liegt kein Code bereit, faellt das
+        # sofort durch, ohne einen Versuch zu zaehlen.
+        return mailcode_pruefen(name, code)
 
 
 # --- Einladungen -------------------------------------------------------------
