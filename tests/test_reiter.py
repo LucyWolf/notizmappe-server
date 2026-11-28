@@ -294,6 +294,19 @@ pruefe("und auch dann ist genau einer offen",
 pruefe("kein Abschnitt bleibt ohne Reiter zugedeckt",
        d["zugedeckt_ohne_reiter"] == 0, d)
 
+print("\nDie Leiste entsteht nicht zu frueh")
+# Nach dem Neuladen fehlten Name, Benutzer, Zwei Schritte, Einladen, Projekte
+# und Rollen: #serververwaltung ist versteckt, bis /verwaltung geantwortet
+# hat, und reiterblaetter() ueberspringt Verstecktes. Die Leiste entstand
+# aber schon davor - und erst ein Klick baute sie neu.
+_laden = verwaltung[verwaltung.index("async function verwaltungLaden"):
+                    verwaltung.index("function zeichneBenutzer")]
+pruefe("verwaltungLaden baut die Leiste neu", "optionenReiterBauen()" in _laden)
+pruefe("und zwar erst, wenn feststeht was sichtbar ist",
+       _laden.index("abschnitt.hidden = false") < _laden.index("optionenReiterBauen()"))
+pruefe("auch fuer jemanden ohne Verwaltungsrecht",
+       _laden.index("optionenReiterBauen()") < _laden.index("if (!d.darf) return;"))
+
 shutil.rmtree(ordner, ignore_errors=True)
 print()
 if fehler:
