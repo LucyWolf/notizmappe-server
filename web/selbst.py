@@ -55,7 +55,7 @@ MAX_ARCHIV = 40 << 20
 # web/listen.py steht hier bewusst NICHT mehr drin: die Datei ist leer und
 # liegt nur noch dabei, damit aeltere Installationen (bis 1.2.44) das Paket
 # annehmen - ihre eigene Liste verlangt sie. Siehe web/listen.py.
-PFLICHT = ("VERSION", "web/server.py", "web/benutzer.py", "web/start.py", "web/ablage.py",
+PFLICHT = ("VERSION", "web/server.py", "web/benutzer.py", "web/start.py", "web/ablage.py", "web/speicherorte.py",
            "web/post.py", "web/verlauf.py", "web/neues.py",
            "web/verwalten.py",
            "web/shim.js", "web/anmelden.html",

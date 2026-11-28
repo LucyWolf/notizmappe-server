@@ -22,7 +22,11 @@
     try {
       antwort = await fetch('/bruecke/' + encodeURIComponent(name), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Notizmappe': '1' },
+        // Diese Oberflaeche kann mehrere Speicher in einer Leiste zeigen. Das
+        // Fenster am Desktop kann es (noch) nicht - es bekommt ohne den Kopf
+        // weiter nur den Speicher, in dem gerade geschrieben wird.
+        headers: { 'Content-Type': 'application/json', 'X-Notizmappe': '1',
+                   'X-Notizmappe-Quellen': '1' },
         body: JSON.stringify({ args: args }),
         credentials: 'same-origin',
       });
@@ -1948,6 +1952,9 @@
                                ['Striche markieren', strichMarkierenBauen],
                                ['Mailversand', Verwaltung.post],
                                ['Update-Hinweis', updateHinweisBauen],
+                               // Eigene Speicher je Benutzer (NAS). Mit einer
+                               // aelteren Oberflaeche gibt es den Teil nicht.
+                               ['Speicher', function () { if (Verwaltung.speicher) Verwaltung.speicher(); }],
                                ['Optionen-Reiter', Verwaltung.reiterBauen],
                                ['Neues in der Gruppe', neuesBauen],
                                ['Meldungen mit Namen', meldungenBauen],

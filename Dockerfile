@@ -17,6 +17,24 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       cifs-utils nfs-common \
     && rm -rf /var/lib/apt/lists/*
 
+# rclone: gleicht die eigenen Speicher der Benutzer ab (NAS, spaeter Google
+# Drive) - ohne mount, ohne Sonderrechte. Pruefsummen wie in
+# web/speicherorte.py; wer ueber den Update-Knopf kommt und dieses Image noch
+# nicht hat, bekommt es dort nachgeladen.
+ARG RCLONE_FASSUNG=v1.68.2
+RUN set -e; a=$(dpkg --print-architecture); \
+    case "$a" in \
+      amd64) s=0e6fa18051e67fc600d803a2dcb10ddedb092247fc6eee61be97f64ec080a13c ;; \
+      arm64) s=c6e9d4cf9c88b279f6ad80cd5675daebc068e404890fa7e191412c1bc7a4ac5f ;; \
+      *) echo "kein rclone fuer $a"; exit 0 ;; \
+    esac; \
+    curl -fsSL -o /tmp/rclone.zip \
+      "https://github.com/rclone/rclone/releases/download/$RCLONE_FASSUNG/rclone-$RCLONE_FASSUNG-linux-$a.zip"; \
+    echo "$s  /tmp/rclone.zip" | sha256sum -c -; \
+    python3 -c "import zipfile,sys; open('/usr/local/bin/rclone','wb').write(zipfile.ZipFile('/tmp/rclone.zip').read(sys.argv[1]))" \
+      "rclone-$RCLONE_FASSUNG-linux-$a/rclone"; \
+    chmod 755 /usr/local/bin/rclone; rm /tmp/rclone.zip
+
 WORKDIR /srv
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt

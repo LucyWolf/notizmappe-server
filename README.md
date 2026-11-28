@@ -357,6 +357,50 @@ Seite = JSON. Du kannst `daten/notizen/<name>` also auch einfach wegsichern oder
 mit dem Desktop-Programm öffnen, indem du den Ordner dort als Datenordner
 einstellst.
 
+## Eigene Speicher je Benutzer (NAS)
+
+Jeder Benutzer kann seine **eigene** NAS dazunehmen — ohne Verwalter, ohne
+Neustart, ohne Sonderrechte für den Container. Unter **Datei → Optionen →
+Speicher**: Name für die Leiste, NAS (Name oder IP), Freigabe, Ordner darin
+(Standard `Notizmappe`), Benutzer, Passwort → **Verbinden**.
+
+- Ohne Einrichtung ändert sich nichts: die Notizen liegen im Standardordner
+  `daten/notizen/<name>`.
+- Jeder Speicher steht als **eigener Abschnitt in der Leiste**. Notizbuch,
+  Abschnitt oder Seite auf einen anderen Speicher **ziehen** verschiebt es:
+  erst kopiert, dann nachgezählt, dann wandert das Original in den Papierkorb
+  seines alten Speichers.
+- **Alles aus Standard hierher** überträgt alle Notizbücher auf einmal.
+  Danach lässt sich der Standardordner **ausblenden** — nur wenn er leer ist,
+  sonst lägen Notizen unsichtbar herum.
+- **Abhängen** löscht auf der NAS nichts. Die Kopie am Server wird zur Seite
+  gelegt (`daten/speicher/<name>/.entfernt-…`), falls der letzte Abgleich
+  nicht durch war.
+
+**Wie es läuft:** Nicht eingehängt, sondern abgeglichen — mit
+[rclone](https://rclone.org) (`bisync`). Der Server arbeitet in einer Kopie
+unter `daten/speicher/<name>/<kennung>/` und gleicht sie in beide Richtungen
+ab: etwa 20 Sekunden nach dem letzten Speichern und sonst alle 5 Minuten.
+Einhängen ginge nur als root beim Start — jeder neue Speicher hieße dann
+Neustart für alle.
+
+- Ist die NAS aus, wird **weitergearbeitet**; in der Leiste steht ⚠ mit dem
+  Grund, und nachgeholt wird, sobald sie wieder da ist.
+- Wurde dieselbe Seite hier und auf der NAS geändert, gewinnt die neuere; die
+  andere landet im **Verlauf der Seite**, nicht als lose Datei.
+- Beim ersten Verbinden wird abgebrochen, wenn im Ordner schon mehr als 2 GB
+  liegen — dann ist es vermutlich nicht der Notizordner.
+- Das Passwort liegt in `einrichtung/speicher/<name>/<kennung>.json` (0600),
+  nicht bei den Notizen, und geht nie zurück an den Browser.
+- rclone steckt im Image. Wer über den Update-Knopf auf diese Fassung kommt,
+  hat noch das alte Image — dort wird rclone beim ersten Verbinden von GitHub
+  geholt und gegen eine fest eingetragene Prüfsumme geprüft.
+- Das Desktop-Fenster, das mit dem Server verbunden ist, sieht weiter nur den
+  Speicher, in dem gerade geschrieben wird.
+
+Das ist etwas anderes als die gemeinsame Ablage darunter: die legt den
+**ganzen** Datenordner des Servers auf eine Freigabe.
+
 ## NAS als Ablage
 
 Der Datenordner muss nicht auf der Platte des Docker-Rechners liegen. Der
@@ -802,6 +846,7 @@ Die anderen prüfen je eine Sache, und jede steht wegen eines echten Fehlers da:
 | `test_unsinn.py` | dass kein Aufruf einen 500er auslöst, egal was im Rumpf steht. Die Routen holt er sich aus der App selbst |
 | `test_post.py` | Mailversand, Zurücksetzen, Benachrichtigung bei Anmeldeversuchen |
 | `test_ablage.py` | NAS-Einstellungen: nichts, was in einer Mount-Option etwas anderes bedeuten könnte |
+| `test_speicherorte.py` | eigene Speicher je Benutzer: Passwort nirgends im Klartext, echter rclone-Abgleich, Konflikt landet im Verlauf, Verschieben mit Anhang und Papierkorb, NAS weg und wieder da |
 | `test_selbst.py` | das Nachladen einer Fassung und vor allem den Weg zurück |
 | `test_verlauf.py` | dass am Server jede Änderung bleibt, ein Jahr lang — und dass nicht bei jedem Speichern der ganze Ordner durchgesehen wird |
 | `test_leiste.py` | die Formatleiste: dass hinter jedem Knopf der richtige Befehl steckt, und dass im Rechtsklickmenü nicht zwei Leisten übereinander stehen |
@@ -821,6 +866,7 @@ web/server.py        Anmeldung, Sitzungen, /bruecke/<name>, Download, Kopfzeilen
 web/benutzer.py      Zugänge, Rollen, Projekte, zweiter Schritt (scrypt)
 web/verwalten.py     dasselbe von der Kommandozeile, wenn der Browser nicht hilft
 web/ablage.py        NAS-Freigabe einhängen
+web/speicherorte.py  eigene Speicher je Benutzer, Abgleich per rclone
 web/post.py          Mailversand: Zurücksetzen, Hinweis bei Anmeldeversuchen
 web/verlauf.py       die Server-Regel für den Verlauf: alles bleibt, ein Jahr
 web/listen.py        Aufzählungsarten durch den Reiniger lassen

@@ -25,6 +25,7 @@ import segno
 import json
 import os
 import re
+import shutil
 import sys
 import threading
 import time
@@ -40,6 +41,7 @@ import benutzer as nutzer
 import neues
 import post
 import selbst
+import speicherorte
 import verlauf
 
 HIER = Path(__file__).resolve().parent
@@ -177,6 +179,9 @@ def _beim_start() -> None:
     # uvicorn. Kommt eine nachgeladene Fassung bis hierher, war sie in Ordnung;
     # sonst findet start.py beim naechsten Mal die Marke und wirft sie weg.
     selbst.versuch_gelungen(DATEN)
+    # Eigene Speicher der Benutzer (NAS) im Hintergrund abgleichen. Wer keinen
+    # eingerichtet hat, merkt davon nichts - der Faden sieht nach und schlaeft.
+    speicherorte.hintergrund_starten()
     # Bestehende Installationen kennen die Marke noch nicht - wer Zugaenge hat,
     # bekommt sie jetzt. Sonst wuerde der Schutz erst beim naechsten frisch
     # eingerichteten Server greifen, also genau dort nicht, wo schon Notizen
@@ -323,7 +328,158 @@ def bereich_setzen(name: str, bereich: str) -> str:
 
 def arbeitsordner(name: str) -> Path:
     bereich = bereich_lesen(name)
-    return nutzer.projektordner(bereich) if bereich else nutzer.notizordner(name)
+    if bereich:
+        return nutzer.projektordner(bereich)
+    # In den eigenen Notizen: der Speicher, in dem gerade geschrieben wird.
+    # Ohne eingerichteten Speicher ist das der Standardordner wie bisher.
+    return speicherorte.ordner(name, speicherorte.lesen(name)["aktiv"])
+
+
+# Aufrufe, die etwas veraendern - danach wird der Speicher bald abgeglichen.
+VERAENDERND = {m for m, r in RECHT_JE_METHODE.items() if r in ("schreiben", "anhaenge", "loeschen")} | {
+    "version_zurueck", "papierkorb_zurueck"}
+
+
+def _mit_speichern(name: str) -> bool:
+    """Zeigt die Leiste mehrere Speicher? Nur in den eigenen Notizen, und nur
+    wenn einer eingerichtet ist - sonst bleibt alles, wie es war."""
+    return not bereich_lesen(name) and bool(speicherorte.lesen(name)["orte"])
+
+
+def _baum_alle(name: str) -> dict:
+    """Alle Speicher in einer Leiste, jeder Notizbuch-Eintrag mit seiner Quelle.
+
+    "quellen" steht dabei, damit auch ein leerer Speicher seine Ueberschrift
+    bekommt - sonst koennte man nichts hineinziehen, solange nichts drin ist.
+    """
+    quellen = speicherorte.sichtbar(name)
+    buecher = []
+    with _arbeit:
+        os.environ["NOTIZMAPPE_KONFIG"] = str(nutzer.konfigordner(name))
+        for q in quellen:
+            os.environ["NOTIZEN_ORDNER"] = str(speicherorte.ordner(name, q["kennung"]))
+            try:
+                teil = BRUECKE.baum()
+            except Exception:                                   # noqa: BLE001
+                continue
+            if isinstance(teil, dict) and not teil.get("fehler"):
+                buecher += [{**b, "quelle": q["kennung"]} for b in (teil.get("notizbuecher") or [])]
+    return {"notizbuecher": buecher, "jetzt": speicherorte.lesen(name)["aktiv"],
+            "quellen": quellen, "mappe": nutzer.mappenname() or "Servermappe", "ordner": ""}
+
+
+def _teile(roh, anzahl: tuple[int, ...]) -> list[str]:
+    """Ein Pfad aus der Oberflaeche: nur Namen, keine Wege."""
+    if not isinstance(roh, list) or len(roh) not in anzahl:
+        raise speicherorte.SpeicherortFehler("Pfad passt nicht")
+    aus = []
+    for t in roh:
+        t = str(t or "").strip()
+        if (not t or len(t) > 120 or t.startswith(".") or "/" in t or "\\" in t
+                or "\x00" in t):
+            raise speicherorte.SpeicherortFehler("Pfad passt nicht")
+        aus.append(t)
+    return aus
+
+
+def _groessen(p: Path) -> dict:
+    if p.is_file():
+        return {"": p.stat().st_size}
+    return {str(f.relative_to(p)): f.stat().st_size for f in p.rglob("*") if f.is_file()}
+
+
+def _verschieben(name: str, rumpf: dict) -> dict:
+    """Notizbuch, Abschnitt oder Seite in einen anderen Speicher (oder an eine
+    andere Stelle im selben).
+
+    Erst kopieren, dann die Kopie nachzaehlen, dann das Original in SEINEN
+    Papierkorb. Faellt unterwegs etwas um, ist hoechstens eine Kopie zu viel
+    da - nie eine zu wenig.
+    """
+    art = str(rumpf.get("art") or "")
+    tiefe = {"notizbuch": 1, "abschnitt": 2, "seite": 3}
+    if art not in tiefe:
+        raise speicherorte.SpeicherortFehler("Unbekannte Art")
+    von = rumpf.get("von") if isinstance(rumpf.get("von"), dict) else {}
+    nach = rumpf.get("nach") if isinstance(rumpf.get("nach"), dict) else {}
+    gueltig = {q["kennung"] for q in speicherorte.sichtbar(name)}
+    vq, nq = str(von.get("quelle") or ""), str(nach.get("quelle") or "")
+    if vq not in gueltig or nq not in gueltig:
+        raise speicherorte.SpeicherortFehler("Diesen Speicher gibt es nicht")
+    vt = _teile(von.get("pfad"), (tiefe[art],))
+    nt = _teile(nach.get("pfad") or [], tuple(range(0, tiefe[art])))
+    # Fehlt beim Ziel ein Teil (auf die Ueberschrift des Speichers gezogen),
+    # heisst er wie beim Original: ein Abschnitt landet in einem Notizbuch
+    # gleichen Namens, eine Seite in Notizbuch und Abschnitt gleichen Namens.
+    nt = nt + vt[len(nt):tiefe[art] - 1]
+    if vq == nq and nt == vt[:-1]:
+        raise speicherorte.SpeicherortFehler("Das liegt schon dort")
+
+    wurzel_von = speicherorte.ordner(name, vq)
+    wurzel_nach = speicherorte.ordner(name, nq)
+    with _arbeit:
+        if art == "seite":
+            quelle = wurzel_von.joinpath(*vt[:-1], vt[-1] + ".json")
+        else:
+            quelle = wurzel_von.joinpath(*vt)
+        if not quelle.exists():
+            raise speicherorte.SpeicherortFehler("Gibt es nicht (mehr)")
+        zielordner = wurzel_nach.joinpath(*nt)
+        if art != "seite" and zielordner.resolve().is_relative_to(quelle.resolve()):
+            raise speicherorte.SpeicherortFehler("Etwas lässt sich nicht in sich selbst schieben")
+        zielordner.mkdir(parents=True, exist_ok=True)
+        kopien: list[Path] = []
+        try:
+            if art == "seite":
+                neu = speicher.frei(zielordner, vt[-1], ".json")
+                paare = [(quelle, zielordner / f"{neu}.json"),
+                         (quelle.with_name(f"{vt[-1]}{speicher.ANHANG}"),
+                          zielordner / f"{neu}{speicher.ANHANG}"),
+                         (quelle.parent / speicher.VERLAUF / vt[-1],
+                          zielordner / speicher.VERLAUF / neu)]
+            else:
+                neu = speicher.frei(zielordner, vt[-1])
+                paare = [(quelle, zielordner / neu)]
+            for a, b in paare:
+                if not a.exists():
+                    continue
+                b.parent.mkdir(parents=True, exist_ok=True)
+                kopien.append(b)
+                if a.is_dir():
+                    shutil.copytree(a, b)
+                else:
+                    shutil.copy2(a, b)
+                if _groessen(a) != _groessen(b):
+                    raise speicherorte.SpeicherortFehler(
+                        "Die Kopie ist nicht vollständig - das Original bleibt, wo es ist.")
+        except Exception:
+            for k in kopien:
+                if k.is_dir():
+                    shutil.rmtree(k, ignore_errors=True)
+                else:
+                    k.unlink(missing_ok=True)
+            raise
+        os.environ["NOTIZEN_ORDNER"] = str(wurzel_von)
+        os.environ["NOTIZMAPPE_KONFIG"] = str(nutzer.konfigordner(name))
+        speicher.in_papierkorb(vt[:-1] + [vt[-1] + ".json"] if art == "seite" else vt)
+    speicherorte.anstossen(name, vq)
+    speicherorte.anstossen(name, nq)
+    if art != "seite":
+        speicherorte.grosse_loeschung_erlaubt(name, vq)
+    return {"ok": True, "name": neu, "pfad": nt + [neu]}
+
+
+def _quelle_wechseln(name: str, rumpf: dict) -> dict:
+    return {"jetzt": speicherorte.aktiv_setzen(name, str(rumpf.get("quelle") or ""))}
+
+
+# Nur am Server: die Desktop-Bruecke kennt sie nicht, sie arbeiten ueber
+# mehrere Speicher hinweg. Recht wie bei den anderen - verschieben ist
+# schreiben dort UND loeschen hier.
+SERVER_METHODEN = {
+    "quelle_wechseln": (_quelle_wechseln, ("lesen",)),
+    "verschieben": (_verschieben, ("schreiben", "loeschen")),
+}
 
 
 def rechte_hier(name: str) -> set:
@@ -1248,6 +1404,117 @@ async def ablage_setzen(bitte: Request):
     return stand
 
 
+# --- Eigene Speicher ------------------------------------------------------------
+#
+# Jeder richtet seine eigenen ein - kein Verwalterrecht noetig, aber
+# schreiben muss man duerfen: ein Gast soll keine Verbindung zu irgendeinem
+# Rechner im Netz aufbauen lassen koennen.
+
+def _speicher_wer(bitte: Request) -> tuple[str | None, JSONResponse | None]:
+    wer = angemeldet(bitte)
+    if not wer:
+        return None, JSONResponse({"fehler": "Nicht angemeldet"}, status_code=401)
+    if bitte.method == "POST" and not _eigener_aufruf(bitte):
+        return None, JSONResponse({"fehler": "Falscher Aufruf"}, status_code=400)
+    if "schreiben" not in nutzer.rechte_von(wer):
+        return None, JSONResponse({"fehler": "Dafür fehlt deiner Rolle das Recht zu schreiben."},
+                                  status_code=403)
+    return wer, None
+
+
+def _speicher_stand(wer: str) -> dict:
+    stand = speicherorte.lesen(wer)
+    return {
+        "aktiv": stand["aktiv"],
+        "standard_aus": stand["standard_aus"],
+        "standard_leer": speicherorte.leer(nutzer.notizordner(wer)),
+        # Was im Formular stand - ohne Passwort, das geht nie zurueck.
+        "orte": [{**{k: o[k] for k in ("kennung", "name", "art", "wirt", "freigabe",
+                                       "benutzer", "unterordner")},
+                  **speicherorte.zustand(wer, o["kennung"])} for o in stand["orte"]],
+    }
+
+
+@app.get("/speicher")
+def speicher_lesen(bitte: Request):
+    wer, nein = _speicher_wer(bitte)
+    return nein or _speicher_stand(wer)
+
+
+@app.post("/speicher")
+async def speicher_anlegen(bitte: Request):
+    """Neuen Speicher verbinden. Erst wenn die Verbindung klappt, wird er
+    gespeichert - ein Eintrag, der nie ging, waere nur ein roter Abschnitt
+    mehr in der Leiste."""
+    wer, nein = _speicher_wer(bitte)
+    if nein:
+        return nein
+    rumpf = await _rumpf_von(bitte)
+    try:
+        da = await run_in_threadpool(speicherorte.anlegen, wer, rumpf)
+    except speicherorte.SpeicherortFehler as f:
+        return JSONResponse({"fehler": str(f)}, status_code=400)
+    stand = _speicher_stand(wer)
+    stand["hinweis"] = ("Verbunden. Was dort schon liegt, kommt beim ersten Abgleich herüber."
+                        if da.get("dateien") else "Verbunden.")
+    return stand
+
+
+@app.post("/speicher/{was}")
+async def speicher_aendern(was: str, bitte: Request):
+    wer, nein = _speicher_wer(bitte)
+    if nein:
+        return nein
+    rumpf = await _rumpf_von(bitte)
+    kennung = str(rumpf.get("kennung") or "")
+    hinweis = ""
+    try:
+        if was == "entfernen":
+            hinweis = await run_in_threadpool(speicherorte.entfernen, wer, kennung)
+        elif was == "abgleichen":
+            if not speicherorte.ort(wer, kennung):
+                raise speicherorte.SpeicherortFehler("Diesen Speicher gibt es nicht.")
+            z = await run_in_threadpool(speicherorte.abgleichen, wer, kennung)
+            hinweis = "Abgeglichen." if z["stand"] == "ok" else z["fehler"]
+        elif was == "standard":
+            await run_in_threadpool(speicherorte.standard_aus, wer, bool(rumpf.get("aus")))
+        elif was == "uebertragen":
+            hinweis = await run_in_threadpool(_alles_uebertragen, wer, kennung)
+        else:
+            return JSONResponse({"fehler": "Unbekannt"}, status_code=404)
+    except speicherorte.SpeicherortFehler as f:
+        return JSONResponse({"fehler": str(f)}, status_code=400)
+    stand = _speicher_stand(wer)
+    stand["hinweis"] = hinweis
+    return stand
+
+
+def _alles_uebertragen(wer: str, kennung: str) -> str:
+    """Jedes Notizbuch aus dem Standardordner in diesen Speicher."""
+    if not speicherorte.ort(wer, kennung):
+        raise speicherorte.SpeicherortFehler("Diesen Speicher gibt es nicht.")
+    if speicherorte.lesen(wer)["standard_aus"]:
+        raise speicherorte.SpeicherortFehler("Der Standardordner ist abgeschaltet.")
+    quelle = nutzer.notizordner(wer)
+    buecher = sorted(c.name for c in quelle.iterdir()
+                     if c.is_dir() and not c.name.startswith("."))
+    if not buecher:
+        return "Im Standardordner liegt nichts."
+    fertig, schief = 0, []
+    for b in buecher:
+        try:
+            _verschieben(wer, {"art": "notizbuch",
+                               "von": {"quelle": speicherorte.STANDARD, "pfad": [b]},
+                               "nach": {"quelle": kennung, "pfad": []}})
+            fertig += 1
+        except (speicherorte.SpeicherortFehler, speicher.SpeicherFehler, OSError) as f:
+            schief.append(f"{b}: {f}")
+    text = f"{fertig} von {len(buecher)} Notizbüchern übertragen."
+    if schief:
+        text += " Nicht übertragen: " + "; ".join(schief)
+    return text
+
+
 _fassung_geholt = [0.0, {}]
 
 
@@ -1749,6 +2016,23 @@ async def bruecke(methode: str, bitte: Request):
     # das die Absicherung dagegen, dass eine andere Seite hier etwas aufruft.
     if bitte.headers.get("x-notizmappe") != "1":
         return JSONResponse({"fehler": "Falscher Aufruf"}, status_code=400)
+    if methode in SERVER_METHODEN:
+        tun, noetig_hier = SERVER_METHODEN[methode]
+        fehlt = [r for r in noetig_hier if r not in rechte_hier(name)]
+        if fehlt:
+            return JSONResponse(
+                {"fehler": f"Dafür fehlt deiner Rolle das Recht „{nutzer.RECHTE.get(fehlt[0], fehlt[0])}“."},
+                status_code=403)
+        if not _mit_speichern(name):
+            return JSONResponse({"fehler": "Das geht nur mit eigenen Speichern."}, status_code=400)
+        d = await _rumpf_von(bitte)
+        args = d.get("args") if isinstance(d.get("args"), list) else []
+        try:
+            return JSONResponse(await run_in_threadpool(tun, name, _rumpf(args[0] if args else {})))
+        except (speicherorte.SpeicherortFehler, speicher.SpeicherFehler) as f:
+            return JSONResponse({"fehler": str(f)})
+        except OSError as f:
+            return JSONResponse({"fehler": f"Ging nicht: {f.strerror or f}"})
     if methode in ERLAUBT and not hasattr(BRUECKE, methode):
         return JSONResponse(
             {"fehler": "Diese Fassung des Programms kennt das noch nicht - "
@@ -1782,7 +2066,8 @@ async def bruecke(methode: str, bitte: Request):
         return JSONResponse({"fehler": "Konnte den Aufruf nicht lesen"}, status_code=400)
     # Die Bruecke rechnet und schreibt Dateien - das darf die Schleife nicht
     # anhalten, die gerade die anderen Anfragen bedient.
-    return JSONResponse(await run_in_threadpool(_antwort, name, methode, rumpf))
+    mehrere = bitte.headers.get("x-notizmappe-quellen") == "1"
+    return JSONResponse(await run_in_threadpool(_antwort, name, methode, rumpf, mehrere))
 
 
 # Welche Aufrufe heissen "der hat die Seite gesehen". Anlegen und Umbenennen
@@ -1823,7 +2108,7 @@ def _seitenstand(name: str, teile: list) -> int:
         return 0
 
 
-def _antwort(name: str, methode: str, rumpf: dict):
+def _antwort(name: str, methode: str, rumpf: dict, mehrere: bool = False):
     try:
         args = _args_pruefen(rumpf.get("args") or [])
     except ValueError as f:
@@ -1840,10 +2125,14 @@ def _antwort(name: str, methode: str, rumpf: dict):
     # jemand anderes eintragen.
     if bereich and methode == "seite_speichern" and args and isinstance(args[0], dict):
         args[0] = {**args[0], "geraet": name[:40]}
+    if methode == "baum" and mehrere and _mit_speichern(name):
+        return _baum_alle(name)
     try:
         aus = _ausfuehren(name, methode, args)
     except TypeError as f:
         return {"fehler": f"Ungültiger Aufruf: {f}"}
+    if not bereich and methode in VERAENDERND:
+        speicherorte.anstossen(name, speicherorte.lesen(name)["aktiv"])
     if isinstance(aus, dict) and aus.get("art") == "zu":
         # Die Mappe ist mit der Sperre des Desktop-Programms verschluesselt.
         # "art": "zu" darf hier nicht durchgehen: die Oberflaeche laedt daraufhin
