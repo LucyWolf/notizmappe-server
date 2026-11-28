@@ -307,6 +307,26 @@ pruefe("und zwar erst, wenn feststeht was sichtbar ist",
 pruefe("auch fuer jemanden ohne Verwaltungsrecht",
        _laden.index("optionenReiterBauen()") < _laden.index("if (!d.darf) return;"))
 
+print("\nDie eingefrorene Fassung")
+# abschnittBauen haengt sich vor verwaltungLaden (fuellen() plus Reiter).
+# Wird die Funktion irgendwo beim Namen in eine Liste oder ein Objekt
+# gelegt, steht dort fuer immer die Fassung von vorher - dann fuellen sich
+# die Auswahlfelder bei "Einladen" nie und bleiben leere Kaestchen.
+pruefe("abschnittBauen haengt sich wirklich davor",
+       "verwaltungLaden = async function" in verwaltung)
+pruefe("alles() ruft die jeweils aktuelle Fassung auf",
+       "['Verwaltung laden', () => verwaltungLaden()]" in verwaltung)
+pruefe("window.Verwaltung.laden ebenso",
+       "laden: () => verwaltungLaden()" in verwaltung)
+pruefe("und die umhuellte Fassung fuellt die Auswahlfelder",
+       "await alt();" in verwaltung and "fuellen();" in verwaltung)
+
+print("\nEinladen")
+pruefe("Rolle, Projekt und Gueltigkeit sind beschriftet",
+       all(f"beschriftet('{w}'" in verwaltung for w in ("Rolle", "Projekt", "Gültig")))
+pruefe("der Link erscheint erst, wenn es einen gibt",
+       "id: 'v-einladungslinkzeile'" in verwaltung and "einZeile.hidden = false" in verwaltung)
+
 shutil.rmtree(ordner, ignore_errors=True)
 print()
 if fehler:
